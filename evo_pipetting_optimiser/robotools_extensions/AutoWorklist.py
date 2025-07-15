@@ -12,30 +12,35 @@ class TransferOperation:
     def __init__(
         self,
         source: liquidhandling.Labware,
-        source_wells: Union[str, Sequence[str], np.ndarray],
+        source_well: str,
         destination: AdvancedLabware,
-        destination_wells: Union[str, Sequence[str], np.ndarray],
-        volumes: Union[float, Sequence[float], np.ndarray],
+        destination_well: str,
+        volume: float,
         *,
         label: Optional[str] = None,
         wash_scheme: Literal[1, 2, 3, 4, "flush", "reuse"] = 1,
         on_underflow: Literal["debug", "warn", "raise"] = "raise",
+        source_dep=None,
+        dest_dep=None,
         **kwargs,
     ):
         self.id = TransferOperation.op_id_counter
         TransferOperation.op_id_counter += 1
 
         self.source = source
-        self.source_wells = source_wells
-        self.destination_wells = destination_wells
+        self.source_well = source_well
+        self.destination_well = destination_well
 
-        self.volumes = volumes
+        self.volume = volume
         self.label = label
         self.wash_scheme = wash_scheme
         self.on_underflow = on_underflow
 
+        self.source_dep = source_dep
+        self.dest_dep = dest_dep
+
     def __str__(self):
-        return f"{self.id}: {self.label}"
+        return f"{self.id}: {self.label}, Dep: {self.source_dep.id if self.source_dep else 'None'}, {self.dest_dep.id if self.dest_dep else 'None'}"
 
     def __repr__(self):
         return self.__str__()
@@ -49,9 +54,17 @@ class AutoWorklist(EvoWorklist):
         self.completed_ops = []
         self.pending_ops = []
 
+    @property
+    def open_dependencies(self):
+        """
+        Pending transfers that are dependent on a particular op
+        If any are still open, we can't do a further op onto the dependent well
+        """
+        return set([op.dependency for op in self.pending_ops if op.dependency])
+
     def auto_transfer(
         self,
-        source: liquidhandling.Labware,
+        source: AdvancedLabware,
         source_wells: Union[str, Sequence[str], np.ndarray],
         destination: AdvancedLabware,
         destination_wells: Union[str, Sequence[str], np.ndarray],
@@ -89,26 +102,40 @@ class AutoWorklist(EvoWorklist):
             len(set(lengths)) == 1
         ), f"Number of source/destination/volumes must be equal. They were {lengths}"
 
-        # the label applies to the entire transfer operation and is not logged at individual aspirate/dispense steps
-
-        op = TransferOperation(
-            source,
-            source_wells,
-            destination,
-            destination_wells,
-            volumes,
-            label=label,
-            wash_scheme=wash_scheme,
-            on_underflow=on_underflow,
+        assert (
+            isinstance(source, AdvancedLabware) or isinstance(source, Trough),
+            "Source must be AdvancedLabware or Trough for auto_transfer",
         )
 
-        self.comment(op.label)
+        assert (
+            isinstance(destination, AdvancedLabware),
+            "Destination must be AdvancedLabware for auto_transfer",
+        )
+
+        self.comment(label)
 
         # Append this op to all of the destination wells we touch
-        for well in destination_wells:
-            destination.op_tracking[well].append(op)
+        for i in range(len(source_wells)):
+            op = TransferOperation(
+                source,
+                source_wells[i],
+                destination,
+                destination_wells[i],
+                volumes[i],
+                label=label,
+                wash_scheme=wash_scheme,
+                on_underflow=on_underflow,
+                source_dep=(
+                    source.last_op[source_wells[i]]
+                    if isinstance(source, AdvancedLabware)
+                    else None
+                ),
+                dest_dep=destination.last_op[destination_wells[i]],
+            )
 
-        self.pending_ops.append(op)
+            destination.op_tracking[destination_wells[i]].append(op)
+
+            self.pending_ops.append(op)
 
     def __exit__(self, *args):
         for op in self.pending_ops:
