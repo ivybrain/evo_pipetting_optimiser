@@ -1,0 +1,44 @@
+trigger:
+  branches:
+    include:
+      - '*'
+ 
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.11'
+      addToPath: true
+
+  - task: PipAuthenticate@1
+    displayName: 'Pip Authenticate'
+    inputs:
+      # Provide list of feed names which you want to authenticate.
+      # Project scoped feeds must include the project name in addition to the feed name.
+      artifactFeeds: 'fa1fda81-b503-43a7-91a8-f3676bbc269d/Python_Packages_Automation_Stack_MR'
+      # Setting this variable to "true" will force pip to get distributions from official python registry first and fallback to feeds mentioned above if distributions are not found there.
+      onlyAddExtraIndex: true
+      
+  - script: 'pip install .'
+    displayName: 'Install the package'
+
+  - script: |
+      pip install pytest pytest-cov
+      python -m pytest --junitxml=junit/test-results.xml --cov=evo_pipetting_optimiser --cov-report=xml tests/
+    displayName: 'pytest'
+
+  
+  - task: PublishTestResults@2
+    condition: succeededOrFailed()
+    inputs:
+      testResultsFiles: '**/test-*.xml'
+      testRunTitle: 'Publish test results'
+  
+  - task: PublishCodeCoverageResults@2
+    inputs:
+      codeCoverageTool: 'Cobertura'
+      summaryFileLocation: '$(System.DefaultWorkingDirectory)/coverage.xml'
+
+
