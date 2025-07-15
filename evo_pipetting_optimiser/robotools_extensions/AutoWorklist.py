@@ -1,6 +1,7 @@
 from robotools import *
 from typing import Dict, List, Literal, Optional, Sequence, Tuple, Union
 from . import *
+import itertools
 
 import numpy as np
 
@@ -47,6 +48,10 @@ class TransferOperation:
         return self.__str__()
 
 
+class TransferNode:
+    pass
+
+
 class AutoWorklist(EvoWorklist):
 
     def __init__(self, *args, **kwargs):
@@ -54,6 +59,9 @@ class AutoWorklist(EvoWorklist):
 
         self.completed_ops = []
         self.pending_ops = []
+
+        self.tips_used = [False] * 8
+        self.tip_contents = [None] * 8
 
     @property
     def open_dependencies(self):
@@ -139,18 +147,45 @@ class AutoWorklist(EvoWorklist):
             self.pending_ops.append(op)
 
     def valid_moves(self):
-        open_dependencies = self.open_dependencies
-        valid_sources_cols = set(
-            [
-                (op.source.name, op.source_pos[1])
-                for op in self.pending_ops
-                if op.source_dep not in open_dependencies
-            ]
-        )
 
         moves = []
 
-        return valid_sources_cols
+        open_dependencies = self.open_dependencies
+
+        # Dict of Tuple(source_id, source_col): [rows that can be aspirated]
+        valid_sources = {}
+
+        id_to_source = {}
+
+        for op in self.pending_ops:
+            # If this op depends on a source that hasn't been pipetted yet, can't conduct this op
+            if op.source_dep in open_dependencies:
+                continue
+
+            id_to_source[id(op.source)] = op.source
+
+            source_col = (id(op.source), op.source_pos[1])
+            if source_col not in valid_sources:
+                valid_sources[source_col] = []
+            valid_sources[source_col].append(op.source_pos[0])
+
+        for (source_id, col), rows in valid_sources.items():
+            source = id_to_source[source_id]
+            # print(source.name, col, rows)
+
+            # If source is a trough, can aspirate any tips we want
+            if isinstance(source, Trough):
+                # How many tips we can aspirate from this trough. Max of 8 tips, or however many transfers we actually need from trough
+                max_needed = min(8, len(rows))
+                tip_use_values = [0, 1]
+                tip_combos = itertools.product(tip_use_values, repeat=8)
+
+                for combo in tip_combos:
+                    if sum(combo) > max_needed:
+                        continue
+                    moves.append(("A", source.name, combo))
+
+        return moves
 
     def make_plan(self):
         print(self.valid_moves())
