@@ -1,4 +1,6 @@
 import robotools
+import numpy as np
+from . import LiquidNode
 
 
 class AdvancedLabware(robotools.Labware):
@@ -7,9 +9,12 @@ class AdvancedLabware(robotools.Labware):
     """
 
     def __init__(self, *args, grid=None, site=None, **kwargs):
+
+        super().__init__(*args, **kwargs)
+
         if not grid or not site:
             raise ValueError("Grid and Site must be specified")
         self.grid = grid
         self.site = site
 
-        super().__init__(*args, **kwargs)
+        self.op_tracking = {well: [] for well in self.wells.flatten("F")}
