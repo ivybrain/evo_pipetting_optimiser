@@ -12,9 +12,9 @@ class TransferOperation:
     def __init__(
         self,
         source: liquidhandling.Labware,
-        source_well: str,
+        source_pos: Tuple[int, int],
         destination: AdvancedLabware,
-        destination_well: str,
+        dest_pos: Tuple[int, int],
         volume: float,
         *,
         label: Optional[str] = None,
@@ -28,8 +28,9 @@ class TransferOperation:
         TransferOperation.op_id_counter += 1
 
         self.source = source
-        self.source_well = source_well
-        self.destination_well = destination_well
+        self.source_pos = source_pos
+        self.destination = destination
+        self.dest_pos = dest_pos
 
         self.volume = volume
         self.label = label
@@ -60,7 +61,7 @@ class AutoWorklist(EvoWorklist):
         Pending transfers that are dependent on a particular op
         If any are still open, we can't do a further op onto the dependent well
         """
-        return set([op.dependency for op in self.pending_ops if op.dependency])
+        return set([op.source_dep for op in self.pending_ops if op.source_dep])
 
     def auto_transfer(
         self,
@@ -118,9 +119,9 @@ class AutoWorklist(EvoWorklist):
         for i in range(len(source_wells)):
             op = TransferOperation(
                 source,
-                source_wells[i],
+                source.indices[source_wells[i]],
                 destination,
-                destination_wells[i],
+                destination.indices[destination_wells[i]],
                 volumes[i],
                 label=label,
                 wash_scheme=wash_scheme,
@@ -136,6 +137,27 @@ class AutoWorklist(EvoWorklist):
             destination.op_tracking[destination_wells[i]].append(op)
 
             self.pending_ops.append(op)
+
+    def valid_moves(self):
+        open_dependencies = self.open_dependencies
+        valid_sources_cols = set(
+            [
+                (op.source.name, op.source_pos[1])
+                for op in self.pending_ops
+                if op.source_dep not in open_dependencies
+            ]
+        )
+
+        moves = []
+
+        return valid_sources_cols
+
+    def make_plan(self):
+        print(self.valid_moves())
+
+    def commit(self):
+        self.make_plan()
+        self.append("B;")
 
     def __exit__(self, *args):
         for op in self.pending_ops:
