@@ -2,6 +2,7 @@ from robotools import *
 from typing import Dict, List, Literal, Optional, Sequence, Tuple, Union
 from . import *
 import itertools
+import warnings
 
 import numpy as np
 
@@ -42,14 +43,35 @@ class TransferOperation:
         self.dest_dep = dest_dep
 
     def __str__(self):
-        return f"{self.id}: {self.label}, Dep: {self.source_dep.id if self.source_dep else 'None'}, {self.dest_dep.id if self.dest_dep else 'None'}"
+        return f"{self.id}: {self.label} {self.source_pos} to {self.dest_pos}"
 
     def __repr__(self):
         return self.__str__()
 
 
 class TransferNode:
-    pass
+    """
+    Node to track the state of tips and operations in the planning search
+    """
+
+    def __init__(self, command, tip_ops, tip_used, cost, completed_ops, pending_ops):
+        self.command = command
+        self.tip_ops = tip_ops
+        self.tip_used = tip_used
+        self.cost = cost
+        self.completed_ops = completed_ops.copy()
+        self.pending_ops = pending_ops.copy()
+
+        self.fscore = cost + self.heuristic()
+
+    def heuristic(self):
+        return (len(self.pending_ops) - len([op for op in self.tip_ops if op])) / 8
+
+    def __str__(self):
+        return f"({self.command}, {[op.id if op else 'x' for op in self.tip_ops]}, {self.cost}, {self.fscore}, {len(self.completed_ops)}, {len(self.pending_ops)})"
+
+    def __repr__(self):
+        return self.__str__()
 
 
 class AutoWorklist(EvoWorklist):
@@ -62,6 +84,8 @@ class AutoWorklist(EvoWorklist):
 
         self.tips_used = [False] * 8
         self.tip_contents = [None] * 8
+
+        self.currently_optimising = False
 
     @property
     def open_dependencies(self):
@@ -123,6 +147,8 @@ class AutoWorklist(EvoWorklist):
 
         self.comment(label)
 
+        self.currently_optimising = True
+
         # Append this op to all of the destination wells we touch
         for i in range(len(source_wells)):
             op = TransferOperation(
@@ -146,7 +172,14 @@ class AutoWorklist(EvoWorklist):
 
             self.pending_ops.append(op)
 
-    def valid_moves(self):
+    def transfer(self, *args, **kwargs):
+        warnings.warn(
+            "Using basic transfer after auto_transfer without commit. Auto transfers will be committed now"
+        )
+        self.commit()
+        super().transfer(*args, **kwargs)
+
+    def valid_moves(self, node):
 
         moves = []
 
@@ -155,46 +188,116 @@ class AutoWorklist(EvoWorklist):
         # Dict of Tuple(source_id, source_col): [rows that can be aspirated]
         valid_sources = {}
 
-        id_to_source = {}
-
         for op in self.pending_ops:
             # If this op depends on a source that hasn't been pipetted yet, can't conduct this op
             if op.source_dep in open_dependencies:
                 continue
 
-            id_to_source[id(op.source)] = op.source
-
+            # Group ops by source and col
             source_col = (id(op.source), op.source_pos[1])
             if source_col not in valid_sources:
                 valid_sources[source_col] = []
-            valid_sources[source_col].append(op.source_pos[0])
+            valid_sources[source_col].append(op)
 
-        for (source_id, col), rows in valid_sources.items():
-            source = id_to_source[source_id]
-            # print(source.name, col, rows)
+        for (source_id, col), ops in valid_sources.items():
+            source = ops[0].source
 
-            # If source is a trough, can aspirate any tips we want
+            ops.sort(key=lambda op: op.source_pos[0])
+
+            # If source is a trough, we can aspirate from any and all virtual rows
+
             if isinstance(source, Trough):
-                # How many tips we can aspirate from this trough. Max of 8 tips, or however many transfers we actually need from trough
-                max_needed = min(8, len(rows))
-                tip_use_values = [0, 1]
-                tip_combos = itertools.product(tip_use_values, repeat=8)
+                # Choose 8 ops from this source to assign to the tips. Any 8
+                # ops_choices = list(itertools.product(*[ops for tip in range(8)]))
+                continue
 
-                for combo in tip_combos:
-                    if sum(combo) > max_needed:
+            # Possible moves aspirating from an AdvancedLabware source
+
+            # Get the unique rows we can aspirate from for all ops, and the ops that can proceed from that row
+            ops_at_row = {}
+            for row, ops in itertools.groupby(ops, lambda op: op.source_pos[0]):
+                ops_at_row[row] = list(ops)
+
+            # print(
+            #     source.name,
+            #     col,
+            #     {
+            #         f"Row {row}: {[op.id for op in ops]}"
+            #         for row, ops in ops_at_row.items()
+            #     },
+            # )
+
+            # Get the possible assignments of tips to rows
+            # Don't take into account spreading for now
+            # We get with all 8 tips to all 8 rows, or offset by -7 (upwards, tip 8 goes to row A)
+            # or +7 (downwards, tip 1 goes to row H)
+
+            for offset in range(-7, 8):
+                tip_at_row_0 = 0 - offset
+
+                # Iterate through the pairs of tips and rows that the tips are at, at this offset
+                combo = []
+                tips = []
+                for row, tip in enumerate(range(tip_at_row_0, 8)):
+                    if tip < 0:
                         continue
-                    moves.append(("A", source.name, combo))
+                    if row > 7:
+                        break
+
+                    if row not in ops_at_row:
+                        continue
+                    combo.append((tip, row))
+                    tips.append(tip)
+
+                if len(combo) == 0:
+                    continue
+                if len(combo) == 1:
+                    tip, row = combo[0]
+                    tip_op_combos = [[(tip, op)] for op in ops_at_row[row]]
+                else:
+
+                    tip_op_combos = list(
+                        itertools.product(*[ops_at_row[row] for (tip, row) in combo]),
+                    )
+
+                    tip_op_combos = [
+                        list(zip(tips, op_assignments))
+                        for op_assignments in tip_op_combos
+                    ]
+
+                for assignment in tip_op_combos:
+                    tip_ops = node.tip_ops.copy()
+                    tip_used = node.tip_used.copy()
+                    for tip, op in assignment:
+                        tip_ops[tip] = op
+                        tip_used[tip] = True
+                    moves.append(
+                        TransferNode(
+                            "A",
+                            tip_ops,
+                            tip_used,
+                            1,
+                            self.completed_ops,
+                            self.pending_ops,
+                        )
+                    )
 
         return moves
 
     def make_plan(self):
-        print(self.valid_moves())
+        initial_node = TransferNode(
+            "_", [None] * 8, [False] * 8, 0, self.completed_ops, self.pending_ops
+        )
+        print("Initial", initial_node)
+        moves = self.valid_moves(initial_node)
+        print(moves)
 
     def commit(self):
         self.make_plan()
         self.append("B;")
 
     def __exit__(self, *args):
+
         for op in self.pending_ops:
             print(op)
 
