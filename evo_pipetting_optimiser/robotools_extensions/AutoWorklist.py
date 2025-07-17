@@ -66,9 +66,9 @@ def group_movments_needed(op_set, field):
             continue
 
         if field == "source":
-            key = (id(op.source), op.source_pos[1], op.liquid_class)
+            key = (op.source.name, op.source_pos[1], op.liquid_class)
         else:
-            key = (id(op.destination), op.dest_pos[1], op.liquid_class)
+            key = (op.destination.name, op.dest_pos[1], op.liquid_class)
         if key not in group_dict:
             group_dict[key] = []
         group_dict[key].append((tip, op))
@@ -135,9 +135,12 @@ class TransferNode:
         # Cost is partent cost + 1 aspirate + the number of dispenses we require
         self.cost = parent_cost + 1 + len(self.required_dispenses)
 
+        self.source_needed = group_movments_needed(self.pending_ops, "source")
+        self.dest_needed = group_movments_needed(self.pending_ops, "destination")
+
         heuristic = (
-            len(group_movments_needed(self.pending_ops, "source"))
-            + len(group_movments_needed(self.pending_ops, "destination"))
+            len(self.source_needed)
+            + len(self.dest_needed)
             - (
                 len(self.completed_ops)
                 / (len(self.completed_ops) + len(self.pending_ops))
@@ -248,6 +251,10 @@ class AutoWorklist(EvoWorklist):
             liquid_class is not None,
             "Liquid class must be speicified for auto_transfer",
         )
+
+        # SKIP TROUGHS FOR NOW
+        if isinstance(source, Trough):
+            return
 
         self.comment(label)
 
@@ -427,8 +434,10 @@ class AutoWorklist(EvoWorklist):
         while len(self.open_nodes) > 0:
             node = self.open_nodes.pop(0)
 
+            print(counter, len(self.open_nodes))
+
             # If no more ops are pending, we're done
-            if len(node.pending_ops) == 0 or counter >= 300:
+            if len(node.pending_ops) == 0 or counter >= 10:
 
                 plan.append(node)
                 next_node = node.parent
