@@ -67,6 +67,14 @@ def group_movments_needed(op_set, field):
 
         if field == "source":
             key = (op.source.name, op.source_pos[1], op.liquid_class)
+        elif field == "both":
+            key = (
+                op.source.name,
+                op.source_pos[1],
+                op.destination.name,
+                op.dest_pos[1],
+                op.liquid_class,
+            )
         else:
             key = (op.destination.name, op.dest_pos[1], op.liquid_class)
         if key not in group_dict:
@@ -133,21 +141,15 @@ class TransferNode:
         self.pending_ops.difference_update(selected_ops)
 
         # Cost is partent cost + 1 aspirate + the number of dispenses we require
-        self.cost = parent_cost + 1 + len(self.required_dispenses)
+        self.cost = parent_cost + len(self.required_dispenses) + 1
 
-        self.source_needed = group_movments_needed(self.pending_ops, "source")
-        self.dest_needed = group_movments_needed(self.pending_ops, "destination")
+        self.cols_needed = group_movments_needed(self.pending_ops, "both")
 
-        heuristic = (
-            len(self.source_needed)
-            + len(self.dest_needed)
-            - (
-                len(self.completed_ops)
-                / (len(self.completed_ops) + len(self.pending_ops))
-            )
+        heuristic = len(self.cols_needed) - (
+            len(self.completed_ops) / (len(self.completed_ops) + len(self.pending_ops))
         )
 
-        self.fscore = self.cost + heuristic
+        self.fscore = self.cost + 2 * len(self.pending_ops)
 
     @property
     def open_dependencies(self):
@@ -437,7 +439,7 @@ class AutoWorklist(EvoWorklist):
             print(counter, len(self.open_nodes))
 
             # If no more ops are pending, we're done
-            if len(node.pending_ops) == 0 or counter >= 10:
+            if len(node.pending_ops) == 0 or counter >= 500:
 
                 plan.append(node)
                 next_node = node.parent
