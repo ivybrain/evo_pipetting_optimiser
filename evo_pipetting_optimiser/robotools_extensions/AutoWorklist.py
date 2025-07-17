@@ -3,6 +3,7 @@ from typing import Dict, List, Literal, Optional, Sequence, Tuple, Union
 from . import *
 import itertools
 import warnings
+from sortedcontainers import SortedSet
 
 import numpy as np
 
@@ -24,6 +25,7 @@ class TransferOperation:
         on_underflow: Literal["debug", "warn", "raise"] = "raise",
         source_dep=None,
         dest_dep=None,
+        liquid_class=None,
         **kwargs,
     ):
         self.id = TransferOperation.op_id_counter
@@ -42,11 +44,36 @@ class TransferOperation:
         self.source_dep = source_dep
         self.dest_dep = dest_dep
 
+        self.liquid_class = liquid_class
+
     def __str__(self):
         return f"{self.id}: {self.label} {self.source_pos} to {self.dest_pos}"
 
     def __repr__(self):
-        return self.__str__()
+        return str(self.id)
+
+
+def group_movments_needed(op_set, field):
+    """
+    Group operations by the specified field (source or destination),
+    The column, and the liquid class
+    This effectively provides a minimum number of movements needed to
+    complete these ops
+    """
+    group_dict = {}
+    for tip, op in enumerate(op_set):
+        if not op:
+            continue
+
+        if field == "source":
+            key = (id(op.source), op.source_pos[1], op.liquid_class)
+        else:
+            key = (id(op.destination), op.dest_pos[1], op.liquid_class)
+        if key not in group_dict:
+            group_dict[key] = []
+        group_dict[key].append((tip, op))
+
+    return group_dict
 
 
 class TransferNode:
@@ -54,38 +81,70 @@ class TransferNode:
     Node to track the state of tips and operations in the planning search
     """
 
-    def __init__(self, command, tip_ops, tip_used, cost, completed_ops, pending_ops):
+    def __init__(
+        self,
+        command,
+        parent,
+        tip_ops,
+        tip_used,
+        parent_cost,
+        completed_ops,
+        pending_ops,
+    ):
+        self.parent = parent
         self.command = command
         self.tip_ops = tip_ops
         self.tip_used = tip_used
-        self.cost = cost
         self.completed_ops = completed_ops.copy()
         self.pending_ops = pending_ops.copy()
 
-        self.fscore = cost + self.heuristic()
+        # Dictionary of (destination labware, column) : (tip number, operation)
+        dests_cols = group_movments_needed(self.tip_ops, "destination")
 
-    def heuristic(self):
-        return (len(self.pending_ops) - len([op for op in self.tip_ops if op])) / 8
+        self.required_dispenses = []
 
-    def __str__(self):
-        return f"({self.command}, {[op.id if op else 'x' for op in self.tip_ops]}, {self.cost}, {self.fscore}, {len(self.completed_ops)}, {len(self.pending_ops)})"
+        for (_, col, _), tips_ops in dests_cols.items():
+            dest = tips_ops[0][1].destination
+            fulfilled_ops = []
+            offset = None
 
-    def __repr__(self):
-        return self.__str__()
+            for tip, op in tips_ops:
+                # If this is the first op, or if we have another op that doesn't line up with the existing chosen offset
+                # We need a new offset, and a new operation
+                if offset == None or tip + offset != op.dest_pos[0]:
+                    # The offset required to reach the row in the first op
+                    offset = op.dest_pos[0] - tip
+                    fulfilled_ops = []
+                    fulfilled_ops.append(op)
+                    self.required_dispenses.append(
+                        (dest.name, col, offset, fulfilled_ops)
+                    )
+                    continue
 
+                # If the op is already possible with the same offset (the tip is lined up, add that to this dispense)
+                if tip + offset == op.dest_pos[0]:
+                    fulfilled_ops.append(op)
 
-class AutoWorklist(EvoWorklist):
+        # Number of ops we have in the tips currently
+        selected_ops = [op for op in self.tip_ops if op]
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        # Add selected ops to completed
+        self.completed_ops.update(selected_ops)
+        self.pending_ops.difference_update(selected_ops)
 
-        self.completed_ops = []
-        self.pending_ops = []
+        # Cost is partent cost + 1 aspirate + the number of dispenses we require
+        self.cost = parent_cost + 1 + len(self.required_dispenses)
 
-        self.tips_used = [False] * 8
-        self.tip_contents = [None] * 8
+        heuristic = (
+            len(group_movments_needed(self.pending_ops, "source"))
+            + len(group_movments_needed(self.pending_ops, "destination"))
+            - (
+                len(self.completed_ops)
+                / (len(self.completed_ops) + len(self.pending_ops))
+            )
+        )
 
-        self.currently_optimising = False
+        self.fscore = self.cost + heuristic
 
     @property
     def open_dependencies(self):
@@ -95,9 +154,48 @@ class AutoWorklist(EvoWorklist):
         """
         return set([op.source_dep for op in self.pending_ops if op.source_dep])
 
+    def __str__(self):
+        return f"({self.command}, {[op.id if op else 'x' for op in self.tip_ops]}, {self.cost}, {len(self.required_dispenses)}, {self.fscore}, {len(self.completed_ops)}, {len(self.pending_ops)})"
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __lt__(self, b):
+        return self.fscore < b.fscore
+
+    def __gt__(self, b):
+        return self.fscore > b.fscore
+
+    def __eq__(self, other):
+
+        return (
+            self.completed_ops == other.completed_ops
+            and self.pending_ops == other.pending_ops
+            and self.fscore == other.fscore
+        )
+
+    def __hash__(self):
+        return hash(
+            f"C{str(self.completed_ops)};P{str(self.pending_ops)};F{self.fscore}"
+        )
+
+
+class AutoWorklist(EvoWorklist):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.completed_ops = set()
+        self.pending_ops = set()
+
+        self.tips_used = [False] * 8
+        self.tip_contents = [None] * 8
+
+        self.currently_optimising = False
+
     def auto_transfer(
         self,
-        source: AdvancedLabware,
+        source: Union[AdvancedLabware, Trough],
         source_wells: Union[str, Sequence[str], np.ndarray],
         destination: AdvancedLabware,
         destination_wells: Union[str, Sequence[str], np.ndarray],
@@ -106,6 +204,7 @@ class AutoWorklist(EvoWorklist):
         label: Optional[str] = None,
         wash_scheme: Literal[1, 2, 3, 4, "flush", "reuse"] = 1,
         on_underflow: Literal["debug", "warn", "raise"] = "raise",
+        liquid_class: str = None,
         **kwargs,
     ) -> None:
         """Transfer operation between two labwares."""
@@ -145,6 +244,11 @@ class AutoWorklist(EvoWorklist):
             "Destination must be AdvancedLabware for auto_transfer",
         )
 
+        assert (
+            liquid_class is not None,
+            "Liquid class must be speicified for auto_transfer",
+        )
+
         self.comment(label)
 
         self.currently_optimising = True
@@ -166,11 +270,12 @@ class AutoWorklist(EvoWorklist):
                     else None
                 ),
                 dest_dep=destination.last_op[destination_wells[i]],
+                liquid_class=liquid_class,
             )
 
             destination.op_tracking[destination_wells[i]].append(op)
 
-            self.pending_ops.append(op)
+            self.pending_ops.update([op])
 
     def transfer(self, *args, **kwargs):
         warnings.warn(
@@ -183,23 +288,24 @@ class AutoWorklist(EvoWorklist):
 
         moves = []
 
-        open_dependencies = self.open_dependencies
+        open_dependencies = node.open_dependencies
 
         # Dict of Tuple(source_id, source_col): [rows that can be aspirated]
         valid_sources = {}
 
-        for op in self.pending_ops:
+        for op in node.pending_ops:
             # If this op depends on a source that hasn't been pipetted yet, can't conduct this op
             if op.source_dep in open_dependencies:
                 continue
 
-            # Group ops by source and col
-            source_col = (id(op.source), op.source_pos[1])
+            # Group ops by source and col and liquid class (as can only aspirate or disp one liquid class at a time with
+            # advanced worklist commands
+            source_col = (id(op.source), op.source_pos[1], op.liquid_class)
             if source_col not in valid_sources:
                 valid_sources[source_col] = []
             valid_sources[source_col].append(op)
 
-        for (source_id, col), ops in valid_sources.items():
+        for (source_id, col, _), ops in valid_sources.items():
             source = ops[0].source
 
             ops.sort(key=lambda op: op.source_pos[0])
@@ -207,8 +313,27 @@ class AutoWorklist(EvoWorklist):
             # If source is a trough, we can aspirate from any and all virtual rows
 
             if isinstance(source, Trough):
+                continue
                 # Choose 8 ops from this source to assign to the tips. Any 8
-                # ops_choices = list(itertools.product(*[ops for tip in range(8)]))
+                ops_choices = list(itertools.combinations(ops, 8))
+
+                for ops in ops_choices:
+                    tip_ops = node.tip_ops.copy()
+                    tip_used = node.tip_used.copy()
+                    for tip, op in enumerate(ops):
+                        tip_ops[tip] = op
+                        tip_used[tip] = True
+                    moves.append(
+                        TransferNode(
+                            "A",
+                            tip_ops,
+                            tip_used,
+                            1,
+                            self.completed_ops,
+                            self.pending_ops,
+                        )
+                    )
+
                 continue
 
             # Possible moves aspirating from an AdvancedLabware source
@@ -266,19 +391,20 @@ class AutoWorklist(EvoWorklist):
                     ]
 
                 for assignment in tip_op_combos:
-                    tip_ops = node.tip_ops.copy()
-                    tip_used = node.tip_used.copy()
+                    tip_ops = [None] * 8
+                    tip_used = [False] * 8
                     for tip, op in assignment:
                         tip_ops[tip] = op
                         tip_used[tip] = True
                     moves.append(
                         TransferNode(
                             "A",
+                            node,
                             tip_ops,
                             tip_used,
-                            1,
-                            self.completed_ops,
-                            self.pending_ops,
+                            node.cost,
+                            node.completed_ops,
+                            node.pending_ops,
                         )
                     )
 
@@ -286,11 +412,43 @@ class AutoWorklist(EvoWorklist):
 
     def make_plan(self):
         initial_node = TransferNode(
-            "_", [None] * 8, [False] * 8, 0, self.completed_ops, self.pending_ops
+            "_", None, [None] * 8, [False] * 8, 0, self.completed_ops, self.pending_ops
         )
         print("Initial", initial_node)
-        moves = self.valid_moves(initial_node)
-        print(moves)
+
+        plan = self.astar(initial_node)
+
+    def astar(self, initial_node):
+        self.open_nodes = SortedSet()
+        self.open_nodes.add(initial_node)
+
+        plan = []
+        counter = 0
+        while len(self.open_nodes) > 0:
+            node = self.open_nodes.pop(0)
+
+            # If no more ops are pending, we're done
+            if len(node.pending_ops) == 0 or counter >= 300:
+
+                plan.append(node)
+                next_node = node.parent
+                while next_node:
+                    plan.append(next_node)
+                    next_node = next_node.parent
+
+                break
+
+            moves = self.valid_moves(node)
+            moves.sort()
+            self.open_nodes = self.open_nodes.union(moves)
+
+            counter += 1
+
+        plan.reverse()
+
+        print(counter)
+
+        return plan
 
     def commit(self):
         self.make_plan()
@@ -298,7 +456,7 @@ class AutoWorklist(EvoWorklist):
 
     def __exit__(self, *args):
 
-        for op in self.pending_ops:
+        for op in sorted(self.pending_ops, key=lambda x: x.id):
             print(op)
 
         self.commit()
