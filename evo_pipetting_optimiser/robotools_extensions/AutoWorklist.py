@@ -4,7 +4,7 @@ from . import *
 import itertools
 import warnings
 from sortedcontainers import SortedSet
-
+from collections import deque
 import numpy as np
 
 
@@ -169,7 +169,13 @@ class TransferNode:
         Pending transfers that are dependent on a particular op
         If any are still open, we can't do a further op onto the dependent well
         """
-        return set([op.source_dep for op in self.pending_ops if op.source_dep])
+        return set(
+            [
+                op.source_dep
+                for op in self.pending_ops
+                if op.source_dep and op.source_dep in self.pending_ops
+            ]
+        )
 
     def __str__(self):
         return f"({self.command}, {[op.id if op else 'x' for op in self.tip_ops]}, {self.cost}, {len(self.required_dispenses)}, {self.fscore}, {len(self.completed_ops)}, {len(self.pending_ops)})"
@@ -431,18 +437,13 @@ class AutoWorklist(EvoWorklist):
 
         return moves
 
-    def make_plan(self):
-        # initial_node = TransferNode(
-        #     "_", None, [None] * 8, [False] * 8, 0, self.completed_ops, self.pending_ops
-        # )
-        # print("Initial", initial_node)
-
-        # plan = self.astar(initial_node)
-
-        # return plan
-
+    def group_ops(self):
         open_dependencies = set(
-            [op.source_dep for op in self.pending_ops if op.source_dep]
+            [
+                op.source_dep
+                for op in self.pending_ops
+                if op.source_dep and op.source_dep in self.pending_ops
+            ]
         )
 
         open_ops = [
@@ -450,30 +451,45 @@ class AutoWorklist(EvoWorklist):
         ]
 
         source_dict = group_movments_needed(open_ops, "source")
-        dest_dict = group_movments_needed(open_ops, "destination")
+        source_ops_consolidation = deque(source_dict.values())
+        deque_added = False
 
         best_groupings = []
 
-        for source_key, ops in source_dict.items():
-            source_rows = {op.source_pos[0]: op for op in ops}
+        while len(source_ops_consolidation) > 0:
+            ops = source_ops_consolidation.popleft()
+            deque_added = False
+            source_rows = {}
+            for op in ops:
+                row = op.source_pos[0]
+                # If the row is already used in this op collection,
+                # Pass it to the next collection
+                # Because we can't pipette twice the same row in one operation
+                if row in source_rows:
+                    if deque_added:
+                        source_ops_consolidation[0].append(op)
+                    else:
+                        source_ops_consolidation.appendleft([op])
+                        deque_added = True
 
-            source_max = max(8, len(source_rows))
+                    continue
+
+                source_rows[row] = op
 
             # Get the labware and columns needed among all the destinations
             dest_labware_col = group_movments_needed(ops, "destination")
+            dest_labware_col_queue = deque(dest_labware_col.values())
 
             dest_costs = []
 
             dest_labware_col_reachable = []
 
-            for (
-                dest_name,
-                dest_col,
-                liquid_class,
-            ), dest_op_group in dest_labware_col.items():
+            while len(dest_labware_col_queue) > 0:
                 # Calculate the number of pipetting steps needed to satisfy this group
                 # It will be one step if the tips can line up from the source and the dest
                 # Otherwise more
+
+                dest_op_group = dest_labware_col_queue.popleft()
 
                 source_rows_group = [op.source_pos[0] for op in dest_op_group]
                 dest_rows_group = [op.dest_pos[0] for op in dest_op_group]
@@ -493,38 +509,56 @@ class AutoWorklist(EvoWorklist):
                     dest_labware_col_reachable.append(
                         (len(dest_op_group), dest_op_group)
                     )
+                else:
+                    # Otherwise, we can't pipette these destination rows in one step. Split up to the smaller available subsets
+                    # And add back to the queue
+                    for op_group in itertools.combinations(
+                        dest_op_group, len(dest_op_group) - 1
+                    ):
+                        dest_labware_col_queue.append(op_group)
 
                 dest_costs.append(len(dest_op_group))
-                continue
 
-            grouping_cost = (8 - len(source_rows)) + (8 - len(dest_labware_col))
+            dest_labware_col_reachable.sort(reverse=True, key=lambda x: x[0])
+
+            source_max = max(8, len(source_rows))
+            grouping_cost = (8 - source_max) + (8 - dest_labware_col_reachable[0][0])
 
             best_groupings.append(
                 (
                     grouping_cost,
                     "source",
-                    source_key,
-                    ops,
+                    set(source_rows.values()),
                 )
             )
 
-        for dest_key, ops in dest_dict.items():
-            dest_rows = {op.dest_pos[0]: op for op in ops}
+        def group_sort_key(group):
+            (cost, _, ops) = group
+            return (cost, -1 * len(ops))
 
-            source_labware_col = group_movments_needed(ops, "source")
+        best_groupings.sort(key=group_sort_key)
+        return best_groupings
 
-            grouping_cost = (8 - len(dest_rows)) + (8 - len(source_labware_col))
+    def make_plan(self):
+        # initial_node = TransferNode(
+        #     "_", None, [None] * 8, [False] * 8, 0, self.completed_ops, self.pending_ops
+        # )
+        # print("Initial", initial_node)
 
-            best_groupings.append(
-                (
-                    grouping_cost,
-                    "dest",
-                    dest_key,
-                    ops,
-                )
-            )
+        # plan = self.astar(initial_node)
 
-        best_groupings.sort()
+        # return plan
+
+        total_cost = 0
+
+        while len(self.pending_ops) > 0:
+            best_groupings = self.group_ops()
+            (cost, _, ops) = best_groupings[0]
+            total_cost += cost
+
+            self.pending_ops.difference_update(ops)
+            self.completed_ops.update(ops)
+            continue
 
         return
 
