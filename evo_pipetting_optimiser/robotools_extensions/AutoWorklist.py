@@ -529,11 +529,12 @@ class AutoWorklist(EvoWorklist):
                     grouping_cost,
                     "source",
                     set(source_rows.values()),
+                    dest_labware_col_reachable,
                 )
             )
 
         def group_sort_key(group):
-            (cost, _, ops) = group
+            (cost, _, ops, _) = group
             return (cost, -1 * len(ops))
 
         best_groupings.sort(key=group_sort_key)
@@ -553,12 +554,44 @@ class AutoWorklist(EvoWorklist):
 
         while len(self.pending_ops) > 0:
             best_groupings = self.group_ops()
-            (cost, _, ops) = best_groupings[0]
+            (cost, group_type, ops, target_groups) = best_groupings[0]
             total_cost += cost
+
+            if group_type == "source":
+                source_op = next(iter(ops))
+
+                source_col = source_op.source_pos[1]
+                source_rows = [op.source_pos[0] for op in ops]
+                volumes = [op.volume for op in ops]
+
+                self.evo_aspirate(
+                    source_op.source,
+                    source_op.source.wells[source_rows, source_col],
+                    (source_op.source.grid, source_op.source.site),
+                    [r + 1 for r in source_rows],
+                    volumes,
+                    liquid_class=source_op.liquid_class,
+                )
+
+                for target in target_groups:
+                    target_op = next(iter(target))
+                    target_col = target_op.dest_pos[1]
+                    target_rows = [op.dest_pos[0] for op in target]
+                    volumes = [op.volume for op in target]
+                    self.evo_dispense(
+                        target_op.destination,
+                        target_op.destination.wells[target_rows, target_col],
+                        (target_op.destination.grid, target_op.destination.site),
+                        1,
+                        volumes,
+                        liquid_class=target_op.liquid_class,
+                    )
 
             self.pending_ops.difference_update(ops)
             self.completed_ops.update(ops)
             continue
+
+        print(total_cost)
 
         return
 
