@@ -52,8 +52,14 @@ class TransferOperation:
     def __repr__(self):
         return str(self.id)
 
+    def __lt__(self, other):
+        return self.id < other.id
 
-def group_movments_needed(op_set, field):
+    def __gt__(self, other):
+        return self.id > other.id
+
+
+def group_movments_needed(op_set, field, include_tip=False):
     """
     Group operations by the specified field (source or destination),
     The column, and the liquid class
@@ -79,7 +85,11 @@ def group_movments_needed(op_set, field):
             key = (op.destination.name, op.dest_pos[1], op.liquid_class)
         if key not in group_dict:
             group_dict[key] = []
-        group_dict[key].append((tip, op))
+
+        if include_tip:
+            group_dict[key].append((tip, op))
+        else:
+            group_dict[key].append(op)
 
     return group_dict
 
@@ -107,7 +117,9 @@ class TransferNode:
         self.pending_ops = pending_ops.copy()
 
         # Dictionary of (destination labware, column) : (tip number, operation)
-        dests_cols = group_movments_needed(self.tip_ops, "destination")
+        dests_cols = group_movments_needed(
+            self.tip_ops, "destination", include_tip=True
+        )
 
         self.required_dispenses = []
 
@@ -420,12 +432,47 @@ class AutoWorklist(EvoWorklist):
         return moves
 
     def make_plan(self):
-        initial_node = TransferNode(
-            "_", None, [None] * 8, [False] * 8, 0, self.completed_ops, self.pending_ops
-        )
-        print("Initial", initial_node)
+        # initial_node = TransferNode(
+        #     "_", None, [None] * 8, [False] * 8, 0, self.completed_ops, self.pending_ops
+        # )
+        # print("Initial", initial_node)
 
-        plan = self.astar(initial_node)
+        # plan = self.astar(initial_node)
+
+        # return plan
+
+        open_dependencies = set(
+            [op.source_dep for op in self.pending_ops if op.source_dep]
+        )
+
+        open_ops = [
+            op for op in self.pending_ops if op.source_dep not in open_dependencies
+        ]
+
+        source_dict = group_movments_needed(open_ops, "source")
+        dest_dict = group_movments_needed(open_ops, "destination")
+
+        best_groupings = []
+
+        for source_key, ops in source_dict.items():
+            source_rows = {op.source_pos[0]: op for op in ops}
+            dest_rows = {op.dest_pos[0]: op for op in ops}
+
+            grouping_len = min(len(source_rows), len(dest_rows))
+
+            best_groupings.append((grouping_len, source_key, ops))
+
+        for dest_key, ops in dest_dict.items():
+            source_rows = {op.source_pos[0]: op for op in ops}
+            dest_rows = {op.dest_pos[0]: op for op in ops}
+
+            grouping_len = min(len(source_rows), len(dest_rows))
+
+            best_groupings.append((grouping_len, dest_key, ops))
+
+        best_groupings.sort(reverse=True)
+
+        return
 
     def astar(self, initial_node):
         self.open_nodes = SortedSet()
@@ -439,7 +486,7 @@ class AutoWorklist(EvoWorklist):
             print(counter, len(self.open_nodes))
 
             # If no more ops are pending, we're done
-            if len(node.pending_ops) == 0 or counter >= 500:
+            if len(node.pending_ops) == 0 or counter >= 20:
 
                 plan.append(node)
                 next_node = node.parent
