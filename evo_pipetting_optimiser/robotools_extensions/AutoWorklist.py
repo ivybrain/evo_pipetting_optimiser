@@ -257,24 +257,20 @@ class AutoWorklist(EvoWorklist):
             len(set(lengths)) == 1
         ), f"Number of source/destination/volumes must be equal. They were {lengths}"
 
-        assert (
-            isinstance(source, AdvancedLabware) or isinstance(source, Trough),
-            "Source must be AdvancedLabware or Trough for auto_transfer",
-        )
+        assert isinstance(source, AdvancedLabware) or isinstance(
+            source, Trough
+        ), "Source must be AdvancedLabware or Trough for auto_transfer"
+
+        assert isinstance(
+            destination, AdvancedLabware
+        ), "Destination must be AdvancedLabware for auto_transfer"
 
         assert (
-            isinstance(destination, AdvancedLabware),
-            "Destination must be AdvancedLabware for auto_transfer",
-        )
+            liquid_class is not None
+        ), "Liquid class must be speicified for auto_transfer"
 
-        assert (
-            liquid_class is not None,
-            "Liquid class must be speicified for auto_transfer",
-        )
-
-        # SKIP TROUGHS FOR NOW
-        if isinstance(source, Trough):
-            return
+        # if isinstance(source, Trough):
+        #     return
 
         self.comment(label)
 
@@ -450,6 +446,8 @@ class AutoWorklist(EvoWorklist):
             op for op in self.pending_ops if op.source_dep not in open_dependencies
         ]
 
+        open_ops.sort()
+
         source_dict = group_movments_needed(open_ops, "source")
         source_ops_consolidation = deque(source_dict.values())
         deque_added = False
@@ -459,25 +457,32 @@ class AutoWorklist(EvoWorklist):
         while len(source_ops_consolidation) > 0:
             ops = source_ops_consolidation.popleft()
             deque_added = False
-            source_rows = {}
+            selected_ops = []
+            source_rows = []
             for op in ops:
                 row = op.source_pos[0]
+
                 # If the row is already used in this op collection,
                 # Pass it to the next collection
                 # Because we can't pipette twice the same row in one operation
-                if row in source_rows:
-                    if deque_added:
-                        source_ops_consolidation[0].append(op)
-                    else:
-                        source_ops_consolidation.appendleft([op])
-                        deque_added = True
-
+                # Unless the source is a trough, in which case we say we can pipette from 'row 0' up to 8 times
+                if row not in source_rows or (
+                    isinstance(op.source, Trough) and len(selected_ops) < 8
+                ):
+                    selected_ops.append(op)
+                    source_rows.append(row)
                     continue
 
-                source_rows[row] = op
+                if deque_added:
+                    source_ops_consolidation[0].append(op)
+                else:
+                    source_ops_consolidation.appendleft([op])
+                    deque_added = True
+
+                continue
 
             # Get the labware and columns needed among all the destinations
-            dest_labware_col = group_movments_needed(ops, "destination")
+            dest_labware_col = group_movments_needed(selected_ops, "destination")
             dest_labware_col_queue = deque(dest_labware_col.values())
 
             dest_costs = []
@@ -521,14 +526,14 @@ class AutoWorklist(EvoWorklist):
 
             dest_labware_col_reachable.sort(reverse=True, key=lambda x: x[0])
 
-            source_max = max(8, len(source_rows))
+            source_max = max(8, len(selected_ops))
             grouping_cost = (8 - source_max) + (8 - dest_labware_col_reachable[0][0])
 
             best_groupings.append(
                 (
                     grouping_cost,
                     "source",
-                    set(source_rows.values()),
+                    selected_ops,
                     dest_labware_col_reachable,
                 )
             )
@@ -563,6 +568,8 @@ class AutoWorklist(EvoWorklist):
                 source_col = source_op.source_pos[1]
                 source_rows = [op.source_pos[0] for op in ops]
                 volumes = [op.volume for op in ops]
+
+                continue
 
                 self.evo_aspirate(
                     source_op.source,
@@ -630,13 +637,12 @@ class AutoWorklist(EvoWorklist):
         return plan
 
     def commit(self):
+        for op in sorted(self.pending_ops, key=lambda x: x.id):
+            print(op)
         self.make_plan()
         self.append("B;")
 
     def __exit__(self, *args):
-
-        for op in sorted(self.pending_ops, key=lambda x: x.id):
-            print(op)
 
         self.commit()
 
