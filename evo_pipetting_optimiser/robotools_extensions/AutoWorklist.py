@@ -456,21 +456,75 @@ class AutoWorklist(EvoWorklist):
 
         for source_key, ops in source_dict.items():
             source_rows = {op.source_pos[0]: op for op in ops}
-            dest_rows = {op.dest_pos[0]: op for op in ops}
 
-            grouping_len = min(len(source_rows), len(dest_rows))
+            source_max = max(8, len(source_rows))
 
-            best_groupings.append((grouping_len, source_key, ops))
+            # Get the labware and columns needed among all the destinations
+            dest_labware_col = group_movments_needed(ops, "destination")
+
+            dest_costs = []
+
+            dest_labware_col_reachable = []
+
+            for (
+                dest_name,
+                dest_col,
+                liquid_class,
+            ), dest_op_group in dest_labware_col.items():
+                # Calculate the number of pipetting steps needed to satisfy this group
+                # It will be one step if the tips can line up from the source and the dest
+                # Otherwise more
+
+                source_rows_group = [op.source_pos[0] for op in dest_op_group]
+                dest_rows_group = [op.dest_pos[0] for op in dest_op_group]
+
+                source_rows_mask = "".join(
+                    ["t" if i in source_rows_group else "f" for i in range(8)]
+                )
+                dest_rows_mask = "".join(
+                    [
+                        "t" if i in dest_rows_group else "f"
+                        for i in range(min(dest_rows_group), max(dest_rows_group) + 1)
+                    ]
+                )
+
+                if dest_rows_mask in source_rows_mask:
+                    # This means that the destinations line up with the source rows
+                    dest_labware_col_reachable.append(
+                        (len(dest_op_group), dest_op_group)
+                    )
+
+                dest_costs.append(len(dest_op_group))
+                continue
+
+            grouping_cost = (8 - len(source_rows)) + (8 - len(dest_labware_col))
+
+            best_groupings.append(
+                (
+                    grouping_cost,
+                    "source",
+                    source_key,
+                    ops,
+                )
+            )
 
         for dest_key, ops in dest_dict.items():
-            source_rows = {op.source_pos[0]: op for op in ops}
             dest_rows = {op.dest_pos[0]: op for op in ops}
 
-            grouping_len = min(len(source_rows), len(dest_rows))
+            source_labware_col = group_movments_needed(ops, "source")
 
-            best_groupings.append((grouping_len, dest_key, ops))
+            grouping_cost = (8 - len(dest_rows)) + (8 - len(source_labware_col))
 
-        best_groupings.sort(reverse=True)
+            best_groupings.append(
+                (
+                    grouping_cost,
+                    "dest",
+                    dest_key,
+                    ops,
+                )
+            )
+
+        best_groupings.sort()
 
         return
 
