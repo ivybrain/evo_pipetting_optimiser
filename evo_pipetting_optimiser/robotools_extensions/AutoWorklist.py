@@ -493,7 +493,9 @@ class AutoWorklist(EvoWorklist):
 
         def group_sort_key(group):
             (cost, _, ops, _) = group
-            return (cost, -1 * len(ops))
+            # With equal cost, bias those with earlier op id
+            # To keep things in a more understandable order
+            return (cost, min([op.id for op in ops]) - 1 * len(ops))
 
         # Sort the groups by their cost
         best_groupings.sort(key=group_sort_key)
