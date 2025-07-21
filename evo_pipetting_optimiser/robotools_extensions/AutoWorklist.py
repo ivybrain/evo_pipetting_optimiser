@@ -272,8 +272,6 @@ class AutoWorklist(EvoWorklist):
         # if isinstance(source, Trough):
         #     return
 
-        self.comment(label)
-
         self.currently_optimising = True
 
         # Append this op to all of the destination wells we touch
@@ -435,15 +433,19 @@ class AutoWorklist(EvoWorklist):
 
     def group_ops(self):
         open_dependencies = set(
-            [
-                op.source_dep
-                for op in self.pending_ops
-                if op.source_dep and op.source_dep in self.pending_ops
-            ]
+            # [
+            #     op.source_dep
+            #     for op in self.pending_ops
+            #     if op.source_dep and op.source_dep in self.pending_ops
+            # ]
         )
 
         open_ops = [
-            op for op in self.pending_ops if op.source_dep not in open_dependencies
+            op
+            for op in self.pending_ops
+            if op.source_dep not in open_dependencies
+            and op.source_dep not in self.pending_ops
+            and op.dest_dep not in self.pending_ops
         ]
 
         open_ops.sort()
@@ -564,7 +566,8 @@ class AutoWorklist(EvoWorklist):
         # return plan
 
         total_cost = 0
-
+        asp_count = 0
+        disp_count = 0
         while len(self.pending_ops) > 0:
             best_groupings = self.group_ops()
             (cost, group_type, ops, target_groups) = best_groupings[0]
@@ -591,6 +594,7 @@ class AutoWorklist(EvoWorklist):
                     liquid_class=source_op.liquid_class,
                     label=" + ".join(set([op.label for op in ops])),
                 )
+                asp_count += 1
 
                 for _, target in target_groups:
                     target_op = next(iter(target))
@@ -607,12 +611,13 @@ class AutoWorklist(EvoWorklist):
                         liquid_class=target_op.liquid_class,
                         label=" + ".join(set([op.label for op in ops])),
                     )
+                    disp_count += 1
 
             self.pending_ops.difference_update(ops)
             self.completed_ops.update(ops)
             continue
 
-        print(total_cost)
+        print(f"cost: {total_cost}, aspirates: {asp_count}, dispenses: {disp_count}")
 
         return
 
