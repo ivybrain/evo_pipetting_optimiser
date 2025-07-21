@@ -299,10 +299,11 @@ class AutoWorklist(EvoWorklist):
             self.pending_ops.update([op])
 
     def transfer(self, *args, **kwargs):
-        warnings.warn(
-            "Using basic transfer after auto_transfer without commit. Auto transfers will be committed now"
-        )
-        self.commit()
+        if self.currently_optimising:
+            warnings.warn(
+                "Using basic transfer after auto_transfer without commit. Auto transfers will be committed now"
+            )
+            self.commit()
         super().transfer(*args, **kwargs)
 
     def valid_moves(self, node):
@@ -517,9 +518,12 @@ class AutoWorklist(EvoWorklist):
 
                     offset = source_rows_mask.index(dest_rows_mask)
                     for i, op in enumerate(dest_op_group):
-                        op.tip = offset + i + 1 + trough_tip_tracker
                         if isinstance(selected_ops[0].source, Trough):
+                            op.tip = i + 1 + trough_tip_tracker
+                            op.source_pos = (trough_tip_tracker, op.source_pos[1])
                             trough_tip_tracker += 1
+                        else:
+                            op.tip = offset + i + 1
                     # This means that the destinations line up with the source rows
                     dest_labware_col_reachable.append(
                         (len(dest_op_group), dest_op_group)
@@ -658,7 +662,11 @@ class AutoWorklist(EvoWorklist):
     def commit(self):
         for op in sorted(self.pending_ops, key=lambda x: x.id):
             print(op)
-        self.make_plan()
+        if len(self.pending_ops) > 0:
+            self.make_plan()
+            self.pending_ops = set()
+            self.completed_ops = set()
+            self.currently_optimising = False
         self.append("B;")
 
     def __exit__(self, *args):
