@@ -59,41 +59,6 @@ class TransferOperation:
         return self.id > other.id
 
 
-def group_movments_needed(op_set, field, include_tip=False):
-    """
-    Group operations by the specified field (source or destination),
-    The column, and the liquid class
-    This effectively provides a minimum number of movements needed to
-    complete these ops
-    """
-    group_dict = {}
-    for tip, op in enumerate(op_set):
-        if not op:
-            continue
-
-        if field == "source":
-            key = (op.source.name, op.source_pos[1], op.liquid_class)
-        elif field == "both":
-            key = (
-                op.source.name,
-                op.source_pos[1],
-                op.destination.name,
-                op.dest_pos[1],
-                op.liquid_class,
-            )
-        else:
-            key = (op.destination.name, op.dest_pos[1], op.liquid_class)
-        if key not in group_dict:
-            group_dict[key] = []
-
-        if include_tip:
-            group_dict[key].append((tip, op))
-        else:
-            group_dict[key].append(op)
-
-    return group_dict
-
-
 class AutoWorklist(EvoWorklist):
 
     def __init__(self, *args, **kwargs):
@@ -197,39 +162,78 @@ class AutoWorklist(EvoWorklist):
             self.commit()
         super().transfer(*args, **kwargs)
 
+    def group_movments_needed(self, op_set, field, include_tip=False):
+        """
+        Group operations by the specified field (source or destination),
+        The column, and the liquid class
+        This effectively provides a minimum number of movements needed to
+        complete these ops
+        """
+        group_dict = {}
+        for tip, op in enumerate(op_set):
+            if not op:
+                continue
+
+            if field == "source":
+                key = (op.source.name, op.source_pos[1], op.liquid_class)
+            elif field == "both":
+                key = (
+                    op.source.name,
+                    op.source_pos[1],
+                    op.destination.name,
+                    op.dest_pos[1],
+                    op.liquid_class,
+                )
+            else:
+                key = (op.destination.name, op.dest_pos[1], op.liquid_class)
+            if key not in group_dict:
+                group_dict[key] = []
+
+            if include_tip:
+                group_dict[key].append((tip, op))
+            else:
+                group_dict[key].append(op)
+
+        return group_dict
+
     def group_ops(self):
-        open_dependencies = set(
-            # [
-            #     op.source_dep
-            #     for op in self.pending_ops
-            #     if op.source_dep and op.source_dep in self.pending_ops
-            # ]
-        )
 
         open_ops = [
             op
             for op in self.pending_ops
-            if op.source_dep not in open_dependencies
-            and op.source_dep not in self.pending_ops
+            if op.source_dep not in self.pending_ops
             and op.dest_dep not in self.pending_ops
         ]
 
         open_ops.sort()
 
-        source_dict = group_movments_needed(open_ops, "source")
+        # Group available operations by source and source columnb
+        # i.e. Group by what can be achieved in a single aspiration
+        source_dict = self.group_movments_needed(open_ops, "source")
+
+        # Queue to track the groups we have
         source_ops_consolidation = deque(source_dict.values())
+
+        # Bool to track if we've added a new item to the queue while processing the current item
         deque_added = False
 
+        # Track the best groupings we've found
         best_groupings = []
 
+        # While we still have groups to process
         while len(source_ops_consolidation) > 0:
+            # Get the operations that are part of this group
             ops = source_ops_consolidation.popleft()
             deque_added = False
+
+            # Track the operations we can successfully perform in this group
             selected_ops = []
+
+            # Track the rows needed for these operations
             source_rows = []
+
             for op in ops:
                 row = op.source_pos[0]
-
                 # If the row is already used in this op collection,
                 # Pass it to the next collection
                 # Because we can't pipette twice the same row in one operation
@@ -237,28 +241,32 @@ class AutoWorklist(EvoWorklist):
                 if row not in source_rows or (
                     isinstance(op.source, Trough) and len(selected_ops) < 8
                 ):
+                    # If we don't have a row conflict, select this op
                     selected_ops.append(op)
                     source_rows.append(row)
                     continue
 
+                # If we do have a row conflict, add the conflicting op to a new collection at the front of the queue
                 if deque_added:
                     source_ops_consolidation[0].append(op)
                 else:
+                    # If we've already created such a new collection, add it ot that instead
                     source_ops_consolidation.appendleft([op])
                     deque_added = True
 
-                continue
-
             # Get the labware and columns needed among all the destinations
-            dest_labware_col = group_movments_needed(selected_ops, "destination")
+            dest_labware_col = self.group_movments_needed(selected_ops, "destination")
             dest_labware_col_queue = deque(dest_labware_col.values())
 
             dest_costs = []
 
+            # Track operation sets that are confirmed to be reachable in one dispense
             dest_labware_col_reachable = []
 
+            # Track the tip we're up to if aspirating from a trough
             trough_tip_tracker = 0
 
+            # Process each destination group of labware, column
             while len(dest_labware_col_queue) > 0:
                 # Calculate the number of pipetting steps needed to satisfy this group
                 # It will be one step if the tips can line up from the source and the dest
@@ -266,6 +274,7 @@ class AutoWorklist(EvoWorklist):
 
                 dest_op_group = dest_labware_col_queue.popleft()
 
+                # Get the rows needed among the source and the destination
                 source_rows_group = [op.source_pos[0] for op in dest_op_group]
                 dest_rows_group = [op.dest_pos[0] for op in dest_op_group]
 
@@ -279,9 +288,15 @@ class AutoWorklist(EvoWorklist):
                     ]
                 )
 
+                # If the destionation rows, represented in a string (like tft for rows [5,7])
+                # Are a substring of the source rows (like fffftftf)
+                # We can aspirate this group in one shot
                 if dest_rows_mask in source_rows_mask:
 
+                    # Get the position of the destination mask within the source to calculate tip offset
                     offset = source_rows_mask.index(dest_rows_mask)
+
+                    # Calculate the tip needed for labware or trough
                     for i, op in enumerate(dest_op_group):
                         if isinstance(selected_ops[0].source, Trough):
                             op.tip = i + 1 + trough_tip_tracker
@@ -305,9 +320,17 @@ class AutoWorklist(EvoWorklist):
 
             dest_labware_col_reachable.sort(reverse=True, key=lambda x: x[0])
 
-            source_max = max(8, len(selected_ops))
-            grouping_cost = (8 - source_max) + (8 - dest_labware_col_reachable[0][0])
+            # Caclulate a cost for this group of operations
+            # Ideal situation (cost 0) would be a single aspirate with 8 operations,
+            # And a single dispense with the same 8 operations
 
+            # Thus, the cost is how far we are from this ideal (8 - number_aspirated) + (8 - number_dispensed)
+
+            grouping_cost = (8 - len(selected_ops)) + (
+                8 - dest_labware_col_reachable[0][0]
+            )
+
+            # Add this group and its cost to the list
             best_groupings.append(
                 (
                     grouping_cost,
@@ -321,6 +344,7 @@ class AutoWorklist(EvoWorklist):
             (cost, _, ops, _) = group
             return (cost, -1 * len(ops))
 
+        # Sort the groups by their cost
         best_groupings.sort(key=group_sort_key)
         return best_groupings
 
