@@ -196,16 +196,12 @@ class AutoWorklist(EvoWorklist):
 
         return group_dict
 
-    def group_ops(self):
-
-        open_ops = [
-            op
-            for op in self.pending_ops
-            if op.source_dep not in self.pending_ops
-            and op.dest_dep not in self.pending_ops
-        ]
-
-        open_ops.sort()
+    def group_by_source(self, open_ops):
+        """
+        Group operations first by source (ie what can be aspirated in one step),
+        Then by destination
+        Along with a cost for each grouping
+        """
 
         # Group available operations by source and source columnb
         # i.e. Group by what can be achieved in a single aspiration
@@ -291,10 +287,12 @@ class AutoWorklist(EvoWorklist):
                 # If the destionation rows, represented in a string (like tft for rows [5,7])
                 # Are a substring of the source rows (like fffftftf)
                 # We can aspirate this group in one shot
-                if dest_rows_mask in source_rows_mask:
+                if (
+                    isinstance(selected_ops[0].source, Trough)
+                    or dest_rows_mask in source_rows_mask
+                ):
 
                     # Get the position of the destination mask within the source to calculate tip offset
-                    offset = source_rows_mask.index(dest_rows_mask)
 
                     # Calculate the tip needed for labware or trough
                     for i, op in enumerate(dest_op_group):
@@ -303,6 +301,7 @@ class AutoWorklist(EvoWorklist):
                             op.source_pos = (trough_tip_tracker, op.source_pos[1])
                             trough_tip_tracker += 1
                         else:
+                            offset = source_rows_mask.index(dest_rows_mask)
                             op.tip = offset + i + 1
                     # This means that the destinations line up with the source rows
                     dest_labware_col_reachable.append(
@@ -326,10 +325,11 @@ class AutoWorklist(EvoWorklist):
 
             # Thus, the cost is how far we are from this ideal (8 - number_aspirated) + (8 - number_dispensed)
 
-            grouping_cost = (8 - len(selected_ops)) + (
-                8 - dest_labware_col_reachable[0][0]
-            )
+            steps_for_primary = 1
+            steps_for_seccondary = len(dest_labware_col_reachable)
+            ops_achieved = len(selected_ops)
 
+            grouping_cost = (steps_for_primary + steps_for_seccondary) / ops_achieved
             # Add this group and its cost to the list
             best_groupings.append(
                 (
@@ -339,6 +339,148 @@ class AutoWorklist(EvoWorklist):
                     dest_labware_col_reachable,
                 )
             )
+
+        return best_groupings
+
+    def group_by_dest(self, open_ops):
+        # Group available operations by source and source columnb
+        # i.e. Group by what can be achieved in a single aspiration
+        primary_dict = self.group_movments_needed(open_ops, "destination")
+
+        # Queue to track the groups we have
+        primary_ops_consolidation = deque(primary_dict.values())
+
+        # Bool to track if we've added a new item to the queue while processing the current item
+        deque_added = False
+
+        # Track the best groupings we've found
+        best_groupings = []
+
+        # While we still have groups to process
+        while len(primary_ops_consolidation) > 0:
+            # Get the operations that are part of this group
+            ops = primary_ops_consolidation.popleft()
+            deque_added = False
+
+            # Track the operations we can successfully perform in this group
+            selected_ops = []
+
+            # Track the rows needed for these operations
+            primary_rows = []
+
+            for op in ops:
+                row = op.dest_pos[0]
+                # If the row is already used in this op collection,
+                # Pass it to the next collection
+                # Because we can't pipette twice the same row in one operation
+                # Unless the source is a trough, in which case we say we can pipette from 'row 0' up to 8 times
+                if row not in primary_rows:
+                    # If we don't have a row conflict, select this op
+                    selected_ops.append(op)
+                    primary_rows.append(row)
+                    continue
+
+                # If we do have a row conflict, add the conflicting op to a new collection at the front of the queue
+                if deque_added:
+                    primary_ops_consolidation[0].append(op)
+                else:
+                    # If we've already created such a new collection, add it ot that instead
+                    primary_ops_consolidation.appendleft([op])
+                    deque_added = True
+
+            # Get the labware and columns needed among all the destinations
+            seccondary_labware_col = self.group_movments_needed(selected_ops, "source")
+            seccondary_labware_col_queue = deque(seccondary_labware_col.values())
+
+            seccondary_costs = []
+
+            # Track operation sets that are confirmed to be reachable in one dispense
+            seccondary_labware_col_reachable = []
+
+            # Process each destination group of labware, column
+            while len(seccondary_labware_col_queue) > 0:
+                # Calculate the number of pipetting steps needed to satisfy this group
+                # It will be one step if the tips can line up from the source and the dest
+                # Otherwise more
+
+                seccondary_op_group = seccondary_labware_col_queue.popleft()
+
+                # Get the rows needed among the source and the destination
+                primary_rows_group = [op.dest_pos[0] for op in seccondary_op_group]
+                seccondary_rows_group = [op.source_pos[0] for op in seccondary_op_group]
+
+                primary_rows_mask = "".join(
+                    ["t" if i in primary_rows_group else "f" for i in range(8)]
+                )
+                seccondary_rows_mask = "".join(
+                    [
+                        "t" if i in seccondary_rows_group else "f"
+                        for i in range(
+                            min(seccondary_rows_group), max(seccondary_rows_group) + 1
+                        )
+                    ]
+                )
+
+                # If the destionation rows, represented in a string (like tft for rows [5,7])
+                # Are a substring of the source rows (like fffftftf)
+                # We can aspirate this group in one shot
+                if (
+                    isinstance(selected_ops[0].source, Trough)
+                    or seccondary_rows_mask in primary_rows_mask
+                ):
+
+                    seccondary_labware_col_reachable.append(
+                        (len(seccondary_op_group), seccondary_op_group)
+                    )
+                else:
+                    # Otherwise, we can't pipette these destination rows in one step. Split up to the smaller available subsets
+                    # And add back to the queue
+                    for op_group in itertools.combinations(
+                        seccondary_op_group, len(seccondary_op_group) - 1
+                    ):
+                        seccondary_labware_col_queue.append(op_group)
+
+                seccondary_costs.append(len(seccondary_op_group))
+
+            seccondary_labware_col_reachable.sort(reverse=True, key=lambda x: x[0])
+
+            # Caclulate a cost for this group of operations
+            # Ideal situation (cost 0) would be a single aspirate with 8 operations,
+            # And a single dispense with the same 8 operations
+
+            # Thus, the cost is how far we are from this ideal (8 - number_aspirated) + (8 - number_dispensed)
+
+            steps_for_primary = 1
+            steps_for_seccondary = len(seccondary_labware_col_reachable)
+            ops_achieved = len(selected_ops)
+
+            grouping_cost = (steps_for_primary + steps_for_seccondary) / ops_achieved
+
+            # Add this group and its cost to the list
+            best_groupings.append(
+                (
+                    grouping_cost,
+                    "dest",
+                    selected_ops,
+                    seccondary_labware_col_reachable,
+                )
+            )
+
+        return best_groupings
+
+    def group_ops(self):
+
+        open_ops = [
+            op
+            for op in self.pending_ops
+            if op.source_dep not in self.pending_ops
+            and op.dest_dep not in self.pending_ops
+        ]
+
+        open_ops.sort()
+
+        best_groupings = self.group_by_source(open_ops)
+        best_groupings += self.group_by_dest(open_ops)
 
         def group_sort_key(group):
             (cost, _, ops, _) = group
@@ -425,8 +567,8 @@ class AutoWorklist(EvoWorklist):
         return
 
     def commit(self):
-        # for op in sorted(self.pending_ops, key=lambda x: x.id):
-        #     print(op)
+        for op in sorted(self.pending_ops, key=lambda x: x.id):
+            print(op)
         if len(self.pending_ops) > 0:
             self.make_plan()
             self.pending_ops = set()
