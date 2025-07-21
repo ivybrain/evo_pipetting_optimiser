@@ -489,6 +489,8 @@ class AutoWorklist(EvoWorklist):
 
             dest_labware_col_reachable = []
 
+            trough_tip_tracker = 0
+
             while len(dest_labware_col_queue) > 0:
                 # Calculate the number of pipetting steps needed to satisfy this group
                 # It will be one step if the tips can line up from the source and the dest
@@ -510,6 +512,12 @@ class AutoWorklist(EvoWorklist):
                 )
 
                 if dest_rows_mask in source_rows_mask:
+
+                    offset = source_rows_mask.index(dest_rows_mask)
+                    for i, op in enumerate(dest_op_group):
+                        op.tip = offset + i + 1 + trough_tip_tracker
+                        if isinstance(selected_ops[0].source, Trough):
+                            trough_tip_tracker += 1
                     # This means that the destinations line up with the source rows
                     dest_labware_col_reachable.append(
                         (len(dest_op_group), dest_op_group)
@@ -569,29 +577,35 @@ class AutoWorklist(EvoWorklist):
                 source_rows = [op.source_pos[0] for op in ops]
                 volumes = [op.volume for op in ops]
 
-                continue
+                tips = [op.tip for op in ops]
+
+                if len(tips) != len(set(tips)):
+                    raise Exception("Tip logic still not good oops")
 
                 self.evo_aspirate(
                     source_op.source,
                     source_op.source.wells[source_rows, source_col],
                     (source_op.source.grid, source_op.source.site),
-                    [r + 1 for r in source_rows],
+                    tips,
                     volumes,
                     liquid_class=source_op.liquid_class,
+                    label=" + ".join(set([op.label for op in ops])),
                 )
 
-                for target in target_groups:
+                for _, target in target_groups:
                     target_op = next(iter(target))
                     target_col = target_op.dest_pos[1]
                     target_rows = [op.dest_pos[0] for op in target]
                     volumes = [op.volume for op in target]
+                    tips = [op.tip for op in target]
                     self.evo_dispense(
                         target_op.destination,
                         target_op.destination.wells[target_rows, target_col],
                         (target_op.destination.grid, target_op.destination.site),
-                        1,
+                        tips,
                         volumes,
                         liquid_class=target_op.liquid_class,
+                        label=" + ".join(set([op.label for op in ops])),
                     )
 
             self.pending_ops.difference_update(ops)
