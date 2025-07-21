@@ -602,10 +602,18 @@ class AutoWorklist(EvoWorklist):
 
                 for _, target in target_groups:
                     target_op = next(iter(target))
+
                     target_col = target_op.dest_pos[1]
+
                     target_rows = [op.dest_pos[0] for op in target]
+
                     volumes = [op.volume for op in target]
+
                     tips = [op.tip for op in target]
+                    compositions = [
+                        op.source.get_well_composition(op.source.wells[op.source_pos])
+                        for op in target
+                    ]
                     self.evo_dispense(
                         target_op.destination,
                         target_op.destination.wells[target_rows, target_col],
@@ -614,7 +622,9 @@ class AutoWorklist(EvoWorklist):
                         volumes,
                         liquid_class=target_op.liquid_class,
                         label=" + ".join(set([op.label for op in ops])),
+                        compositions=compositions,
                     )
+
                     disp_count += 1
 
             self.pending_ops.difference_update(ops)
@@ -660,8 +670,8 @@ class AutoWorklist(EvoWorklist):
         return plan
 
     def commit(self):
-        for op in sorted(self.pending_ops, key=lambda x: x.id):
-            print(op)
+        # for op in sorted(self.pending_ops, key=lambda x: x.id):
+        #     print(op)
         if len(self.pending_ops) > 0:
             self.make_plan()
             self.pending_ops = set()
