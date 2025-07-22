@@ -58,7 +58,13 @@ class TransferOperation:
 
 class AutoWorklist(EvoWorklist):
 
-    def __init__(self, *args, wash_grid=None, wash_site=None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        waste_location: Tuple[int, int] = None,
+        cleaner_location: Tuple[int, int] = None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
 
         self.completed_ops = set()
@@ -69,11 +75,13 @@ class AutoWorklist(EvoWorklist):
 
         self.currently_optimising = False
 
-        assert wash_grid is not None, "Must define wash station grid"
-        assert wash_site is not None, "Must define wash station site"
+        assert waste_location is not None, "Must define waste location grid and site"
+        assert (
+            cleaner_location is not None
+        ), "Must define cleaner location grid and site"
 
-        self.wash_grid = wash_grid
-        self.wash_site = wash_site
+        self.waste_location = waste_location
+        self.cleaner_location = cleaner_location
 
     def auto_transfer(
         self,
@@ -566,6 +574,16 @@ class AutoWorklist(EvoWorklist):
                 )
 
                 disp_count += 1
+
+            # Wash after this group of ops
+            self.evo_wash(
+                tips=[
+                    op.source_tip if group_type == "source" else op.dest_tip
+                    for op in ops
+                ],
+                waste_location=self.waste_location,
+                cleaner_location=self.cleaner_location,
+            )
 
             # Update the completed and pending ops sets
             self.pending_ops.difference_update(ops)
