@@ -21,7 +21,6 @@ class TransferOperation:
         volume: float,
         *,
         label: Optional[str] = None,
-        wash_scheme: Literal[1, 2, 3, 4, "flush", "reuse"] = 1,
         on_underflow: Literal["debug", "warn", "raise"] = "raise",
         source_dep=None,
         dest_dep=None,
@@ -38,7 +37,6 @@ class TransferOperation:
 
         self.volume = volume
         self.label = label
-        self.wash_scheme = wash_scheme
         self.on_underflow = on_underflow
 
         self.source_dep = source_dep
@@ -61,7 +59,7 @@ class TransferOperation:
 
 class AutoWorklist(EvoWorklist):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, wash_grid=None, wash_site=None, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.completed_ops = set()
@@ -72,6 +70,12 @@ class AutoWorklist(EvoWorklist):
 
         self.currently_optimising = False
 
+        assert wash_grid is not None, "Must define wash station grid"
+        assert wash_site is not None, "Must define wash station site"
+
+        self.wash_grid = wash_grid
+        self.wash_site = wash_site
+
     def auto_transfer(
         self,
         source: Union[AdvancedLabware, Trough],
@@ -81,9 +85,9 @@ class AutoWorklist(EvoWorklist):
         volumes: Union[float, Sequence[float], np.ndarray],
         *,
         label: Optional[str] = None,
-        wash_scheme: Literal[1, 2, 3, 4, "flush", "reuse"] = 1,
         on_underflow: Literal["debug", "warn", "raise"] = "raise",
         liquid_class: str = None,
+        wash=True,
         **kwargs,
     ) -> None:
         """Transfer operation between two labwares."""
@@ -92,15 +96,6 @@ class AutoWorklist(EvoWorklist):
         destination_wells = np.array(destination_wells).flatten("F")
         volumes = np.array(volumes).flatten("F")
         nmax = max((len(source_wells), len(destination_wells), len(volumes)))
-
-        # Deal with deprecated behavior
-        if wash_scheme is None:
-            warnings.warn(
-                "wash_scheme=None is deprecated. For tip reuse pass 'reuse'.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            wash_scheme = "reuse"
 
         if len(source_wells) == 1:
             source_wells = np.repeat(source_wells, nmax)
@@ -139,7 +134,7 @@ class AutoWorklist(EvoWorklist):
                 destination.indices[destination_wells[i]],
                 volumes[i],
                 label=label,
-                wash_scheme=wash_scheme,
+                wash=wash,
                 on_underflow=on_underflow,
                 source_dep=(
                     source.last_op[source_wells[i]]
