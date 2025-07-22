@@ -3,7 +3,6 @@ from typing import Dict, List, Literal, Optional, Sequence, Tuple, Union
 from . import *
 import itertools
 import warnings
-from sortedcontainers import SortedSet
 from collections import deque
 import numpy as np
 
@@ -119,9 +118,6 @@ class AutoWorklist(EvoWorklist):
         assert (
             liquid_class is not None
         ), "Liquid class must be speicified for auto_transfer"
-
-        # if isinstance(source, Trough):
-        #     return
 
         self.currently_optimising = True
 
@@ -299,9 +295,7 @@ class AutoWorklist(EvoWorklist):
                             offset = source_rows_mask.index(dest_rows_mask)
                             op.source_tip = offset + i + 1
                     # This means that the destinations line up with the source rows
-                    dest_labware_col_reachable.append(
-                        (len(dest_op_group), dest_op_group)
-                    )
+                    dest_labware_col_reachable.append(dest_op_group)
                 else:
                     # Otherwise, we can't pipette these destination rows in one step. Split up to the smaller available subsets
                     # And add back to the queue
@@ -312,7 +306,7 @@ class AutoWorklist(EvoWorklist):
 
                 dest_costs.append(len(dest_op_group))
 
-            dest_labware_col_reachable.sort(reverse=True, key=lambda x: x[0])
+            dest_labware_col_reachable.sort(reverse=True, key=lambda x: len(x))
 
             # Caclulate a cost for this group of operations
             # Ideal situation (cost 0) would be a single aspirate with 8 operations,
@@ -433,9 +427,7 @@ class AutoWorklist(EvoWorklist):
                             offset = primary_rows_mask.index(seccondary_rows_mask)
                             op.dest_tip = offset + i + 1
                     # This means that the destinations line up with the source rows
-                    seccondary_labware_col_reachable.append(
-                        (len(seccondary_op_group), seccondary_op_group)
-                    )
+                    seccondary_labware_col_reachable.append(seccondary_op_group)
                 else:
                     # Otherwise, we can't pipette these destination rows in one step. Split up to the smaller available subsets
                     # And add back to the queue
@@ -446,7 +438,7 @@ class AutoWorklist(EvoWorklist):
 
                 seccondary_costs.append(len(seccondary_op_group))
 
-            seccondary_labware_col_reachable.sort(reverse=True, key=lambda x: x[0])
+            seccondary_labware_col_reachable.sort(reverse=True, key=lambda x: len(x))
 
             # Caclulate a cost for this group of operations
             # Ideal situation (cost 0) would be a single aspirate with 8 operations,
@@ -515,16 +507,25 @@ class AutoWorklist(EvoWorklist):
             total_cost += cost
 
             if group_type == "source":
-                source_op = next(iter(ops))
+                source_list = [ops]
+                dest_list = target_groups
+            else:
+                source_list = target_groups
+                dest_list = [ops]
 
+            for source_group in source_list:
+                source_op = next(iter(source_group))
                 source_col = source_op.source_pos[1]
-                source_rows = [op.source_pos[0] for op in ops]
-                volumes = [op.volume for op in ops]
+                source_rows = [op.source_pos[0] for op in source_group]
+                volumes = [op.volume for op in source_group]
 
-                tips = [op.source_tip for op in ops]
+                tips = [
+                    op.source_tip if group_type == "source" else op.dest_tip
+                    for op in source_group
+                ]
 
                 if len(tips) != len(set(tips)):
-                    raise Exception("Tip logic still not good oops")
+                    raise Exception("Error in tip logic")
 
                 self.evo_aspirate(
                     source_op.source,
@@ -537,89 +538,38 @@ class AutoWorklist(EvoWorklist):
                 )
                 asp_count += 1
 
-                for _, target in target_groups:
-                    target_op = next(iter(target))
+            for dest_group in dest_list:
+                dest_op = next(iter(dest_group))
+                dest_col = dest_op.dest_pos[1]
 
-                    target_col = target_op.dest_pos[1]
+                dest_rows = [op.dest_pos[0] for op in dest_group]
 
-                    target_rows = [op.dest_pos[0] for op in target]
+                volumes = [op.volume for op in dest_group]
 
-                    volumes = [op.volume for op in target]
-
-                    tips = [op.source_tip for op in target]
-                    compositions = [
-                        op.source.get_well_composition(op.source.wells[op.source_pos])
-                        for op in target
-                    ]
-                    self.evo_dispense(
-                        target_op.destination,
-                        target_op.destination.wells[target_rows, target_col],
-                        (target_op.destination.grid, target_op.destination.site),
-                        tips,
-                        volumes,
-                        liquid_class=target_op.liquid_class,
-                        label=" + ".join(set([op.label for op in ops])),
-                        compositions=compositions,
-                    )
-
-                    disp_count += 1
-
-            if group_type == "dest":
-                source_op = next(iter(ops))
-
-                for _, target in target_groups:
-                    target_op = next(iter(target))
-
-                    target_col = target_op.source_pos[1]
-
-                    target_rows = [op.source_pos[0] for op in target]
-
-                    volumes = [op.volume for op in target]
-
-                    tips = [op.dest_tip for op in target]
-
-                    self.evo_aspirate(
-                        target_op.source,
-                        target_op.source.wells[target_rows, target_col],
-                        (target_op.source.grid, target_op.source.site),
-                        tips,
-                        volumes,
-                        liquid_class=target_op.liquid_class,
-                        label=" + ".join(set([op.label for op in ops])),
-                    )
-
-                    asp_count += 1
-
+                tips = [
+                    op.source_tip if group_type == "source" else op.dest_tip
+                    for op in dest_group
+                ]
                 compositions = [
                     op.source.get_well_composition(op.source.wells[op.source_pos])
-                    for op in target
+                    for op in dest_group
                 ]
-
-                disp_count += 1
-
-                dest_col = source_op.dest_pos[1]
-                dest_rows = [op.dest_pos[0] for op in ops]
-                volumes = [op.volume for op in ops]
-
-                tips = [op.dest_tip for op in ops]
-
-                if len(tips) != len(set(tips)):
-                    raise Exception("Tip logic still not good oops")
-
                 self.evo_dispense(
-                    source_op.destination,
-                    source_op.destination.wells[dest_rows, dest_col],
-                    (source_op.destination.grid, source_op.destination.site),
+                    dest_op.destination,
+                    dest_op.destination.wells[dest_rows, dest_col],
+                    (dest_op.destination.grid, dest_op.destination.site),
                     tips,
                     volumes,
-                    liquid_class=source_op.liquid_class,
+                    liquid_class=dest_op.liquid_class,
                     label=" + ".join(set([op.label for op in ops])),
                     compositions=compositions,
                 )
 
+                disp_count += 1
+
+            # Update the completed and pending ops sets
             self.pending_ops.difference_update(ops)
             self.completed_ops.update(ops)
-            continue
 
         print(f"cost: {total_cost}, aspirates: {asp_count}, dispenses: {disp_count}")
 
