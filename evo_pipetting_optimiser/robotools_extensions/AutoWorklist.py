@@ -92,7 +92,7 @@ class AutoWorklist(EvoWorklist):
         destination_wells: Union[str, Sequence[str], np.ndarray],
         volumes: Union[float, Sequence[float], np.ndarray],
         *,
-        label: Optional[str] = None,
+        label: Optional[str] = "",
         on_underflow: Literal["debug", "warn", "raise"] = "raise",
         liquid_class: str = None,
         wash=True,
@@ -129,6 +129,11 @@ class AutoWorklist(EvoWorklist):
         ), "Liquid class must be speicified for auto_transfer"
 
         self.currently_optimising = True
+
+        # source wells don't matter for a trough, set them all 0
+        # then optimiser can arrange as needed
+        if isinstance(source, Trough):
+            source_wells = ["A01"] * len(source_wells)
 
         # Append this op to all of the destination wells we touch
         for i in range(len(source_wells)):
@@ -191,14 +196,6 @@ class AutoWorklist(EvoWorklist):
 
             if field == "source":
                 key = (op.source.name, op.source_pos[1], op.liquid_class)
-            elif field == "both":
-                key = (
-                    op.source.name,
-                    op.source_pos[1],
-                    op.destination.name,
-                    op.dest_pos[1],
-                    op.liquid_class,
-                )
             else:
                 key = (op.destination.name, op.dest_pos[1], op.liquid_class)
             if key not in group_dict:
@@ -641,7 +638,7 @@ class AutoWorklist(EvoWorklist):
             self.make_plan()
             self.pending_ops = set()
             self.completed_ops = set()
-            self.currently_optimising = False
+        self.currently_optimising = False
         self.append("B;")
 
     def __exit__(self, *args):
