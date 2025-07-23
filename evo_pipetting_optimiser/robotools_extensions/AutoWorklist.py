@@ -74,6 +74,7 @@ class AutoWorklist(EvoWorklist):
         self.tip_contents = [None] * 8
 
         self.currently_optimising = False
+        self.silence_append_warning = False
 
         assert waste_location is not None, "Must define waste location grid and site"
         assert (
@@ -153,13 +154,28 @@ class AutoWorklist(EvoWorklist):
 
             self.pending_ops.update([op])
 
-    def transfer(self, *args, **kwargs):
-        if self.currently_optimising:
+    def append(self, *args, **kwargs):
+        if self.currently_optimising and not self.silence_append_warning:
             warnings.warn(
-                "Using basic transfer after auto_transfer without commit. Auto transfers will be committed now"
+                "Modifying worklist after auto_transfer without commit. Auto transfers will be committed now, before your modification"
             )
             self.commit()
-        super().transfer(*args, **kwargs)
+        super().append(*args, **kwargs)
+
+    def evo_aspirate(self, *args, silence_append_warning=False, **kwargs):
+        self.silence_append_warning = silence_append_warning
+        super().evo_aspirate(*args, **kwargs)
+        self.silence_append_warning = False
+
+    def evo_dispense(self, *args, silence_append_warning=False, **kwargs):
+        self.silence_append_warning = silence_append_warning
+        super().evo_dispense(*args, **kwargs)
+        self.silence_append_warning = False
+
+    def evo_wash(self, *args, silence_append_warning=False, **kwargs):
+        self.silence_append_warning = silence_append_warning
+        super().evo_wash(*args, **kwargs)
+        self.silence_append_warning = False
 
     def group_movments_needed(self, op_set, field, include_tip=False):
         """
@@ -559,6 +575,7 @@ class AutoWorklist(EvoWorklist):
                     list(volumes),
                     liquid_class=source_op.liquid_class,
                     label=" + ".join(set([op.label for op in ops])),
+                    silence_append_warning=True,
                 )
                 asp_count += 1
 
@@ -593,6 +610,7 @@ class AutoWorklist(EvoWorklist):
                     liquid_class=dest_op.liquid_class,
                     label=" + ".join(set([op.label for op in ops])),
                     compositions=compositions,
+                    silence_append_warning=True,
                 )
 
                 disp_count += 1
@@ -605,6 +623,7 @@ class AutoWorklist(EvoWorklist):
                 ],
                 waste_location=self.waste_location,
                 cleaner_location=self.cleaner_location,
+                silence_append_warning=True,
             )
 
             # Update the completed and pending ops sets
