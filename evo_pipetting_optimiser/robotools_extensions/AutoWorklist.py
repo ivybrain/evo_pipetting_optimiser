@@ -525,6 +525,7 @@ class AutoWorklist(EvoWorklist):
                 source_op = next(iter(source_group))
                 source_col = source_op.source_pos[1]
                 source_rows = [op.source_pos[0] for op in source_group]
+
                 volumes = [op.volume for op in source_group]
 
                 tips = [
@@ -535,12 +536,21 @@ class AutoWorklist(EvoWorklist):
                 if len(tips) != len(set(tips)):
                     raise Exception("Error in tip logic")
 
+                # If we have a trough, source rows match the tips we have
+                if isinstance(source_op.source, Trough):
+                    source_rows = [tip - 1 for tip in tips]
+
+                # Sort volumes by tips
+                tips_volumes = list(zip(tips, volumes))
+                tips_volumes.sort()
+                tips, volumes = zip(*tips_volumes)
+
                 self.evo_aspirate(
                     source_op.source,
                     source_op.source.wells[source_rows, source_col],
                     (source_op.source.grid, source_op.source.site),
-                    tips,
-                    volumes,
+                    list(tips),
+                    list(volumes),
                     liquid_class=source_op.liquid_class,
                     label=" + ".join(set([op.label for op in ops])),
                 )
@@ -562,12 +572,18 @@ class AutoWorklist(EvoWorklist):
                     op.source.get_well_composition(op.source.wells[op.source_pos])
                     for op in dest_group
                 ]
+
+                # Sort volumes by tips
+                tips_volumes = list(zip(tips, volumes))
+                tips_volumes.sort()
+                tips, volumes = zip(*tips_volumes)
+
                 self.evo_dispense(
                     dest_op.destination,
                     dest_op.destination.wells[dest_rows, dest_col],
                     (dest_op.destination.grid, dest_op.destination.site),
-                    tips,
-                    volumes,
+                    list(tips),
+                    list(volumes),
                     liquid_class=dest_op.liquid_class,
                     label=" + ".join(set([op.label for op in ops])),
                     compositions=compositions,
