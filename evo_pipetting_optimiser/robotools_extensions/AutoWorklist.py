@@ -41,6 +41,8 @@ class TransferOperation:
         self.source_dep = source_dep
         self.dest_dep = dest_dep
 
+        self.selected_tip = {}
+
         self.liquid_class = liquid_class
 
     def __str__(self):
@@ -352,10 +354,20 @@ class AutoWorklist(EvoWorklist):
 
         return best_groupings
 
-    def group_by_dest(self, open_ops):
-        # Group available operations by source and source columnb
+    def group_by(self, open_ops, primary="source"):
+
+        if primary == "source":
+            primary_pos = lambda op: op.source_pos
+            seccondary_pos = lambda op: op.dest_pos
+            seccondary = "destination"
+        elif primary == "destination":
+            primary_pos = lambda op: op.dest_pos
+            seccondary_pos = lambda op: op.source_pos
+            seccondary = "source"
+
+        # Group available operations by source and source column
         # i.e. Group by what can be achieved in a single aspiration
-        primary_dict = self.group_movments_needed(open_ops, "destination")
+        primary_dict = self.group_movments_needed(open_ops, primary)
 
         # Queue to track the groups we have
         primary_ops_consolidation = deque(primary_dict.values())
@@ -379,12 +391,17 @@ class AutoWorklist(EvoWorklist):
             primary_rows = []
 
             for op in ops:
-                row = op.dest_pos[0]
+
+                row = primary_pos(op)[0]
                 # If the row is already used in this op collection,
                 # Pass it to the next collection
                 # Because we can't pipette twice the same row in one operation
                 # Unless the source is a trough, in which case we say we can pipette from 'row 0' up to 8 times
-                if row not in primary_rows:
+                if row not in primary_rows or (
+                    primary == "source"
+                    and isinstance(op.source, Trough)
+                    and len(selected_ops) < 8
+                ):
                     # If we don't have a row conflict, select this op
                     selected_ops.append(op)
                     primary_rows.append(row)
@@ -399,7 +416,9 @@ class AutoWorklist(EvoWorklist):
                     deque_added = True
 
             # Get the labware and columns needed among all the destinations
-            seccondary_labware_col = self.group_movments_needed(selected_ops, "source")
+            seccondary_labware_col = self.group_movments_needed(
+                selected_ops, seccondary
+            )
             seccondary_labware_col_queue = deque(seccondary_labware_col.values())
 
             seccondary_costs = []
@@ -407,17 +426,21 @@ class AutoWorklist(EvoWorklist):
             # Track operation sets that are confirmed to be reachable in one dispense
             seccondary_labware_col_reachable = []
 
+            trough_tip_tracker = 0
+
             # Process each destination group of labware, column
             while len(seccondary_labware_col_queue) > 0:
                 # Calculate the number of pipetting steps needed to satisfy this group
                 # It will be one step if the tips can line up from the source and the dest
                 # Otherwise more
-                trough_tip_tracker = 0
+
                 seccondary_op_group = seccondary_labware_col_queue.popleft()
 
                 # Get the rows needed among the source and the destination
-                primary_rows_group = [op.dest_pos[0] for op in seccondary_op_group]
-                seccondary_rows_group = [op.source_pos[0] for op in seccondary_op_group]
+                primary_rows_group = [primary_pos(op)[0] for op in seccondary_op_group]
+                seccondary_rows_group = [
+                    seccondary_pos(op)[0] for op in seccondary_op_group
+                ]
 
                 primary_rows_mask = "".join(
                     ["t" if i in primary_rows_group else "f" for i in range(8)]
@@ -441,12 +464,12 @@ class AutoWorklist(EvoWorklist):
 
                     for i, op in enumerate(seccondary_op_group):
                         if isinstance(selected_ops[0].source, Trough):
-                            op.dest_tip = 1 + trough_tip_tracker
+                            op.selected_tip[primary] = 1 + trough_tip_tracker
                             # op.source_pos = (trough_tip_tracker, op.source_pos[1])
                             trough_tip_tracker += 1
                         else:
                             offset = primary_rows_mask.index(seccondary_rows_mask)
-                            op.dest_tip = offset + i + 1
+                            op.selected_tip[primary] = offset + i + 1
                     # This means that the destinations line up with the source rows
                     seccondary_labware_col_reachable.append(seccondary_op_group)
                 else:
@@ -477,7 +500,7 @@ class AutoWorklist(EvoWorklist):
             best_groupings.append(
                 (
                     grouping_cost,
-                    "dest",
+                    primary,
                     selected_ops,
                     seccondary_labware_col_reachable,
                 )
@@ -496,8 +519,8 @@ class AutoWorklist(EvoWorklist):
 
         open_ops.sort()
 
-        best_groupings = self.group_by_source(open_ops)
-        best_groupings += self.group_by_dest(open_ops)
+        best_groupings = self.group_by(open_ops, "source")
+        best_groupings += self.group_by(open_ops, "destination")
 
         def group_sort_key(group):
             (cost, _, ops, _) = group
@@ -547,10 +570,7 @@ class AutoWorklist(EvoWorklist):
 
                 volumes = [op.volume for op in source_group]
 
-                tips = [
-                    op.source_tip if group_type == "source" else op.dest_tip
-                    for op in source_group
-                ]
+                tips = [op.selected_tip[group_type] for op in source_group]
 
                 if len(tips) != len(set(tips)):
                     raise Exception("Error in tip logic")
@@ -584,10 +604,7 @@ class AutoWorklist(EvoWorklist):
 
                 volumes = [op.volume for op in dest_group]
 
-                tips = [
-                    op.source_tip if group_type == "source" else op.dest_tip
-                    for op in dest_group
-                ]
+                tips = [op.selected_tip[group_type] for op in source_group]
                 compositions = [
                     op.source.get_well_composition(op.source.wells[op.source_pos])
                     for op in dest_group
@@ -614,10 +631,7 @@ class AutoWorklist(EvoWorklist):
 
             # Wash after this group of ops
             self.evo_wash(
-                tips=[
-                    op.source_tip if group_type == "source" else op.dest_tip
-                    for op in ops
-                ],
+                tips=[op.selected_tip[group_type] for op in source_group],
                 waste_location=self.waste_location,
                 cleaner_location=self.cleaner_location,
                 silence_append_warning=True,
