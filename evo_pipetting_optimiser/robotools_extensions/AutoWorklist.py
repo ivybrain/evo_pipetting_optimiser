@@ -521,7 +521,13 @@ class AutoWorklist(EvoWorklist):
                 source_list = target_groups
                 dest_list = [ops]
 
+            sort_tip_key = lambda x: min([op.id for op in x])
+            source_list.sort(key=sort_tip_key)
+
+            dest_list.sort(key=sort_tip_key)
+
             for source_group in source_list:
+
                 source_op = next(iter(source_group))
                 source_col = source_op.source_pos[1]
                 source_rows = [op.source_pos[0] for op in source_group]
