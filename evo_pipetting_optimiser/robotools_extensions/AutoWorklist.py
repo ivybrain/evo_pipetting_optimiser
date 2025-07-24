@@ -249,27 +249,7 @@ class AutoWorklist(EvoWorklist):
             for op in ops:
 
                 row = primary_pos(op)[0]
-                # If the row is already used in this op collection,
-                # Pass it to the next collection
-                # Because we can't pipette twice the same row in one operation
-                # Unless the source is a trough, in which case we say we can pipette from 'row 0' up to 8 times
-                if row not in primary_rows or (
-                    primary == "source"
-                    and isinstance(op.source, Trough)
-                    and len(selected_ops) < 8
-                ):
-                    # If we don't have a row conflict, select this op
-                    selected_ops.append(op)
-                    primary_rows.append(row)
-                    continue
-
-                # If we do have a row conflict, add the conflicting op to a new collection at the front of the queue
-                if deque_added:
-                    primary_ops_consolidation[0].append(op)
-                else:
-                    # If we've already created such a new collection, add it ot that instead
-                    primary_ops_consolidation.appendleft([op])
-                    deque_added = True
+                selected_ops.append(op)
 
             # Get the labware and columns needed among all the destinations
             seccondary_labware_col = self.group_movments_needed(
@@ -318,14 +298,6 @@ class AutoWorklist(EvoWorklist):
                     or seccondary_rows_mask in primary_rows_mask
                 ):
 
-                    for i, op in enumerate(seccondary_op_group):
-                        if isinstance(selected_ops[0].source, Trough):
-                            op.selected_tip[primary] = 1 + trough_tip_tracker
-                            # op.source_pos = (trough_tip_tracker, op.source_pos[1])
-                            trough_tip_tracker += 1
-                        else:
-                            offset = primary_rows_mask.index(seccondary_rows_mask)
-                            op.selected_tip[primary] = offset + i + 1
                     # This means that the destinations line up with the source rows
                     seccondary_labware_col_reachable.append(seccondary_op_group)
                 else:
@@ -340,6 +312,36 @@ class AutoWorklist(EvoWorklist):
 
             seccondary_labware_col_reachable.sort(reverse=True, key=lambda x: len(x))
 
+            # Now, we need to rationalise this group and select the best 8 ops we can do with our tips
+
+            # NOTE: improve this to use subset sum
+            selected_groups = []
+            tips_used = 0
+            index = 0
+            while index < len(seccondary_labware_col_reachable) and tips_used < 8:
+                j = index
+                while (
+                    j < len(seccondary_labware_col_reachable)
+                    and len(seccondary_labware_col_reachable[j]) + tips_used > 8
+                ):
+                    j += 1
+                group = seccondary_labware_col_reachable[j]
+
+                # Sort by row
+                group.sort(key=lambda x: seccondary_pos(op)[0])
+                row_start = seccondary_pos(group[0])[0]
+
+                for op in group:
+                    row = seccondary_pos(op)[0]
+                    tip = (row - row_start) + tips_used
+                    op.selected_tip[primary] = tip + 1
+                tips_used = tip + 1
+
+                selected_groups.append(group)
+                index = j + 1
+
+            selected_ops = [op for group in selected_groups for op in group]
+
             # Caclulate a cost for this group of operations
             # Ideal situation (cost 0) would be a single aspirate with 8 operations,
             # And a single dispense with the same 8 operations
@@ -347,7 +349,7 @@ class AutoWorklist(EvoWorklist):
             # Thus, the cost is how far we are from this ideal (8 - number_aspirated) + (8 - number_dispensed)
 
             steps_for_primary = 1
-            steps_for_seccondary = len(seccondary_labware_col_reachable)
+            steps_for_seccondary = len(selected_groups)
             ops_achieved = len(selected_ops)
 
             grouping_cost = (steps_for_primary + steps_for_seccondary) / ops_achieved
@@ -358,7 +360,7 @@ class AutoWorklist(EvoWorklist):
                     grouping_cost,
                     primary,
                     selected_ops,
-                    seccondary_labware_col_reachable,
+                    selected_groups,
                 )
             )
 
