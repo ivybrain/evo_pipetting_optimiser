@@ -57,6 +57,12 @@ class TransferOperation:
     def __gt__(self, other):
         return self.id > other.id
 
+    def __eq__(self, other):
+        return self.id == other.id
+
+    def __hash__(self):
+        return hash(self.id)
+
 
 class AutoWorklist(EvoWorklist):
 
@@ -225,31 +231,11 @@ class AutoWorklist(EvoWorklist):
         # i.e. Group by what can be achieved in a single aspiration
         primary_dict = self.group_movments_needed(open_ops, primary)
 
-        # Queue to track the groups we have
-        primary_ops_consolidation = deque(primary_dict.values())
-
-        # Bool to track if we've added a new item to the queue while processing the current item
-        deque_added = False
-
         # Track the best groupings we've found
         best_groupings = []
 
         # While we still have groups to process
-        while len(primary_ops_consolidation) > 0:
-            # Get the operations that are part of this group
-            ops = primary_ops_consolidation.popleft()
-            deque_added = False
-
-            # Track the operations we can successfully perform in this group
-            selected_ops = []
-
-            # Track the rows needed for these operations
-            primary_rows = []
-
-            for op in ops:
-
-                row = primary_pos(op)[0]
-                selected_ops.append(op)
+        for selected_ops in primary_dict.values():
 
             # Get the labware and columns needed among all the destinations
             seccondary_labware_col = self.group_movments_needed(
@@ -306,41 +292,74 @@ class AutoWorklist(EvoWorklist):
                     for op_group in itertools.combinations(
                         seccondary_op_group, len(seccondary_op_group) - 1
                     ):
-                        seccondary_labware_col_queue.append(op_group)
+                        seccondary_labware_col_queue.append(list(op_group))
 
                 seccondary_costs.append(len(seccondary_op_group))
 
             seccondary_labware_col_reachable.sort(reverse=True, key=lambda x: len(x))
 
+            seccondary_groups_queue = list(seccondary_labware_col_reachable)
+
             # Now, we need to rationalise this group and select the best 8 ops we can do with our tips
 
             # NOTE: improve this to use subset sum
             selected_groups = []
+            selected_ops = []
             tips_used = 0
+            primary_rows_used = {}
             index = 0
-            while index < len(seccondary_labware_col_reachable) and tips_used < 8:
+            while index < len(seccondary_groups_queue) and tips_used < 8:
                 j = index
                 while (
-                    j < len(seccondary_labware_col_reachable)
-                    and len(seccondary_labware_col_reachable[j]) + tips_used > 8
+                    j < len(seccondary_groups_queue)
+                    and len(seccondary_groups_queue[j]) + tips_used > 8
                 ):
                     j += 1
-                group = seccondary_labware_col_reachable[j]
+                group = seccondary_groups_queue[j]
 
-                # Sort by row
-                group.sort(key=lambda x: seccondary_pos(op)[0])
+                # Sort by seccondary row
+                group.sort(key=lambda x: seccondary_pos(x)[0])
                 row_start = seccondary_pos(group[0])[0]
 
+                cancel = False
+
                 for op in group:
-                    row = seccondary_pos(op)[0]
-                    tip = (row - row_start) + tips_used
+                    # Check for conflict in the primary row, as long as the primary isn't a trough
+                    # If we've already used this row, can't use it again
+                    primary_row = primary_pos(op)[0]
+                    if (
+                        primary == "destination" or not isinstance(op.source, Trough)
+                    ) and primary_row in primary_rows_used:
+                        # We can't support this group with this op. Thus, recreate two new groups
+                        # This group without the op, and op only
+                        group_1 = group.copy()
+                        group_1.remove(op)
+
+                        if len(group_1) > 0:
+                            seccondary_groups_queue.append(group_1)
+
+                        seccondary_groups_queue.pop(j)
+
+                        seccondary_groups_queue.sort(reverse=True, key=lambda x: len(x))
+
+                        cancel = True
+                        break
+
+                    else:
+                        primary_rows_used[primary_row] = op
+
+                    seccondary_row = seccondary_pos(op)[0]
+                    tip = (seccondary_row - row_start) + tips_used
                     op.selected_tip[primary] = tip + 1
+
+                if cancel:
+                    continue
+
                 tips_used = tip + 1
 
                 selected_groups.append(group)
+                selected_ops += group
                 index = j + 1
-
-            selected_ops = [op for group in selected_groups for op in group]
 
             # Caclulate a cost for this group of operations
             # Ideal situation (cost 0) would be a single aspirate with 8 operations,
