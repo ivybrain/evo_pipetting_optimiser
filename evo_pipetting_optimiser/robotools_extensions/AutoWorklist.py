@@ -241,7 +241,9 @@ class AutoWorklist(EvoWorklist):
             seccondary_labware_col = self.group_movments_needed(
                 selected_ops, seccondary
             )
-            seccondary_labware_col_queue = deque(seccondary_labware_col.values())
+            seccondary_labware_col_queue = deque(
+                [set(x) for x in seccondary_labware_col.values()]
+            )
 
             seccondary_costs = []
 
@@ -292,7 +294,9 @@ class AutoWorklist(EvoWorklist):
                     for op_group in itertools.combinations(
                         seccondary_op_group, len(seccondary_op_group) - 1
                     ):
-                        seccondary_labware_col_queue.append(list(op_group))
+                        if set(op_group) in seccondary_labware_col_queue:
+                            continue
+                        seccondary_labware_col_queue.append(set(op_group))
 
                 seccondary_costs.append(len(seccondary_op_group))
 
@@ -315,7 +319,11 @@ class AutoWorklist(EvoWorklist):
                     and len(seccondary_groups_queue[j]) + tips_used > 8
                 ):
                     j += 1
-                group = seccondary_groups_queue[j]
+
+                if j >= len(seccondary_groups_queue):
+                    break
+
+                group = list(seccondary_groups_queue[j])
 
                 # Sort by seccondary row
                 group.sort(key=lambda x: seccondary_pos(x)[0])
@@ -414,6 +422,7 @@ class AutoWorklist(EvoWorklist):
         total_cost = 0
         asp_count = 0
         disp_count = 0
+        wash_count = 0
         while len(self.pending_ops) > 0:
             best_groupings = self.group_ops()
             (cost, group_type, ops, target_groups) = best_groupings[0]
@@ -426,7 +435,7 @@ class AutoWorklist(EvoWorklist):
                 source_list = target_groups
                 dest_list = [ops]
 
-            sort_tip_key = lambda x: min([op.id for op in x])
+            sort_tip_key = lambda x: min([op.selected_tip[group_type] for op in x])
             source_list.sort(key=sort_tip_key)
 
             dest_list.sort(key=sort_tip_key)
@@ -510,11 +519,15 @@ class AutoWorklist(EvoWorklist):
                 silence_append_warning=True,
             )
 
+            wash_count += 1
+
             # Update the completed and pending ops sets
             self.pending_ops.difference_update(ops)
             self.completed_ops.update(ops)
 
-        print(f"cost: {total_cost}, aspirates: {asp_count}, dispenses: {disp_count}")
+        print(
+            f"cost: {total_cost}, aspirates: {asp_count}, dispenses: {disp_count}, washes: {wash_count}"
+        )
 
         return
 
