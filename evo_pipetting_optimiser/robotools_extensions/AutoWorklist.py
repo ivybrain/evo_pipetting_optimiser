@@ -604,7 +604,7 @@ class AutoWorklist(EvoWorklist):
 
                 volumes = [op.volume for op in dest_group]
 
-                tips = [op.selected_tip[group_type] for op in source_group]
+                tips = [op.selected_tip[group_type] for op in dest_group]
                 compositions = [
                     op.source.get_well_composition(op.source.wells[op.source_pos])
                     for op in dest_group
