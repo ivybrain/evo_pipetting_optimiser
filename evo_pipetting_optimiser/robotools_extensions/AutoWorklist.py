@@ -210,150 +210,6 @@ class AutoWorklist(EvoWorklist):
 
         return group_dict
 
-    def group_by_source(self, open_ops):
-        """
-        Group operations first by source (ie what can be aspirated in one step),
-        Then by destination
-        Along with a cost for each grouping
-        """
-
-        # Group available operations by source and source columnb
-        # i.e. Group by what can be achieved in a single aspiration
-        source_dict = self.group_movments_needed(open_ops, "source")
-
-        # Queue to track the groups we have
-        source_ops_consolidation = deque(source_dict.values())
-
-        # Bool to track if we've added a new item to the queue while processing the current item
-        deque_added = False
-
-        # Track the best groupings we've found
-        best_groupings = []
-
-        # While we still have groups to process
-        while len(source_ops_consolidation) > 0:
-            # Get the operations that are part of this group
-            ops = source_ops_consolidation.popleft()
-            deque_added = False
-
-            # Track the operations we can successfully perform in this group
-            selected_ops = []
-
-            # Track the rows needed for these operations
-            source_rows = []
-
-            for op in ops:
-                row = op.source_pos[0]
-                # If the row is already used in this op collection,
-                # Pass it to the next collection
-                # Because we can't pipette twice the same row in one operation
-                # Unless the source is a trough, in which case we say we can pipette from 'row 0' up to 8 times
-                if row not in source_rows or (
-                    isinstance(op.source, Trough) and len(selected_ops) < 8
-                ):
-                    # If we don't have a row conflict, select this op
-                    selected_ops.append(op)
-                    source_rows.append(row)
-                    continue
-
-                # If we do have a row conflict, add the conflicting op to a new collection at the front of the queue
-                if deque_added:
-                    source_ops_consolidation[0].append(op)
-                else:
-                    # If we've already created such a new collection, add it ot that instead
-                    source_ops_consolidation.appendleft([op])
-                    deque_added = True
-
-            # Get the labware and columns needed among all the destinations
-            dest_labware_col = self.group_movments_needed(selected_ops, "destination")
-            dest_labware_col_queue = deque(dest_labware_col.values())
-
-            dest_costs = []
-
-            # Track operation sets that are confirmed to be reachable in one dispense
-            dest_labware_col_reachable = []
-
-            # Track the tip we're up to if aspirating from a trough
-            trough_tip_tracker = 0
-
-            # Process each destination group of labware, column
-            while len(dest_labware_col_queue) > 0:
-                # Calculate the number of pipetting steps needed to satisfy this group
-                # It will be one step if the tips can line up from the source and the dest
-                # Otherwise more
-
-                dest_op_group = dest_labware_col_queue.popleft()
-
-                # Get the rows needed among the source and the destination
-                source_rows_group = [op.source_pos[0] for op in dest_op_group]
-                dest_rows_group = [op.dest_pos[0] for op in dest_op_group]
-
-                source_rows_mask = "".join(
-                    ["t" if i in source_rows_group else "f" for i in range(8)]
-                )
-                dest_rows_mask = "".join(
-                    [
-                        "t" if i in dest_rows_group else "f"
-                        for i in range(min(dest_rows_group), max(dest_rows_group) + 1)
-                    ]
-                )
-
-                # If the destionation rows, represented in a string (like tft for rows [5,7])
-                # Are a substring of the source rows (like fffftftf)
-                # We can aspirate this group in one shot
-                if (
-                    isinstance(selected_ops[0].source, Trough)
-                    or dest_rows_mask in source_rows_mask
-                ):
-
-                    # Get the position of the destination mask within the source to calculate tip offset
-
-                    # Calculate the tip needed for labware or trough
-                    for i, op in enumerate(dest_op_group):
-                        if isinstance(selected_ops[0].source, Trough):
-                            op.source_tip = 1 + trough_tip_tracker
-                            # op.source_pos = (trough_tip_tracker, op.source_pos[1])
-                            trough_tip_tracker += 1
-                        else:
-                            offset = source_rows_mask.index(dest_rows_mask)
-                            op.source_tip = offset + i + 1
-                    # This means that the destinations line up with the source rows
-                    dest_labware_col_reachable.append(dest_op_group)
-                else:
-                    # Otherwise, we can't pipette these destination rows in one step. Split up to the smaller available subsets
-                    # And add back to the queue
-                    for op_group in itertools.combinations(
-                        dest_op_group, len(dest_op_group) - 1
-                    ):
-                        dest_labware_col_queue.append(op_group)
-
-                dest_costs.append(len(dest_op_group))
-
-            dest_labware_col_reachable.sort(reverse=True, key=lambda x: len(x))
-
-            # Caclulate a cost for this group of operations
-            # Ideal situation (cost 0) would be a single aspirate with 8 operations,
-            # And a single dispense with the same 8 operations
-
-            # Thus, the cost is how far we are from this ideal (8 - number_aspirated) + (8 - number_dispensed)
-
-            steps_for_primary = 1
-            steps_for_seccondary = len(dest_labware_col_reachable)
-            ops_achieved = len(selected_ops)
-
-            grouping_cost = (steps_for_primary + steps_for_seccondary) / ops_achieved
-            # Add this group and its cost to the list
-            best_groupings.append(
-                (
-                    grouping_cost,
-                    "source",
-                    selected_ops,
-                    dest_labware_col_reachable,
-                )
-            )
-
-        return best_groupings
-
     def group_by(self, open_ops, primary="source"):
 
         if primary == "source":
@@ -533,14 +389,6 @@ class AutoWorklist(EvoWorklist):
         return best_groupings
 
     def make_plan(self):
-        # initial_node = TransferNode(
-        #     "_", None, [None] * 8, [False] * 8, 0, self.completed_ops, self.pending_ops
-        # )
-        # print("Initial", initial_node)
-
-        # plan = self.astar(initial_node)
-
-        # return plan
 
         total_cost = 0
         asp_count = 0
@@ -591,7 +439,9 @@ class AutoWorklist(EvoWorklist):
                     list(tips),
                     list(volumes),
                     liquid_class=source_op.liquid_class,
-                    label=" + ".join(set([op.label for op in ops])),
+                    label=" + ".join(set([op.label for op in source_group]))
+                    + ", ops: "
+                    + ",".join([str(op.id) for op in source_group]),
                     silence_append_warning=True,
                 )
                 asp_count += 1
@@ -622,7 +472,9 @@ class AutoWorklist(EvoWorklist):
                     list(tips),
                     list(volumes),
                     liquid_class=dest_op.liquid_class,
-                    label=" + ".join(set([op.label for op in ops])),
+                    label=" + ".join(set([op.label for op in dest_group]))
+                    + ", ops: "
+                    + ",".join([str(op.id) for op in dest_group]),
                     compositions=compositions,
                     silence_append_warning=True,
                 )
