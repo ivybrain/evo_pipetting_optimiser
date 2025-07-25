@@ -250,15 +250,47 @@ class AutoWorklist(EvoWorklist):
             # Track operation sets that are confirmed to be reachable in one dispense
             seccondary_labware_col_reachable = []
 
-            trough_tip_tracker = 0
-
             # Process each destination group of labware, column
             while len(seccondary_labware_col_queue) > 0:
+                seccondary_op_group = seccondary_labware_col_queue.popleft()
+
+                # If the primary is a trough, rows don't matter
+                if not (
+                    primary == "source"
+                    and isinstance(next(iter(seccondary_op_group)).source, Trough)
+                ):
+
+                    primary_rows_used = {}
+
+                    for op in list(seccondary_op_group):
+                        row = primary_pos(op)[0]
+
+                        # If we already have a primary row in this group, we can't use it again
+                        # As can't do the same row in a single asp/disp
+                        # So create groups without this op, and skip to next group
+
+                        if row in primary_rows_used:
+                            conflicting_op = primary_rows_used[op]
+
+                            for conflict in [op, conflicting_op]:
+                                alternative = seccondary_op_group.copy()
+                                # Create a new group with one of the conflicting ops removed
+                                alternative.difference_update(conflict)
+                                if alternative in seccondary_labware_col_queue:
+                                    continue
+                                seccondary_labware_col_queue.appendleft(alternative)
+
+                            skip_group = True
+
+                        primary_rows_used[row] = op
+                        skip_group = False
+
+                    if skip_group:
+                        continue
+
                 # Calculate the number of pipetting steps needed to satisfy this group
                 # It will be one step if the tips can line up from the source and the dest
                 # Otherwise more
-
-                seccondary_op_group = seccondary_labware_col_queue.popleft()
 
                 # Get the rows needed among the source and the destination
                 primary_rows_group = [primary_pos(op)[0] for op in seccondary_op_group]
@@ -287,7 +319,9 @@ class AutoWorklist(EvoWorklist):
                 ):
 
                     # This means that the destinations line up with the source rows
-                    seccondary_labware_col_reachable.append(seccondary_op_group)
+                    seccondary_labware_col_reachable.append(
+                        (seccondary_op_group, primary_rows_mask, seccondary_rows_mask)
+                    )
                 else:
                     # Otherwise, we can't pipette these destination rows in one step. Split up to the smaller available subsets
                     # And add back to the queue
@@ -300,74 +334,44 @@ class AutoWorklist(EvoWorklist):
 
                 seccondary_costs.append(len(seccondary_op_group))
 
-            seccondary_labware_col_reachable.sort(reverse=True, key=lambda x: len(x))
-
-            seccondary_groups_queue = list(seccondary_labware_col_reachable)
+            # Sort by biggest seccondary groups
+            seccondary_labware_col_reachable.sort(reverse=True, key=lambda x: len(x[0]))
 
             # Now, we need to rationalise this group and select the best 8 ops we can do with our tips
 
-            # NOTE: improve this to use subset sum
             selected_groups = []
             selected_ops = []
-            tips_used = 0
+            tips_used = []
+            tip_counter = 0
             primary_rows_used = {}
             index = 0
-            while index < len(seccondary_groups_queue) and tips_used < 8:
-                j = index
-                while (
-                    j < len(seccondary_groups_queue)
-                    and len(seccondary_groups_queue[j]) + tips_used > 8
-                ):
-                    j += 1
+            while index < len(seccondary_labware_col_reachable):
+                group, primary_mask, seccondary_mask = seccondary_labware_col_reachable[
+                    index
+                ]
 
-                if j >= len(seccondary_groups_queue):
-                    break
+                group = list(group)
 
-                group = list(seccondary_groups_queue[j])
+                seccondary_tips_needed = len(seccondary_mask)
 
-                # Sort by seccondary row
-                group.sort(key=lambda x: seccondary_pos(x)[0])
-                row_start = seccondary_pos(group[0])[0]
-
-                cancel = False
-
-                for op in group:
-                    # Check for conflict in the primary row, as long as the primary isn't a trough
-                    # If we've already used this row, can't use it again
-                    primary_row = primary_pos(op)[0]
-                    if (
-                        primary == "destination" or not isinstance(op.source, Trough)
-                    ) and primary_row in primary_rows_used:
-                        # We can't support this group with this op. Thus, recreate two new groups
-                        # This group without the op, and op only
-                        group_1 = group.copy()
-                        group_1.remove(op)
-
-                        if len(group_1) > 0:
-                            seccondary_groups_queue.append(group_1)
-
-                        seccondary_groups_queue.pop(j)
-
-                        seccondary_groups_queue.sort(reverse=True, key=lambda x: len(x))
-
-                        cancel = True
-                        break
-
-                    else:
-                        primary_rows_used[primary_row] = op
-
-                    seccondary_row = seccondary_pos(op)[0]
-                    tip = (seccondary_row - row_start) + tips_used
-                    op.selected_tip[primary] = tip + 1
-
-                if cancel:
+                # If we can't fit this group with the tips we have left, skip it
+                if tip_counter + seccondary_tips_needed > 8:
+                    index += 1
                     continue
 
-                tips_used = tip + 1
+                for op in group:
+                    while primary_mask[tip_counter] == "f":
+                        tip_counter += 1
 
-                selected_groups.append(group)
+                    op.selected_tip[primary] = tip_counter + 1
+
+                    tips_used.append(tip_counter)
+                    tip_counter += 1
+
                 selected_ops += group
-                index = j + 1
+                selected_groups.append(group)
+
+                index += 1
 
             # Caclulate a cost for this group of operations
             # Ideal situation (cost 0) would be a single aspirate with 8 operations,
