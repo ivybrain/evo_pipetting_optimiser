@@ -5,6 +5,7 @@ import itertools
 import warnings
 from collections import deque
 import numpy as np
+from functools import reduce
 
 
 class TransferOperation:
@@ -220,12 +221,12 @@ class AutoWorklist(EvoWorklist):
 
         if primary == "source":
             primary_pos = lambda op: op.source_pos
-            seccondary_pos = lambda op: op.dest_pos
-            seccondary = "destination"
+            secondary_pos = lambda op: op.dest_pos
+            secondary = "destination"
         elif primary == "destination":
             primary_pos = lambda op: op.dest_pos
-            seccondary_pos = lambda op: op.source_pos
-            seccondary = "source"
+            secondary_pos = lambda op: op.source_pos
+            secondary = "source"
 
         # Group available operations by source and source column
         # i.e. Group by what can be achieved in a single aspiration
@@ -238,74 +239,38 @@ class AutoWorklist(EvoWorklist):
         for selected_ops in primary_dict.values():
 
             # Get the labware and columns needed among all the destinations
-            seccondary_labware_col = self.group_movments_needed(
-                selected_ops, seccondary
-            )
-            seccondary_labware_col_queue = deque(
-                [set(x) for x in seccondary_labware_col.values()]
+            secondary_labware_col = self.group_movments_needed(selected_ops, secondary)
+            secondary_labware_col_queue = deque(
+                [set(x) for x in secondary_labware_col.values()]
             )
 
-            seccondary_costs = []
+            secondary_costs = []
 
             # Track operation sets that are confirmed to be reachable in one dispense
-            seccondary_labware_col_reachable = []
+            secondary_labware_col_reachable = []
 
             # Process each destination group of labware, column
-            while len(seccondary_labware_col_queue) > 0:
-                seccondary_op_group = seccondary_labware_col_queue.popleft()
-
-                # If the primary is a trough, rows don't matter
-                if not (
-                    primary == "source"
-                    and isinstance(next(iter(seccondary_op_group)).source, Trough)
-                ):
-
-                    primary_rows_used = {}
-
-                    for op in list(seccondary_op_group):
-                        row = primary_pos(op)[0]
-
-                        # If we already have a primary row in this group, we can't use it again
-                        # As can't do the same row in a single asp/disp
-                        # So create groups without this op, and skip to next group
-
-                        if row in primary_rows_used:
-                            conflicting_op = primary_rows_used[op]
-
-                            for conflict in [op, conflicting_op]:
-                                alternative = seccondary_op_group.copy()
-                                # Create a new group with one of the conflicting ops removed
-                                alternative.difference_update(conflict)
-                                if alternative in seccondary_labware_col_queue:
-                                    continue
-                                seccondary_labware_col_queue.appendleft(alternative)
-
-                            skip_group = True
-
-                        primary_rows_used[row] = op
-                        skip_group = False
-
-                    if skip_group:
-                        continue
+            while len(secondary_labware_col_queue) > 0:
+                secondary_op_group = secondary_labware_col_queue.popleft()
 
                 # Calculate the number of pipetting steps needed to satisfy this group
                 # It will be one step if the tips can line up from the source and the dest
                 # Otherwise more
 
                 # Get the rows needed among the source and the destination
-                primary_rows_group = [primary_pos(op)[0] for op in seccondary_op_group]
-                seccondary_rows_group = [
-                    seccondary_pos(op)[0] for op in seccondary_op_group
+                primary_rows_group = [primary_pos(op)[0] for op in secondary_op_group]
+                secondary_rows_group = [
+                    secondary_pos(op)[0] for op in secondary_op_group
                 ]
 
                 primary_rows_mask = "".join(
                     ["t" if i in primary_rows_group else "f" for i in range(8)]
                 )
-                seccondary_rows_mask = "".join(
+                secondary_rows_mask = "".join(
                     [
-                        "t" if i in seccondary_rows_group else "f"
+                        "t" if i in secondary_rows_group else "f"
                         for i in range(
-                            min(seccondary_rows_group), max(seccondary_rows_group) + 1
+                            min(secondary_rows_group), max(secondary_rows_group) + 1
                         )
                     ]
                 )
@@ -315,73 +280,75 @@ class AutoWorklist(EvoWorklist):
                 # We can aspirate this group in one shot
                 if (
                     isinstance(selected_ops[0].source, Trough)
-                    or seccondary_rows_mask in primary_rows_mask
+                    or secondary_rows_mask in primary_rows_mask
                 ):
 
                     # This means that the destinations line up with the source rows
-                    seccondary_labware_col_reachable.append(
-                        (seccondary_op_group, primary_rows_mask, seccondary_rows_mask)
+                    secondary_labware_col_reachable.append(
+                        (secondary_op_group, primary_rows_mask, secondary_rows_mask)
                     )
                 else:
                     # Otherwise, we can't pipette these destination rows in one step. Split up to the smaller available subsets
                     # And add back to the queue
                     for op_group in itertools.combinations(
-                        seccondary_op_group, len(seccondary_op_group) - 1
+                        secondary_op_group, len(secondary_op_group) - 1
                     ):
-                        if set(op_group) in seccondary_labware_col_queue:
+                        if set(op_group) in secondary_labware_col_queue:
                             continue
-                        seccondary_labware_col_queue.append(set(op_group))
+                        secondary_labware_col_queue.append(set(op_group))
 
-                seccondary_costs.append(len(seccondary_op_group))
+                secondary_costs.append(len(secondary_op_group))
 
-            # Sort by biggest seccondary groups
-            seccondary_labware_col_reachable.sort(reverse=True, key=lambda x: len(x[0]))
+            # Sort by biggest secondary groups
+            def group_sort_key(group):
+                # Want to sort by biggest
+                size = -1 * len(group[0])
+                first_tip = group[1].index("t")
+                return (size, first_tip)
 
-            # Now, we need to rationalise this group and select the best 8 ops we can do with our tips
+            secondary_labware_col_reachable.sort(key=group_sort_key)
 
-            selected_groups = []
-            selected_ops = []
-            tips_used = []
-            tip_counter = 0
-            primary_rows_used = {}
-            index = 0
-            while index < len(seccondary_labware_col_reachable):
-                group, primary_mask, seccondary_mask = seccondary_labware_col_reachable[
-                    index
-                ]
+            # All combinations of the groups
+            valid_combinations = []
+            most_tips_achieved = 0
 
-                group = list(group)
+            # Efficiency could be drastically improved with dynamic programming
+            for combo_size in range(1, 8):
+                for combination in itertools.combinations(
+                    secondary_labware_col_reachable, combo_size
+                ):
+                    tips_needed = sum([len(group[2]) for group in combination])
+                    # Check that we don't need too many tips
+                    if tips_needed > 8:
+                        continue
 
-                seccondary_tips_needed = len(seccondary_mask)
-
-                # If we can't fit this group with the tips we have left, skip it
-                if tip_counter + seccondary_tips_needed > 8:
-                    index += 1
-                    continue
-
-                for op in group:
-                    while (
-                        not (primary == "source" and isinstance(op.source, Trough))
-                        and tip_counter <= 8
-                        and (tip_counter >= 8 or primary_mask[tip_counter] == "f")
+                    if combo_size > 1 and (
+                        primary != "source"
+                        or not isinstance(selected_ops[0].source, Trough)
                     ):
-                        tip_counter += 1
+                        # Check that we don't have a conflict in primary mask
+                        tip_indices = [
+                            (np.array(list(group[1])) == "t").nonzero()[0].tolist()
+                            for group in combination
+                        ]
+                        all_tips = [
+                            tip for group_tips in tip_indices for tip in group_tips
+                        ]
+                        if len(set(all_tips)) != len(all_tips):
+                            continue
 
-                    if tip_counter > 8:
-                        break
+                    most_tips_achieved = max(most_tips_achieved, tips_needed)
+                    valid_combinations.append((tips_needed, combination))
 
-                    op.selected_tip[primary] = tip_counter + 1
-
-                    tips_used.append(tip_counter)
-                    tip_counter += 1
-
-                if tip_counter > 8:
+                if most_tips_achieved == 8:
                     break
 
-                selected_ops += group
-                selected_groups.append(group)
+            valid_combinations.sort(reverse=True)
+            # Now, we need to rationalise this group and select the best 8 ops we can do with our tips
 
-                index += 1
+            selected_groups = valid_combinations[0][1]
+            selected_ops = [op for group in selected_groups for op in list(group[0])]
+            selected_ops.sort(key=lambda op: primary_pos(op)[0])
 
             # Caclulate a cost for this group of operations
             # Ideal situation (cost 0) would be a single aspirate with 8 operations,
@@ -390,10 +357,10 @@ class AutoWorklist(EvoWorklist):
             # Thus, the cost is how far we are from this ideal (8 - number_aspirated) + (8 - number_dispensed)
 
             steps_for_primary = 1
-            steps_for_seccondary = len(selected_groups)
+            steps_for_secondary = len(selected_groups)
             ops_achieved = len(selected_ops)
 
-            grouping_cost = (steps_for_primary + steps_for_seccondary) / ops_achieved
+            grouping_cost = (steps_for_primary + steps_for_secondary) / ops_achieved
 
             # Add this group and its cost to the list
             best_groupings.append(
@@ -441,6 +408,11 @@ class AutoWorklist(EvoWorklist):
             best_groupings = self.group_ops()
             (cost, group_type, ops, target_groups) = best_groupings[0]
             total_cost += cost
+
+            # Update the completed and pending ops sets
+            self.pending_ops.difference_update(ops)
+            self.completed_ops.update(ops)
+            continue
 
             if group_type == "source":
                 source_list = [ops]
@@ -533,6 +505,9 @@ class AutoWorklist(EvoWorklist):
                 silence_append_warning=True,
             )
 
+            # Line after each group just to make worklist easier to read
+            super().append("B;")
+
             wash_count += 1
 
             # Update the completed and pending ops sets
@@ -548,6 +523,7 @@ class AutoWorklist(EvoWorklist):
     def commit(self):
         for op in sorted(self.pending_ops, key=lambda x: x.id):
             print(op)
+
         if len(self.pending_ops) > 0:
             self.make_plan()
             self.pending_ops = set()
