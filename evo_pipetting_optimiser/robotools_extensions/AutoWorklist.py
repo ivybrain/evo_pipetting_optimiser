@@ -42,7 +42,7 @@ class TransferOperation:
         self.source_dep = source_dep
         self.dest_dep = dest_dep
 
-        self.selected_tip = {}
+        self.selected_tip = None
 
         self.liquid_class = liquid_class
 
@@ -346,9 +346,15 @@ class AutoWorklist(EvoWorklist):
             valid_combinations.sort(reverse=True)
             # Now, we need to rationalise this group and select the best 8 ops we can do with our tips
 
-            selected_groups = valid_combinations[0][1]
+            selected_groups = [
+                (
+                    sorted(list(ops), key=lambda op: secondary_pos(op)[0]),
+                    primary_mask,
+                    secondary_mask,
+                )
+                for (ops, primary_mask, secondary_mask) in valid_combinations[0][1]
+            ]
             selected_ops = [op for group in selected_groups for op in list(group[0])]
-            selected_ops.sort(key=lambda op: primary_pos(op)[0])
 
             # Caclulate a cost for this group of operations
             # Ideal situation (cost 0) would be a single aspirate with 8 operations,
@@ -409,19 +415,22 @@ class AutoWorklist(EvoWorklist):
             (cost, group_type, ops, target_groups) = best_groupings[0]
             total_cost += cost
 
-            # Update the completed and pending ops sets
-            self.pending_ops.difference_update(ops)
-            self.completed_ops.update(ops)
-            continue
-
             if group_type == "source":
                 source_list = [ops]
-                dest_list = target_groups
+                dest_list = [group[0] for group in target_groups]
+
+                if isinstance(ops[0].source, Trough):
+                    tip_counter = 0
+                    for group, _, _ in target_groups:
+                        for op in group:
+                            op.selected_tip = tip_counter + 1
+                            tip_counter += 1
+
             else:
-                source_list = target_groups
+                source_list = [group[0] for group in target_groups]
                 dest_list = [ops]
 
-            sort_tip_key = lambda x: min([op.selected_tip[group_type] for op in x])
+            sort_tip_key = lambda x: min([op.selected_tip for op in x])
             source_list.sort(key=sort_tip_key)
 
             dest_list.sort(key=sort_tip_key)
@@ -434,7 +443,7 @@ class AutoWorklist(EvoWorklist):
 
                 volumes = [op.volume for op in source_group]
 
-                tips = [op.selected_tip[group_type] for op in source_group]
+                tips = [op.selected_tip for op in source_group]
 
                 if len(tips) != len(set(tips)):
                     raise Exception("Error in tip logic")
@@ -470,7 +479,7 @@ class AutoWorklist(EvoWorklist):
 
                 volumes = [op.volume for op in dest_group]
 
-                tips = [op.selected_tip[group_type] for op in dest_group]
+                tips = [op.selected_tip for op in dest_group]
                 compositions = [
                     op.source.get_well_composition(op.source.wells[op.source_pos])
                     for op in dest_group
@@ -499,7 +508,7 @@ class AutoWorklist(EvoWorklist):
 
             # Wash after this group of ops
             self.evo_wash(
-                tips=[op.selected_tip[group_type] for op in source_group],
+                tips=[op.selected_tip for op in source_group],
                 waste_location=self.waste_location,
                 cleaner_location=self.cleaner_location,
                 silence_append_warning=True,
