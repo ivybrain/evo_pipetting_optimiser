@@ -362,12 +362,12 @@ class AutoWorklist(EvoWorklist):
                 for op in group:
                     while (
                         not (primary == "source" and isinstance(op.source, Trough))
-                        and tip_counter < 8
-                        and primary_mask[tip_counter] == "f"
+                        and tip_counter <= 8
+                        and (tip_counter >= 8 or primary_mask[tip_counter] == "f")
                     ):
                         tip_counter += 1
 
-                    if tip_counter >= 8:
+                    if tip_counter > 8:
                         break
 
                     op.selected_tip[primary] = tip_counter + 1
@@ -375,7 +375,7 @@ class AutoWorklist(EvoWorklist):
                     tips_used.append(tip_counter)
                     tip_counter += 1
 
-                if tip_counter >= 8:
+                if tip_counter > 8:
                     break
 
                 selected_ops += group
