@@ -336,9 +336,15 @@ class AutoWorklist(EvoWorklist):
                         ]
                         if len(set(all_tips)) != len(all_tips):
                             continue
+                    else:
+                        all_tips = (
+                            (np.array(list(combination[0][1])) == "t")
+                            .nonzero()[0]
+                            .tolist()
+                        )
 
                     most_tips_achieved = max(most_tips_achieved, tips_needed)
-                    valid_combinations.append((tips_needed, combination))
+                    valid_combinations.append((tips_needed, combination, all_tips))
 
                 if most_tips_achieved == 8:
                     break
@@ -355,6 +361,7 @@ class AutoWorklist(EvoWorklist):
                 for (ops, primary_mask, secondary_mask) in valid_combinations[0][1]
             ]
             selected_ops = [op for group in selected_groups for op in list(group[0])]
+            tips_used = valid_combinations[0][2]
 
             # Caclulate a cost for this group of operations
             # Ideal situation (cost 0) would be a single aspirate with 8 operations,
@@ -375,6 +382,7 @@ class AutoWorklist(EvoWorklist):
                     primary,
                     selected_ops,
                     selected_groups,
+                    tips_used,
                 )
             )
 
@@ -395,7 +403,7 @@ class AutoWorklist(EvoWorklist):
         best_groupings += self.group_by(open_ops, "destination")
 
         def group_sort_key(group):
-            (cost, _, ops, _) = group
+            (cost, _, ops, _, _) = group
             # With equal cost, bias those with earlier op id
             # To keep things in a more understandable order
             return (cost, min([op.id for op in ops]) - 1 * len(ops))
