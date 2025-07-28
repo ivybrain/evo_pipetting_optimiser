@@ -311,6 +311,7 @@ class AutoWorklist(EvoWorklist):
             # All combinations of the groups
             valid_combinations = []
             most_tips_achieved = 0
+            tips_for_group = []
 
             # Efficiency could be drastically improved with dynamic programming
             for combo_size in range(1, 8):
@@ -336,15 +337,16 @@ class AutoWorklist(EvoWorklist):
                         ]
                         if len(set(all_tips)) != len(all_tips):
                             continue
+                        tips_for_group = [tip - min(all_tips) for tip in all_tips]
+
                     else:
-                        all_tips = (
-                            (np.array(list(combination[0][1])) == "t")
-                            .nonzero()[0]
-                            .tolist()
-                        )
+
+                        tips_for_group = list(range(len(combination[0][0])))
 
                     most_tips_achieved = max(most_tips_achieved, tips_needed)
-                    valid_combinations.append((tips_needed, combination, all_tips))
+                    valid_combinations.append(
+                        (tips_needed, combination, tips_for_group)
+                    )
 
                 if most_tips_achieved == 8:
                     break
@@ -369,16 +371,18 @@ class AutoWorklist(EvoWorklist):
 
             # Thus, the cost is how far we are from this ideal (8 - number_aspirated) + (8 - number_dispensed)
 
-            steps_for_primary = 1
-            steps_for_secondary = len(selected_groups)
-            ops_achieved = len(selected_ops)
+            total_steps = 1 + len(selected_groups)
 
-            grouping_cost = (steps_for_primary + steps_for_secondary) / ops_achieved
+            # steps_for_primary = 1
+            # steps_for_secondary = len(selected_groups)
+            # ops_achieved = len(selected_ops)
+
+            # grouping_cost = (steps_for_primary + steps_for_secondary) / ops_achieved
 
             # Add this group and its cost to the list
             best_groupings.append(
                 (
-                    grouping_cost,
+                    total_steps,
                     primary,
                     selected_ops,
                     selected_groups,
@@ -403,7 +407,8 @@ class AutoWorklist(EvoWorklist):
         best_groupings += self.group_by(open_ops, "destination")
 
         def group_sort_key(group):
-            (cost, _, ops, _, _) = group
+            (steps, _, ops, _, _) = group
+            cost = steps / len(ops)
             # With equal cost, bias those with earlier op id
             # To keep things in a more understandable order
             return (cost, min([op.id for op in ops]) - 1 * len(ops))
@@ -414,29 +419,70 @@ class AutoWorklist(EvoWorklist):
 
     def make_plan(self):
 
-        total_cost = 0
         asp_count = 0
         disp_count = 0
         wash_count = 0
         while len(self.pending_ops) > 0:
             best_groupings = self.group_ops()
-            (cost, group_type, ops, target_groups) = best_groupings[0]
-            total_cost += cost
+            tips_used = 0
+            selected_groups = []
+            selected_ops = []
+            second_best_cost = (best_groupings[1][0] + 2) / len(best_groupings[1][2])
+            index = 0
+            while tips_used < 8 and index < len(best_groupings):
 
-            if group_type == "source":
-                source_list = [ops]
-                dest_list = [group[0] for group in target_groups]
+                (steps, group_type, ops, target_groups, tips_selected) = best_groupings[
+                    index
+                ]
+                index += 1
+                tips_needed = (max(tips_selected) - min(tips_selected)) + 1
+                # Check this group won't use too many tips
+                if tips_used + tips_needed > 8:
+                    continue
 
-                if isinstance(ops[0].source, Trough):
-                    tip_counter = 0
+                # Check the ops in previously selected groups and new group are disjoint
+                if len(set(selected_ops + ops)) != len(selected_ops) + len(ops):
+                    continue
+
+                # Check that the cost of adding this group (and saving washes)
+                # Isn't greater than the cost of the second best group with additional washes
+                cost_of_adding = steps / len(ops)
+                if cost_of_adding > second_best_cost:
+                    break
+
+                if group_type == "source" and isinstance(ops[0].source, Trough):
+                    tip_counter = tips_used
                     for group, _, _ in target_groups:
                         for op in group:
                             op.selected_tip = tip_counter + 1
                             tip_counter += 1
 
-            else:
-                source_list = [group[0] for group in target_groups]
-                dest_list = [ops]
+                    if tip_counter > 8:
+                        continue
+                    tips_used += tip_counter
+                else:
+                    tip_index = 0
+                    for group, _, _ in target_groups:
+                        for op in group:
+                            op.selected_tip = tips_used + tips_selected[tip_index] + 1
+                            tip_index += 1
+                    tips_used += tips_needed
+
+                selected_groups.append((group_type, ops, target_groups))
+                selected_ops += ops
+
+            source_list = []
+            dest_list = []
+            for group_type, ops, target_groups in selected_groups:
+
+                if group_type == "source":
+
+                    source_list += [ops]
+                    dest_list += [group[0] for group in target_groups]
+
+                else:
+                    source_list += [group[0] for group in target_groups]
+                    dest_list += [ops]
 
             sort_tip_key = lambda x: min([op.selected_tip for op in x])
             source_list.sort(key=sort_tip_key)
@@ -468,7 +514,7 @@ class AutoWorklist(EvoWorklist):
                 self.evo_aspirate(
                     source_op.source,
                     source_op.source.wells[source_rows, source_col],
-                    (source_op.source.grid, source_op.source.site),
+                    source_op.source.location,
                     list(tips),
                     list(volumes),
                     liquid_class=source_op.liquid_class,
@@ -501,7 +547,7 @@ class AutoWorklist(EvoWorklist):
                 self.evo_dispense(
                     dest_op.destination,
                     dest_op.destination.wells[dest_rows, dest_col],
-                    (dest_op.destination.grid, dest_op.destination.site),
+                    dest_op.destination.location,
                     list(tips),
                     list(volumes),
                     liquid_class=dest_op.liquid_class,
@@ -528,12 +574,10 @@ class AutoWorklist(EvoWorklist):
             wash_count += 1
 
             # Update the completed and pending ops sets
-            self.pending_ops.difference_update(ops)
-            self.completed_ops.update(ops)
+            self.pending_ops.difference_update(selected_ops)
+            self.completed_ops.update(selected_ops)
 
-        print(
-            f"cost: {total_cost}, aspirates: {asp_count}, dispenses: {disp_count}, washes: {wash_count}"
-        )
+        print(f"aspirates: {asp_count}, dispenses: {disp_count}, washes: {wash_count}")
 
         return
 

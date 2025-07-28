@@ -17,13 +17,14 @@ class AdvancedLabware(robotools.Labware):
             for well in self.wells.flatten("F")
         }
 
-    def __init__(self, *args, grid=None, site=None, **kwargs):
+    def __init__(self, *args, location=None, offset_limit=None, **kwargs):
 
         super().__init__(*args, **kwargs)
 
-        if not grid or not site:
+        if not location:
             raise ValueError("Grid and Site must be specified")
-        self.grid = grid
-        self.site = site
+        self.location = location
+
+        self.offset_limit = offset_limit
 
         self.op_tracking = {well: [] for well in self.wells.flatten("F")}
