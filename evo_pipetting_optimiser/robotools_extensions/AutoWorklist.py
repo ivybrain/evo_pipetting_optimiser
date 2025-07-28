@@ -9,6 +9,10 @@ from functools import reduce
 
 
 class TransferOperation:
+    """
+    Internal class that stores all the information needed
+    For a transfer from one well to another
+    """
 
     op_id_counter = 0
 
@@ -137,6 +141,9 @@ class AutoWorklist(EvoWorklist):
             liquid_class is not None
         ), "Liquid class must be speicified for auto_transfer"
 
+        # Track if we currently have operations waiting to be optimised
+        # That haven't been committed to the worklist. If so, we want to warn if the user
+        # Tries to add anything else to the worklist.
         self.currently_optimising = True
 
         # source wells don't matter for a trough, set them all 0
@@ -144,7 +151,8 @@ class AutoWorklist(EvoWorklist):
         if isinstance(source, Trough):
             source_wells = ["A01"] * len(source_wells)
 
-        # Append this op to all of the destination wells we touch
+        # Create a TransferOperation object with all the details of the transfer
+        # For every pair of source,destination wells
         for i in range(len(source_wells)):
             op = TransferOperation(
                 source,
@@ -164,11 +172,18 @@ class AutoWorklist(EvoWorklist):
                 liquid_class=liquid_class,
             )
 
+            # Append this op to the labware we're aspirating to
+            # So that future transfers to the well know that they need to wait for this transfer first
             destination.op_tracking[destination_wells[i]].append(op)
 
+            # Add this op to the pending operations set
             self.pending_ops.update([op])
 
     def append(self, *args, **kwargs):
+        # If we have un-commited auto transfers and the user tries to append something else to the worklist
+        # We have to optimise and commit these auto transfers first, or they'll appear after whatever the
+        # user appends.
+        # Warn the user, then commit the auto transfers automatically
         if self.currently_optimising and not self.silence_append_warning:
             warnings.warn(
                 "Modifying worklist after auto_transfer without commit. Auto transfers will be committed now, before your modification"
@@ -176,32 +191,31 @@ class AutoWorklist(EvoWorklist):
             self.commit()
         super().append(*args, **kwargs)
 
-    def evo_aspirate(self, *args, silence_append_warning=False, **kwargs):
+    # evo_aspirate, dispense, and wash overrides that we will use interally when committing optimisations.
+    # Avoid warning the user in this case
+    def _evo_aspirate(self, *args, silence_append_warning=False, **kwargs):
         self.silence_append_warning = silence_append_warning
         super().evo_aspirate(*args, **kwargs)
         self.silence_append_warning = False
 
-    def evo_dispense(self, *args, silence_append_warning=False, **kwargs):
+    def _evo_dispense(self, *args, silence_append_warning=False, **kwargs):
         self.silence_append_warning = silence_append_warning
         super().evo_dispense(*args, **kwargs)
         self.silence_append_warning = False
 
-    def evo_wash(self, *args, silence_append_warning=False, **kwargs):
+    def _evo_wash(self, *args, silence_append_warning=False, **kwargs):
         self.silence_append_warning = silence_append_warning
         super().evo_wash(*args, **kwargs)
         self.silence_append_warning = False
 
-    def group_movments_needed(self, op_set, field, include_tip=False):
+    def group_movments_needed(self, op_set, field):
         """
         Group operations by the specified field (source or destination),
-        The column, and the liquid class
-        This effectively provides a minimum number of movements needed to
-        complete these ops
+        The column, and the liquid class. We group like this because these are the constraints
+        To aspirating (or dispensing) something in one step
         """
         group_dict = {}
-        for tip, op in enumerate(op_set):
-            if not op:
-                continue
+        for op in op_set:
 
             if field == "source":
                 key = (op.source.name, op.source_pos[1], op.liquid_class)
@@ -210,16 +224,24 @@ class AutoWorklist(EvoWorklist):
             if key not in group_dict:
                 group_dict[key] = []
 
-            if include_tip:
-                group_dict[key].append((tip, op))
-            else:
-                group_dict[key].append(op)
+            group_dict[key].append(op)
 
         return group_dict
 
     def group_by(self, open_ops, primary="source"):
+        """
+        Group open operations into efficient possibilities with an associated cost
+        If we group by source (primary = source), then for each possible aspiration source (labware, column),
+        We find the most ops we can complete with one aspiration from that source
+        If we group by primary=destination, we find the most ops we can complete with one dispense to that destination
+        The 'seccondary' is the opposite of the primary. I.e. if primary is source, seccondary is destination. We may need
+        multiple seccondary dispenses for our one primary aspiration. However we find the combination which needs the least
+        seccondary ops, for the single primary op
+        """
 
+        # Set the variables we need to track primary=source or primary=destination
         if primary == "source":
+            # function that gives the source pos (row, column) when we call for primary
             primary_pos = lambda op: op.source_pos
             secondary_pos = lambda op: op.dest_pos
             secondary = "destination"
@@ -228,23 +250,22 @@ class AutoWorklist(EvoWorklist):
             secondary_pos = lambda op: op.source_pos
             secondary = "source"
 
-        # Group available operations by source and source column
-        # i.e. Group by what can be achieved in a single aspiration
+        # Group available operations by primary labware and primary column
+        # i.e. Group by what can be achieved in a single aspiration (for primary=source)
         primary_dict = self.group_movments_needed(open_ops, primary)
 
-        # Track the best groupings we've found
+        # Track the groupings we've found so far
         best_groupings = []
 
-        # While we still have groups to process
+        # Loop through all the primary groups we've found
         for selected_ops in primary_dict.values():
 
-            # Get the labware and columns needed among all the destinations
+            # Group by secondary
+            # i.e. when primary=source, find all the destination (labware, column) pairs we need to dispense to
             secondary_labware_col = self.group_movments_needed(selected_ops, secondary)
             secondary_labware_col_queue = deque(
                 [set(x) for x in secondary_labware_col.values()]
             )
-
-            secondary_costs = []
 
             # Track operation sets that are confirmed to be reachable in one dispense
             secondary_labware_col_reachable = []
@@ -278,17 +299,19 @@ class AutoWorklist(EvoWorklist):
                 # If the destionation rows, represented in a string (like tft for rows [5,7])
                 # Are a substring of the source rows (like fffftftf)
                 # We can aspirate this group in one shot
+                # If the source is a trough, the rows are flexible, so we don't need this check
                 if (
                     isinstance(selected_ops[0].source, Trough)
                     or secondary_rows_mask in primary_rows_mask
                 ):
 
-                    # This means that the destinations line up with the source rows
+                    # This means that the seccondary rows line up with the primary rows
+                    # Append the group to the confirmed reachable list, along with the rows needed
                     secondary_labware_col_reachable.append(
                         (secondary_op_group, primary_rows_mask, secondary_rows_mask)
                     )
                 else:
-                    # Otherwise, we can't pipette these destination rows in one step. Split up to the smaller available subsets
+                    # Otherwise, we can't pipette these seccondary rows in one step. Split up to the smaller available subsets
                     # And add back to the queue
                     for op_group in itertools.combinations(
                         secondary_op_group, len(secondary_op_group) - 1
@@ -297,37 +320,52 @@ class AutoWorklist(EvoWorklist):
                             continue
                         secondary_labware_col_queue.append(set(op_group))
 
-                secondary_costs.append(len(secondary_op_group))
-
             # Sort by biggest secondary groups
             def group_sort_key(group):
-                # Want to sort by biggest
+                # Want to sort by biggest, so use negative
                 size = -1 * len(group[0])
-                first_tip = group[1].index("t")
-                return (size, first_tip)
+                # If size is tied, sort by lowest primary row
+                first_row = group[1].index("t")
+                return (size, first_row)
 
             secondary_labware_col_reachable.sort(key=group_sort_key)
 
-            # All combinations of the groups
-            valid_combinations = []
-            most_tips_achieved = 0
-            tips_for_group = []
+            # Now, we have grouped the secondary ops by what can be accomplished in one dispense (in case of secondary=destination)
+            # Next, we want to select the most efficient non-conflicting combination of these groups
+            # i.e. fill all 8 tips with the least number of groups
+            # And, make sure that no two ops rely on the same primary well (as that would break the assumption of the group needing a single primary aspiration)
 
-            # Efficiency could be drastically improved with dynamic programming
+            # Store all non-conflicting combinations of groups
+            valid_combinations = []
+            # The number of tips we've filled so far
+            most_tips_achieved = 0
+            # Tips that are used in our final selected group
+            tips_for_combo = []
+
+            # NOTE: Efficiency could be drastically improved with dynamic programming
+            # First, see how many tips we fill with combos of only 1 group
+            # increase this to combos of up to 8 groups
             for combo_size in range(1, 8):
+                # Iterate all possible combinations of groups
+                # Of the specified size
                 for combination in itertools.combinations(
                     secondary_labware_col_reachable, combo_size
                 ):
+                    # Add the tips needed across all groups in this combination
                     tips_needed = sum([len(group[2]) for group in combination])
-                    # Check that we don't need too many tips
+                    # Check that this combo isn't over the tip limit
                     if tips_needed > 8:
                         continue
 
+                    # If the combo is bigger than 1 group, and the primary isn't a trough source,
+                    # We need to make sure none of the rows in the primary are repeated
+                    # As this would require more than one aspirate/dispense
                     if combo_size > 1 and (
                         primary != "source"
                         or not isinstance(selected_ops[0].source, Trough)
                     ):
                         # Check that we don't have a conflict in primary mask
+                        # Get all indices in the primary mask for each group
                         tip_indices = [
                             (np.array(list(group[1])) == "t").nonzero()[0].tolist()
                             for group in combination
@@ -335,25 +373,34 @@ class AutoWorklist(EvoWorklist):
                         all_tips = [
                             tip for group_tips in tip_indices for tip in group_tips
                         ]
+                        # If there are repeats, skip this group
                         if len(set(all_tips)) != len(all_tips):
                             continue
-                        tips_for_group = [tip - min(all_tips) for tip in all_tips]
+
+                        # List the tips needed for this group, if we offset tips to use tip 1 first
+                        # This will be used to assign tips for pipetting later
+                        tips_for_combo = [tip - min(all_tips) for tip in all_tips]
 
                     else:
+                        # If the primary is a trough source, we just need one tip per op
+                        op_count = sum([len(group[0]) for group in combination])
+                        tips_for_combo = list(range(op_count))
 
-                        tips_for_group = list(range(len(combination[0][0])))
-
+                    # Track the maximum tips we've seen for a combo
                     most_tips_achieved = max(most_tips_achieved, tips_needed)
+                    # Append this combo to the valid list
                     valid_combinations.append(
-                        (tips_needed, combination, tips_for_group)
+                        (tips_needed, combination, tips_for_combo)
                     )
 
+                # If we've already found a combo that uses all 8 tips, stop searching
                 if most_tips_achieved == 8:
                     break
 
+            # Sort by the number of tips used by this combo
             valid_combinations.sort(reverse=True)
-            # Now, we need to rationalise this group and select the best 8 ops we can do with our tips
 
+            # Extract the list of groups from this combo
             selected_groups = [
                 (
                     sorted(list(ops), key=lambda op: secondary_pos(op)[0]),
@@ -362,24 +409,15 @@ class AutoWorklist(EvoWorklist):
                 )
                 for (ops, primary_mask, secondary_mask) in valid_combinations[0][1]
             ]
+            # Extract the list of ops among all groups in this combo
             selected_ops = [op for group in selected_groups for op in list(group[0])]
             tips_used = valid_combinations[0][2]
 
-            # Caclulate a cost for this group of operations
-            # Ideal situation (cost 0) would be a single aspirate with 8 operations,
-            # And a single dispense with the same 8 operations
-
-            # Thus, the cost is how far we are from this ideal (8 - number_aspirated) + (8 - number_dispensed)
-
+            # Track the total number of steps required for this group
+            # It will always be one op for the primary primary plus the number of seccondary op groups we have
             total_steps = 1 + len(selected_groups)
 
-            # steps_for_primary = 1
-            # steps_for_secondary = len(selected_groups)
-            # ops_achieved = len(selected_ops)
-
-            # grouping_cost = (steps_for_primary + steps_for_secondary) / ops_achieved
-
-            # Add this group and its cost to the list
+            # Add this group to the list
             best_groupings.append(
                 (
                     total_steps,
@@ -394,6 +432,8 @@ class AutoWorklist(EvoWorklist):
 
     def group_ops(self):
 
+        # Get open ops - the pending operations that don't have an unfulfilled dependency
+        # Ie all ops we can select from at this time point
         open_ops = [
             op
             for op in self.pending_ops
@@ -403,44 +443,72 @@ class AutoWorklist(EvoWorklist):
 
         open_ops.sort()
 
+        # Get the best groups of ops when grouping by source,
+        # and grouping by destination
+        # See group_by method for more details
         best_groupings = self.group_by(open_ops, "source")
         best_groupings += self.group_by(open_ops, "destination")
 
+        # Sort the groups by best cost, then earliest op, then the most ops achieved
         def group_sort_key(group):
             (steps, _, ops, _, _) = group
+            # Cost is the number of steps (aspirates + dispenses) needed for the group,
+            # divided by the number of ops (well transfers) achieved
             cost = steps / len(ops)
-            # With equal cost, bias those with earlier op id
-            # To keep things in a more understandable order
-            return (cost, min([op.id for op in ops]) - 1 * len(ops))
+            return (cost, min([op.id for op in ops]), -1 * len(ops))
 
-        # Sort the groups by their cost
         best_groupings.sort(key=group_sort_key)
         return best_groupings
 
     def make_plan(self):
 
+        # Count the aspirates, dispenses, and washes we use
+        # for performance tracking
         asp_count = 0
         disp_count = 0
         wash_count = 0
+
+        # Repeat until we have no more operations pending
         while len(self.pending_ops) > 0:
+            # Group the operations. See group_ops method for details
             best_groupings = self.group_ops()
+            # In the simple case, we can just take the single best group. However, if the best group doesn't use all 8 tips,
+            # We can select other groups to use the remaining tips
+            # Before washing them all together
+
+            # Track how many tips we've used across the currently selected groups
             tips_used = 0
+            # Track the selected groups, and the ops among those selected groups
             selected_groups = []
             selected_ops = []
+
+            # Store the cost of executing the second best group available
+            # This is a benchmark for whether to include subsequent groups
+            # e.g. if it's more efficient to select the second best group and do two additional washes,
+            # compared to adding an unefficient group to the remaining tips,
+            # Then don't add any more groups, and leave the remaining tips empty
+            # second best cost is the number of ((aspirates + dispenses) + 2 (as a wash takes two movements into the waste then cleaner)),
+            # divided by the number of ops achieved by that group
             second_best_cost = (best_groupings[1][0] + 2) / len(best_groupings[1][2])
+
+            # Track which group we're looking at
             index = 0
+            # While we haven't checked every group, and haven't used all our tips
             while tips_used < 8 and index < len(best_groupings):
 
+                # Get the contents of this group
                 (steps, group_type, ops, target_groups, tips_selected) = best_groupings[
                     index
                 ]
                 index += 1
+                # Number of tips needed for this group
                 tips_needed = (max(tips_selected) - min(tips_selected)) + 1
-                # Check this group won't use too many tips
+
+                # Initial check this group won't use too many tips
                 if tips_used + tips_needed > 8:
                     continue
 
-                # Check the ops in previously selected groups and new group are disjoint
+                # Check the ops in previously selected groups and new group are disjoint - ie don't try and do the same op twice
                 if len(set(selected_ops + ops)) != len(selected_ops) + len(ops):
                     continue
 
@@ -451,67 +519,89 @@ class AutoWorklist(EvoWorklist):
                     break
 
                 if group_type == "source" and isinstance(ops[0].source, Trough):
+                    # If the source is a Trough, we simply assign tips sequentially, starting from the next unused tip
                     tip_counter = tips_used
                     for group, _, _ in target_groups:
                         for op in group:
                             op.selected_tip = tip_counter + 1
                             tip_counter += 1
 
+                    # If this puts us over 8 tips, skip this group
                     if tip_counter > 8:
                         continue
+                    # Update the count of tips used
                     tips_used += tip_counter
                 else:
+                    # Case where source isn't a trough
+                    # In that case, the tips needed might depend on the specific rows selected
+
                     tip_index = 0
                     for group, _, _ in target_groups:
                         for op in group:
+                            # Get the tip assigned to this op in the grouping process
                             op.selected_tip = tips_used + tips_selected[tip_index] + 1
                             tip_index += 1
                     tips_used += tips_needed
 
+                # If no conflicts have occurred, add this group to the selected groups and ops
                 selected_groups.append((group_type, ops, target_groups))
                 selected_ops += ops
 
+            # Process the groups into a list of sources to aspirate and a list of destinations to dispense
             source_list = []
             dest_list = []
             for group_type, ops, target_groups in selected_groups:
 
                 if group_type == "source":
-
+                    # If we've grouped by source, we can aspirate all ops in the group at once
                     source_list += [ops]
+                    # Destinations will depend on the subgroups selected, one for each subgroup
                     dest_list += [group[0] for group in target_groups]
 
                 else:
-                    source_list += [group[0] for group in target_groups]
+                    # If we've grouped by destination, we can dispense all ops in the group at once
                     dest_list += [ops]
+                    # Sources will depend on the subgroups selected, one for each subgroup
+                    source_list += [group[0] for group in target_groups]
 
+            # Sort the source list and dest list by the tips used in each subgroup
+            # This just makes sure the pipetting occurs in an order that's less confusing visually,
+            # starting from tip 1 to tip 8
             sort_tip_key = lambda x: min([op.selected_tip for op in x])
             source_list.sort(key=sort_tip_key)
 
             dest_list.sort(key=sort_tip_key)
 
+            # Loop through the source list, aspirating for each group
             for source_group in source_list:
 
+                # Get the first op in the group
                 source_op = next(iter(source_group))
+                # Get the col of this source group
                 source_col = source_op.source_pos[1]
+                # Get the rows we need to aspirate from the source_pos attribute of each op
                 source_rows = [op.source_pos[0] for op in source_group]
 
+                # Get the volumes stored in the ops
                 volumes = [op.volume for op in source_group]
-
+                # Get the tips assigned to the ops in the previous step
                 tips = [op.selected_tip for op in source_group]
 
+                # Check from earlier troubleshooting
                 if len(tips) != len(set(tips)):
                     raise Exception("Error in tip logic")
 
-                # If we have a trough, source rows match the tips we have
+                # If we have a trough, just set source rows to whichever tips we're using
                 if isinstance(source_op.source, Trough):
                     source_rows = [tip - 1 for tip in tips]
 
-                # Sort volumes by tips
+                # Sort volumes by tips used
                 tips_volumes = list(zip(tips, volumes))
                 tips_volumes.sort()
                 tips, volumes = zip(*tips_volumes)
 
-                self.evo_aspirate(
+                # Perform the aspiration
+                self._evo_aspirate(
                     source_op.source,
                     source_op.source.wells[source_rows, source_col],
                     source_op.source.location,
@@ -526,14 +616,20 @@ class AutoWorklist(EvoWorklist):
                 asp_count += 1
 
             for dest_group in dest_list:
+                # Get the first op in the group
                 dest_op = next(iter(dest_group))
+                # Get the col of this source group
                 dest_col = dest_op.dest_pos[1]
 
+                # Get the rows we need to dispense to for the group
                 dest_rows = [op.dest_pos[0] for op in dest_group]
 
+                # Get the volume stored in each op
                 volumes = [op.volume for op in dest_group]
 
+                # Get the tips assigned in previous steps
                 tips = [op.selected_tip for op in dest_group]
+                # Get the composition from the source labware for each op
                 compositions = [
                     op.source.get_well_composition(op.source.wells[op.source_pos])
                     for op in dest_group
@@ -544,7 +640,8 @@ class AutoWorklist(EvoWorklist):
                 tips_volumes.sort()
                 tips, volumes = zip(*tips_volumes)
 
-                self.evo_dispense(
+                # Perform the dispense op
+                self._evo_dispense(
                     dest_op.destination,
                     dest_op.destination.wells[dest_rows, dest_col],
                     dest_op.destination.location,
@@ -561,7 +658,7 @@ class AutoWorklist(EvoWorklist):
                 disp_count += 1
 
             # Wash after this group of ops
-            self.evo_wash(
+            self._evo_wash(
                 tips=[op.selected_tip for op in source_group],
                 waste_location=self.waste_location,
                 cleaner_location=self.cleaner_location,
@@ -582,9 +679,12 @@ class AutoWorklist(EvoWorklist):
         return
 
     def commit(self):
+        # List the ops before any optimising
+        # For debugging purposes
         for op in sorted(self.pending_ops, key=lambda x: x.id):
             print(op)
 
+        # If we have ops pending, optimise and apply them
         if len(self.pending_ops) > 0:
             self.make_plan()
             self.pending_ops = set()
@@ -594,6 +694,7 @@ class AutoWorklist(EvoWorklist):
 
     def __exit__(self, *args):
 
+        # Commit to optimise and apply any pending ops before exiting
         self.commit()
 
         super().__exit__(*args)
