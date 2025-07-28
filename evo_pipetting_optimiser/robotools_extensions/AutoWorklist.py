@@ -659,7 +659,7 @@ class AutoWorklist(EvoWorklist):
 
             # Wash after this group of ops
             self._evo_wash(
-                tips=[op.selected_tip for op in source_group],
+                tips=[op.selected_tip for op in selected_ops],
                 waste_location=self.waste_location,
                 cleaner_location=self.cleaner_location,
                 silence_append_warning=True,
