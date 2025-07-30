@@ -501,8 +501,17 @@ class AutoWorklist(EvoWorklist):
                     index
                 ]
                 index += 1
+
+                # If the primary is a trough source, we can be more flexible with rows and tips
+                is_trough_primary = group_type == "source" and isinstance(
+                    ops[0].source, Trough
+                )
+
                 # Number of tips needed for this group
-                tips_needed = (max(tips_selected) - min(tips_selected)) + 1
+                if is_trough_primary:
+                    tips_needed = len(ops)
+                else:
+                    tips_needed = (max(tips_selected) - min(tips_selected)) + 1
 
                 # Initial check this group won't use too many tips
                 if tips_used + tips_needed > 8:
@@ -518,30 +527,51 @@ class AutoWorklist(EvoWorklist):
                 if cost_of_adding >= second_best_cost:
                     break
 
-                if group_type == "source" and isinstance(ops[0].source, Trough):
-                    # If the source is a Trough, we simply assign tips sequentially, starting from the next unused tip
-                    tip_counter = tips_used
-                    for group, _, _ in target_groups:
-                        for op in group:
-                            op.selected_tip = tip_counter + 1
-                            tip_counter += 1
+                tip_index = 0
+                tip_extra_offset = 0
+                exclude_group = False
+                trough_tip_counter = 0
+                for group, _, _ in target_groups:
+                    for op in group:
 
-                    # If this puts us over 8 tips, skip this group
-                    if tip_counter > 8:
-                        continue
-                    # Update the count of tips used
-                    tips_used += tip_counter
-                else:
-                    # Case where source isn't a trough
-                    # In that case, the tips needed might depend on the specific rows selected
+                        source_limit = getattr(op.source, "offset_limit", None)
+                        dest_limit = op.destination.offset_limit
+                        # Get the tip assigned to this op in the grouping process
 
-                    tip_index = 0
-                    for group, _, _ in target_groups:
-                        for op in group:
-                            # Get the tip assigned to this op in the grouping process
-                            op.selected_tip = tips_used + tips_selected[tip_index] + 1
-                            tip_index += 1
-                    tips_used += tips_needed
+                        if is_trough_primary:
+                            tip_assigned = tips_used + trough_tip_counter
+                            trough_tip_counter += 1
+                        else:
+                            tip_assigned = tips_used + tips_selected[tip_index]
+
+                        source_offset = op.source_pos[0] - tip_assigned
+                        dest_offset = op.dest_pos[0] - tip_assigned
+
+                        def check_limit(limit, offset):
+                            # Check if we have exceeded the offset limit allowed
+                            if limit is None:
+                                return 0
+                            return offset - limit
+
+                        source_check = check_limit(source_limit, source_offset)
+                        dest_check = check_limit(dest_limit, dest_offset)
+                        if source_check < 0 or dest_check < 0:
+                            exclude_group = True
+                            break
+                        if source_check > 0 or dest_check > 0:
+                            tip_extra_offset += max(source_check, dest_check)
+
+                        # Tips passed to robotools are 1-indexed, so add 1
+                        op.selected_tip = tip_extra_offset + tip_assigned + 1
+                        tip_index += 1
+
+                # If this puts us over 8 tips, skip this group
+                if tips_used + tips_needed + tip_extra_offset > 8:
+                    continue
+                if exclude_group:
+                    continue
+
+                tips_used += tips_needed + tip_extra_offset
 
                 # If no conflicts have occurred, add this group to the selected groups and ops
                 selected_groups.append((group_type, ops, target_groups))
