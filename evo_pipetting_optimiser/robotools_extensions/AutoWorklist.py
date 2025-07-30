@@ -6,6 +6,7 @@ import warnings
 from collections import deque
 import numpy as np
 from functools import reduce
+from math import copysign
 
 
 class TransferOperation:
@@ -484,7 +485,7 @@ class AutoWorklist(EvoWorklist):
 
             # Store the cost of executing the second best group available
             # This is a benchmark for whether to include subsequent groups
-            # e.g. if it's more efficient to select the second best group and do two additional washes,
+            # e.g. if it's more efficient to select the second best group and do an additional wash,
             # compared to adding an unefficient group to the remaining tips,
             # Then don't add any more groups, and leave the remaining tips empty
             # second best cost is the number of ((aspirates + dispenses) + 2 (as a wash takes two movements into the waste then cleaner)),
@@ -528,11 +529,19 @@ class AutoWorklist(EvoWorklist):
                     break
 
                 tip_index = 0
+
+                target_groups_selected = []
+                target_ops_selected = []
                 tip_extra_offset = 0
-                exclude_group = False
+
                 trough_tip_counter = 0
-                for group, _, _ in target_groups:
-                    for op in group:
+
+                for target_group, _, _ in target_groups:
+                    # Due to offset constraints, we might not be able to include all target groups
+                    # So, allow us to select a part
+                    exclude_group = False
+
+                    for op in target_group:
 
                         source_limit = getattr(op.source, "offset_limit", None)
                         dest_limit = op.destination.offset_limit
@@ -565,17 +574,23 @@ class AutoWorklist(EvoWorklist):
                         op.selected_tip = tip_extra_offset + tip_assigned + 1
                         tip_index += 1
 
-                # If this puts us over 8 tips, skip this group
-                if tips_used + tips_needed + tip_extra_offset > 8:
-                    continue
-                if exclude_group:
-                    continue
+                    if exclude_group:
+                        continue
 
-                tips_used += tips_needed + tip_extra_offset
+                    # If this puts us over 8 tips, skip this group
+                    if tips_used + tips_needed + tip_extra_offset > 8:
+                        continue
+
+                    target_ops_selected += target_group
+
+                    tips_used += tips_needed + tip_extra_offset
+                    target_groups_selected.append(target_group)
 
                 # If no conflicts have occurred, add this group to the selected groups and ops
-                selected_groups.append((group_type, ops, target_groups))
-                selected_ops += ops
+                selected_groups.append(
+                    (group_type, target_ops_selected, target_groups_selected)
+                )
+                selected_ops += target_ops_selected
 
             # Process the groups into a list of sources to aspirate and a list of destinations to dispense
             source_list = []
