@@ -519,7 +519,7 @@ class AutoWorklist(EvoWorklist):
                 # Check that the cost of adding this group (and saving washes)
                 # Isn't greater than the cost of the second best group with additional washes
                 cost_of_adding = steps / len(ops)
-                if cost_of_adding > second_best_cost:
+                if cost_of_adding >= second_best_cost:
                     break
 
                 if offset_limited:
