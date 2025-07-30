@@ -508,16 +508,6 @@ class AutoWorklist(EvoWorklist):
                     ops[0].source, Trough
                 )
 
-                # Number of tips needed for this group
-                if is_trough_primary:
-                    tips_needed = len(ops)
-                else:
-                    tips_needed = (max(tips_selected) - min(tips_selected)) + 1
-
-                # Initial check this group won't use too many tips
-                if tips_used + tips_needed > 8:
-                    continue
-
                 # Check the ops in previously selected groups and new group are disjoint - ie don't try and do the same op twice
                 if len(set(selected_ops + ops)) != len(selected_ops) + len(ops):
                     continue
@@ -525,21 +515,20 @@ class AutoWorklist(EvoWorklist):
                 # Check that the cost of adding this group (and saving washes)
                 # Isn't greater than the cost of the second best group with additional washes
                 cost_of_adding = steps / len(ops)
-                if cost_of_adding >= second_best_cost:
+                if cost_of_adding > second_best_cost:
                     break
-
-                tip_index = 0
 
                 target_groups_selected = []
                 target_ops_selected = []
-                tip_extra_offset = 0
-
-                trough_tip_counter = 0
 
                 for target_group, _, _ in target_groups:
                     # Due to offset constraints, we might not be able to include all target groups
                     # So, allow us to select a part
                     exclude_group = False
+                    trough_tip_counter = 0
+                    tip_extra_offset = 0
+                    tips_in_target_group = []
+                    tip_index = 0
 
                     for op in target_group:
 
@@ -547,11 +536,7 @@ class AutoWorklist(EvoWorklist):
                         dest_limit = op.destination.offset_limit
                         # Get the tip assigned to this op in the grouping process
 
-                        if is_trough_primary:
-                            tip_assigned = tips_used + trough_tip_counter
-                            trough_tip_counter += 1
-                        else:
-                            tip_assigned = tips_used + tips_selected[tip_index]
+                        tip_assigned = tips_used + tips_selected[tip_index]
 
                         source_offset = op.source_pos[0] - tip_assigned
                         dest_offset = op.dest_pos[0] - tip_assigned
@@ -572,19 +557,26 @@ class AutoWorklist(EvoWorklist):
 
                         # Tips passed to robotools are 1-indexed, so add 1
                         op.selected_tip = tip_extra_offset + tip_assigned + 1
+                        tips_in_target_group.append(tip_assigned)
                         tip_index += 1
 
                     if exclude_group:
                         continue
 
-                    # If this puts us over 8 tips, skip this group
-                    if tips_used + tips_needed + tip_extra_offset > 8:
+                    new_tips = (
+                        tip_extra_offset
+                        + (max(tips_in_target_group) - min(tips_in_target_group))
+                        + 1
+                    )
+                    if tips_used + new_tips > 8:
                         continue
 
+                    tips_used += new_tips
                     target_ops_selected += target_group
-
-                    tips_used += tips_needed + tip_extra_offset
                     target_groups_selected.append(target_group)
+
+                if len(target_ops_selected) == 0:
+                    continue
 
                 # If no conflicts have occurred, add this group to the selected groups and ops
                 selected_groups.append(
@@ -601,13 +593,13 @@ class AutoWorklist(EvoWorklist):
                     # If we've grouped by source, we can aspirate all ops in the group at once
                     source_list += [ops]
                     # Destinations will depend on the subgroups selected, one for each subgroup
-                    dest_list += [group[0] for group in target_groups]
+                    dest_list += [group for group in target_groups]
 
                 else:
                     # If we've grouped by destination, we can dispense all ops in the group at once
                     dest_list += [ops]
                     # Sources will depend on the subgroups selected, one for each subgroup
-                    source_list += [group[0] for group in target_groups]
+                    source_list += [group for group in target_groups]
 
             # Sort the source list and dest list by the tips used in each subgroup
             # This just makes sure the pipetting occurs in an order that's less confusing visually,
