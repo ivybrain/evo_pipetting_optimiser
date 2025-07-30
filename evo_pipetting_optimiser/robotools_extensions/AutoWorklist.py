@@ -495,6 +495,9 @@ class AutoWorklist(EvoWorklist):
             # Track which group we're looking at
             index = 0
             # While we haven't checked every group, and haven't used all our tips
+
+            offset_limited = False
+
             while tips_used < 8 and index < len(best_groupings):
 
                 # Get the contents of this group
@@ -503,19 +506,23 @@ class AutoWorklist(EvoWorklist):
                 ]
                 index += 1
 
-                # If the primary is a trough source, we can be more flexible with rows and tips
-                is_trough_primary = group_type == "source" and isinstance(
-                    ops[0].source, Trough
-                )
-
                 # Check the ops in previously selected groups and new group are disjoint - ie don't try and do the same op twice
                 if len(set(selected_ops + ops)) != len(selected_ops) + len(ops):
+                    continue
+
+                tips_needed = (max(tips_selected) - min(tips_selected)) + 1
+
+                # Initial check this group won't use too many tips
+                if tips_used + tips_needed > 8:
                     continue
 
                 # Check that the cost of adding this group (and saving washes)
                 # Isn't greater than the cost of the second best group with additional washes
                 cost_of_adding = steps / len(ops)
                 if cost_of_adding > second_best_cost:
+                    break
+
+                if offset_limited:
                     break
 
                 target_groups_selected = []
@@ -525,7 +532,6 @@ class AutoWorklist(EvoWorklist):
                     # Due to offset constraints, we might not be able to include all target groups
                     # So, allow us to select a part
                     exclude_group = False
-                    trough_tip_counter = 0
                     tip_extra_offset = 0
                     tips_in_target_group = []
                     tip_index = 0
@@ -551,8 +557,10 @@ class AutoWorklist(EvoWorklist):
                         dest_check = check_limit(dest_limit, dest_offset)
                         if source_check < 0 or dest_check < 0:
                             exclude_group = True
+                            offset_limited = True
                             break
                         if source_check > 0 or dest_check > 0:
+                            offset_limited = True
                             tip_extra_offset += max(source_check, dest_check)
 
                         # Tips passed to robotools are 1-indexed, so add 1
