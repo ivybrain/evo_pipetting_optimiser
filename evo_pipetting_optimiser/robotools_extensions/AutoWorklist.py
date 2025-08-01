@@ -111,7 +111,36 @@ class AutoWorklist(EvoWorklist):
         wash=True,
         **kwargs,
     ) -> None:
-        """Transfer operation between two labwares."""
+        """Transfer operation between two labwares with automatic pipetting order optimisation
+        Ensures correct order of transfers to each particular well,
+        While grouping transfers together for pipetting efficiency
+        use .commit() to calculate the pipetting strategy and populate the worklist with the corresponding commands
+
+        Parameters
+        ----------
+        source : AdvancedLabware or Trough (with location property set to (grid,site) tuple)
+        source_wells : str or iterable
+            List of source well ids
+        destination : AdvancedLabware
+            Destination labware
+        destination_wells : str or iterable
+            List of destination well ids
+        volumes : float or iterable
+            Volume(s) to transfer
+        label : str
+            Label of the operation to log into labware history
+        liquid_class : str
+            Liquid class to use for pipetting
+
+        on_underflow
+            What to do about volume underflows (going below ``vmin``) in non-empty wells.
+
+            Options:
+
+            - ``"debug"`` mentions the underflowing wells in a log message at DEBUG level.
+            - ``"warn"`` emits an :class:`~robotools.liquidhandling.exceptions.VolumeUnderflowWarning`. This `can be captured in unit tests <https://docs.pytest.org/en/stable/how-to/capture-warnings.html#additional-use-cases-of-warnings-in-tests>`_.
+            - ``"raise"`` raises a :class:`~robotools.liquidhandling.exceptions.VolumeUnderflowError` about underflowing wells.
+        """
         # reformat the convenience parameters
         source_wells = np.array(source_wells).flatten("F")
         destination_wells = np.array(destination_wells).flatten("F")
