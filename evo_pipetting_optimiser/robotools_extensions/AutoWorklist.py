@@ -5,8 +5,7 @@ import itertools
 import warnings
 from collections import deque
 import numpy as np
-from functools import reduce
-from math import copysign
+import math
 
 
 class TransferOperation:
@@ -155,30 +154,43 @@ class AutoWorklist(EvoWorklist):
         # Create a TransferOperation object with all the details of the transfer
         # For every pair of source,destination wells
         for i in range(len(source_wells)):
-            op = TransferOperation(
-                source,
-                source.indices[source_wells[i]],
-                destination,
-                destination.indices[destination_wells[i]],
-                volumes[i],
-                label=label,
-                wash=wash,
-                on_underflow=on_underflow,
-                source_dep=(
-                    source.last_op[source_wells[i]]
-                    if isinstance(source, AdvancedLabware)
-                    else None
-                ),
-                dest_dep=destination.last_op[destination_wells[i]],
-                liquid_class=liquid_class,
+
+            # Check for large volume handling
+            repeats = math.ceil(volumes[i] / self.max_volume)
+            volume = volumes[i] / repeats
+            source_dep = (
+                source.last_op[source_wells[i]]
+                if isinstance(source, AdvancedLabware)
+                else None
             )
+            dest_dep = (destination.last_op[destination_wells[i]],)
 
-            # Append this op to the labware we're aspirating to
-            # So that future transfers to the well know that they need to wait for this transfer first
-            destination.op_tracking[destination_wells[i]].append(op)
+            for j in range(repeats):
 
-            # Add this op to the pending operations set
-            self.pending_ops.update([op])
+                op = TransferOperation(
+                    source,
+                    source.indices[source_wells[i]],
+                    destination,
+                    destination.indices[destination_wells[i]],
+                    volume,
+                    label=label,
+                    wash=wash,
+                    on_underflow=on_underflow,
+                    source_dep=source_dep,
+                    dest_dep=dest_dep,
+                    liquid_class=liquid_class,
+                )
+
+                # Set the source and dest dependencies of the next LVH repeat op to this op
+                source_dep = op
+                dest_dep = op
+
+                # Append this op to the labware we're aspirating to
+                # So that future transfers to the well know that they need to wait for this transfer first
+                destination.op_tracking[destination_wells[i]].append(op)
+
+                # Add this op to the pending operations set
+                self.pending_ops.update([op])
 
     def append(self, *args, **kwargs):
         # If we have un-commited auto transfers and the user tries to append something else to the worklist
