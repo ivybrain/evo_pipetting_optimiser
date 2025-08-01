@@ -286,10 +286,14 @@ class AutoWorklist(EvoWorklist):
             # function that gives the source pos (row, column) when we call for primary
             primary_pos = lambda op: op.source_pos
             secondary_pos = lambda op: op.dest_pos
+            primary_labware = lambda op: op.source
+            secondary_labware = lambda op: op.destination
             secondary = "destination"
         elif primary == "destination":
             primary_pos = lambda op: op.dest_pos
             secondary_pos = lambda op: op.source_pos
+            primary_labware = lambda op: op.destination
+            secondary_labware = lambda op: op.source
             secondary = "source"
 
         # Group available operations by primary labware and primary column
@@ -342,6 +346,7 @@ class AutoWorklist(EvoWorklist):
                 # Are a substring of the source rows (like fffftftf)
                 # We can aspirate this group in one shot
                 # If the source is a trough, the rows are flexible, so we don't need this check
+                # We also can't repeat secondary rows (without requiring an additional pipetting step)
                 if (
                     isinstance(selected_ops[0].source, Trough)
                     or secondary_rows_mask in primary_rows_mask
@@ -402,37 +407,90 @@ class AutoWorklist(EvoWorklist):
                     # If the combo is bigger than 1 group, and the primary isn't a trough source,
                     # We need to make sure none of the rows in the primary are repeated
                     # As this would require more than one aspirate/dispense
-                    if combo_size > 1 and (
-                        primary != "source"
-                        or not isinstance(selected_ops[0].source, Trough)
+
+                    # Check that we don't have a conflict in primary mask
+                    # Get all indices in the primary mask for each group
+                    tip_indices = [
+                        (np.array(list(group[1])) == "t").nonzero()[0].tolist()
+                        for group in combination
+                    ]
+
+                    # If primary is a trough source, just assign one tip per op
+                    if primary == "source" and isinstance(
+                        next(iter(combination[0][0])).source, Trough
                     ):
-                        # Check that we don't have a conflict in primary mask
-                        # Get all indices in the primary mask for each group
-                        tip_indices = [
-                            (np.array(list(group[1])) == "t").nonzero()[0].tolist()
-                            for group in combination
-                        ]
+                        op_count = sum([len(group[0]) for group in combination])
+                        all_tips = list(range(op_count))
+                    else:
                         all_tips = [
                             tip for group_tips in tip_indices for tip in group_tips
                         ]
-                        # If there are repeats, skip this group
-                        if len(set(all_tips)) != len(all_tips):
-                            continue
 
-                        # List the tips needed for this group, if we offset tips to use tip 1 first
-                        # This will be used to assign tips for pipetting later
-                        tips_for_combo = [tip - min(all_tips) for tip in all_tips]
+                    # If there are repeats, skip this combo
+                    if len(set(all_tips)) != len(all_tips):
+                        continue
 
-                    else:
-                        # If the primary is a trough source, we just need one tip per op
-                        op_count = sum([len(group[0]) for group in combination])
-                        tips_for_combo = list(range(op_count))
+                    # Check we still have enough tips with offset restrictions
+                    # If we don't violate any constraints, we want to use tip 1 for the first row included, etc
+                    primary_offset = -min(all_tips)
+                    tips_for_combo = []
+                    for i in range(len(combination)):
+                        group = combination[i]
+                        exemplar_op = next(iter(group[0]))
+
+                        primary_limit = getattr(
+                            primary_labware(exemplar_op), "offset_limit", None
+                        )
+                        secondary_limit = getattr(
+                            secondary_labware(exemplar_op), "offset_limit", None
+                        )
+
+                        first_tip = min(tip_indices[i]) + primary_offset
+                        secondary_offset = secondary_pos(exemplar_op)[0] - first_tip
+
+                        def check_limit(limit, offset):
+                            # Check if we have exceeded the offset limit allowed
+                            if limit is None:
+                                return 0
+                            if limit >= 0:
+                                return offset - limit
+                            return limit - offset
+
+                        primary_check = check_limit(primary_limit, primary_offset)
+                        secondary_check = check_limit(secondary_limit, secondary_offset)
+
+                        if primary_check > 0 or secondary_check > 0:
+                            primary_offset += max(primary_check, secondary_check)
+
+                    # List the tips needed for this group, adjusted by the offset
+                    # This will be used to assign tips for pipetting later
+                    tips_for_combo = [tip + primary_offset for tip in all_tips]
+
+                    # remove ops that need more than tip 8 after offset is applied
+                    ops_to_cut = len([tip for tip in tips_for_combo if tip > 8])
+
+                    if ops_to_cut > 0:
+                        tips_for_combo = tips_for_combo[:-ops_to_cut]
+
+                    tips_needed = max(tips_for_combo)
+
+                    op_count = 0
+                    combination_cut = []
+                    for group, _, _ in combination:
+                        group_ops = []
+                        for op in group:
+                            group_ops.append(op)
+                            op_count += 1
+                            if op_count >= len(tips_for_combo) - ops_to_cut:
+                                break
+                        if len(group_ops) > 0:
+                            combination_cut.append(group_ops)
 
                     # Track the maximum tips we've seen for a combo
                     most_tips_achieved = max(most_tips_achieved, tips_needed)
                     # Append this combo to the valid list
                     valid_combinations.append(
-                        (tips_needed, combination, tips_for_combo)
+                        (tips_needed, combination_cut, tips_for_combo)
                     )
 
                 # If we've already found a combo that uses all 8 tips, stop searching
@@ -444,15 +502,11 @@ class AutoWorklist(EvoWorklist):
 
             # Extract the list of groups from this combo
             selected_groups = [
-                (
-                    sorted(list(ops), key=lambda op: secondary_pos(op)[0]),
-                    primary_mask,
-                    secondary_mask,
-                )
-                for (ops, primary_mask, secondary_mask) in valid_combinations[0][1]
+                (sorted(list(ops), key=lambda op: secondary_pos(op)[0]))
+                for ops in valid_combinations[0][1]
             ]
             # Extract the list of ops among all groups in this combo
-            selected_ops = [op for group in selected_groups for op in list(group[0])]
+            selected_ops = [op for group in selected_groups for op in list(group)]
             tips_used = valid_combinations[0][2]
 
             # Track the total number of steps required for this group
@@ -536,9 +590,6 @@ class AutoWorklist(EvoWorklist):
             # Track which group we're looking at
             index = 0
             # While we haven't checked every group, and haven't used all our tips
-
-            offset_limited = False
-
             while tips_used < 8 and index < len(best_groupings):
 
                 # Get the contents of this group
@@ -551,7 +602,7 @@ class AutoWorklist(EvoWorklist):
                 if len(set(selected_ops + ops)) != len(selected_ops) + len(ops):
                     continue
 
-                tips_needed = (max(tips_selected) - min(tips_selected)) + 1
+                tips_needed = max(tips_selected)
 
                 # Initial check this group won't use too many tips
                 if tips_used + tips_needed > 8:
@@ -563,50 +614,22 @@ class AutoWorklist(EvoWorklist):
                 if cost_of_adding >= second_best_cost:
                     break
 
-                tip_index = 0
-                tip_extra_offset = 0
-                exclude_group = False
-                for group, _, _ in target_groups:
-                    for op in group:
-
-                        source_limit = getattr(op.source, "offset_limit", None)
-                        dest_limit = op.destination.offset_limit
-                        # Get the tip assigned to this op in the grouping process
-
-                        tip_assigned = tips_used + tips_selected[tip_index]
-
-                        source_offset = op.source_pos[0] - tip_assigned
-                        dest_offset = op.dest_pos[0] - tip_assigned
-
-                        def check_limit(limit, offset):
-                            # Check if we have exceeded the offset limit allowed
-                            if limit is None:
-                                return 0
-                            return offset - limit
-
-                        source_check = check_limit(source_limit, source_offset)
-                        dest_check = check_limit(dest_limit, dest_offset)
-                        if source_check < 0 or dest_check < 0:
-                            exclude_group = True
-                            break
-                        if source_check > 0 or dest_check > 0:
-                            tip_extra_offset += max(source_check, dest_check)
-
-                        # Tips passed to robotools are 1-indexed, so add 1
-                        op.selected_tip = tip_extra_offset + tip_assigned + 1
-                        tip_index += 1
-
                 # If this puts us over 8 tips, skip this group
-                if tips_used + tips_needed + tip_extra_offset > 8:
-                    continue
-                if exclude_group:
+                if tips_used + tips_needed > 8:
                     continue
 
-                tips_used += tips_needed + tip_extra_offset
+                for i in range(len(ops)):
+                    # Convert to 1-indexed tips for robotools commands
+                    ops[i].selected_tip = tips_selected[i] + 1
+
+                tips_used += tips_needed
 
                 # If no conflicts have occurred, add this group to the selected groups and ops
                 selected_groups.append((group_type, ops, target_groups))
                 selected_ops += ops
+
+            if len(selected_ops) == 0:
+                raise Exception("Error: No valid groups to select")
 
             # Process the groups into a list of sources to aspirate and a list of destinations to dispense
             source_list = []
@@ -617,13 +640,13 @@ class AutoWorklist(EvoWorklist):
                     # If we've grouped by source, we can aspirate all ops in the group at once
                     source_list += [ops]
                     # Destinations will depend on the subgroups selected, one for each subgroup
-                    dest_list += [group[0] for group in target_groups]
+                    dest_list += [group for group in target_groups]
 
                 else:
                     # If we've grouped by destination, we can dispense all ops in the group at once
                     dest_list += [ops]
                     # Sources will depend on the subgroups selected, one for each subgroup
-                    source_list += [group[0] for group in target_groups]
+                    source_list += [group for group in target_groups]
 
             # Sort the source list and dest list by the tips used in each subgroup
             # This just makes sure the pipetting occurs in an order that's less confusing visually,
