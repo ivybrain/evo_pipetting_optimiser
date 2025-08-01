@@ -1,6 +1,4 @@
 import robotools
-import numpy as np
-from . import LiquidNode
 
 
 class AdvancedLabware(robotools.Labware):
