@@ -460,7 +460,7 @@ class AutoWorklist(EvoWorklist):
                         secondary_check = check_limit(secondary_limit, secondary_offset)
 
                         if primary_check > 0 or secondary_check > 0:
-                            primary_offset += max(primary_check, secondary_check)
+                            primary_offset -= max(primary_check, secondary_check)
 
                     # List the tips needed for this group, adjusted by the offset
                     # This will be used to assign tips for pipetting later
@@ -468,7 +468,9 @@ class AutoWorklist(EvoWorklist):
 
                     # remove ops that need more than tip 8 after offset is applied
                     ops_to_cut = len([tip for tip in tips_for_combo if tip > 8])
+                    cut_from_start = len([tip for tip in tips_for_combo if tip < 0])
 
+                    tips_for_combo = tips_for_combo[cut_from_start:]
                     if ops_to_cut > 0:
                         tips_for_combo = tips_for_combo[:-ops_to_cut]
 
@@ -479,8 +481,11 @@ class AutoWorklist(EvoWorklist):
                     for group, _, _ in combination:
                         group_ops = []
                         for op in group:
-                            group_ops.append(op)
                             op_count += 1
+                            if op_count <= cut_from_start:
+                                continue
+                            group_ops.append(op)
+
                             if op_count >= len(tips_for_combo) - ops_to_cut:
                                 break
                         if len(group_ops) > 0:
@@ -694,7 +699,8 @@ class AutoWorklist(EvoWorklist):
                     liquid_class=source_op.liquid_class,
                     label=" + ".join(set([op.label for op in source_group]))
                     + ", ops: "
-                    + ",".join([str(op.id) for op in source_group]),
+                    + ",".join([str(op.id) for op in source_group])
+                    + f", offset: {source_rows[0] - (list(tips)[0] - 1)}",
                     silence_append_warning=True,
                 )
                 asp_count += 1
@@ -734,7 +740,8 @@ class AutoWorklist(EvoWorklist):
                     liquid_class=dest_op.liquid_class,
                     label=" + ".join(set([op.label for op in dest_group]))
                     + ", ops: "
-                    + ",".join([str(op.id) for op in dest_group]),
+                    + ",".join([str(op.id) for op in dest_group])
+                    + f", offset: {dest_rows[0] - (list(tips)[0] - 1)}",
                     compositions=compositions,
                     silence_append_warning=True,
                 )
