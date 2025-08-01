@@ -345,7 +345,7 @@ class AutoWorklist(EvoWorklist):
                 if (
                     isinstance(selected_ops[0].source, Trough)
                     or secondary_rows_mask in primary_rows_mask
-                ):
+                ) and len(secondary_rows_group) == len(set(secondary_rows_group)):
 
                     # This means that the seccondary rows line up with the primary rows
                     # Append the group to the confirmed reachable list, along with the rows needed
@@ -563,21 +563,11 @@ class AutoWorklist(EvoWorklist):
                 if cost_of_adding >= second_best_cost:
                     break
 
-                if offset_limited:
-                    break
-
-                target_groups_selected = []
-                target_ops_selected = []
-
-                for target_group, _, _ in target_groups:
-                    # Due to offset constraints, we might not be able to include all target groups
-                    # So, allow us to select a part
-                    exclude_group = False
-                    tip_extra_offset = 0
-                    tips_in_target_group = []
-                    tip_index = 0
-
-                    for op in target_group:
+                tip_index = 0
+                tip_extra_offset = 0
+                exclude_group = False
+                for group, _, _ in target_groups:
+                    for op in group:
 
                         source_limit = getattr(op.source, "offset_limit", None)
                         dest_limit = op.destination.offset_limit
@@ -598,40 +588,25 @@ class AutoWorklist(EvoWorklist):
                         dest_check = check_limit(dest_limit, dest_offset)
                         if source_check < 0 or dest_check < 0:
                             exclude_group = True
-                            offset_limited = True
                             break
                         if source_check > 0 or dest_check > 0:
-                            offset_limited = True
                             tip_extra_offset += max(source_check, dest_check)
 
                         # Tips passed to robotools are 1-indexed, so add 1
                         op.selected_tip = tip_extra_offset + tip_assigned + 1
-                        tips_in_target_group.append(tip_assigned)
                         tip_index += 1
 
-                    if exclude_group:
-                        continue
-
-                    new_tips = (
-                        tip_extra_offset
-                        + (max(tips_in_target_group) - min(tips_in_target_group))
-                        + 1
-                    )
-                    if tips_used + new_tips > 8:
-                        continue
-
-                    tips_used += new_tips
-                    target_ops_selected += target_group
-                    target_groups_selected.append(target_group)
-
-                if len(target_ops_selected) == 0:
+                # If this puts us over 8 tips, skip this group
+                if tips_used + tips_needed + tip_extra_offset > 8:
+                    continue
+                if exclude_group:
                     continue
 
+                tips_used += tips_needed + tip_extra_offset
+
                 # If no conflicts have occurred, add this group to the selected groups and ops
-                selected_groups.append(
-                    (group_type, target_ops_selected, target_groups_selected)
-                )
-                selected_ops += target_ops_selected
+                selected_groups.append((group_type, ops, target_groups))
+                selected_ops += ops
 
             # Process the groups into a list of sources to aspirate and a list of destinations to dispense
             source_list = []
@@ -642,13 +617,13 @@ class AutoWorklist(EvoWorklist):
                     # If we've grouped by source, we can aspirate all ops in the group at once
                     source_list += [ops]
                     # Destinations will depend on the subgroups selected, one for each subgroup
-                    dest_list += [group for group in target_groups]
+                    dest_list += [group[0] for group in target_groups]
 
                 else:
                     # If we've grouped by destination, we can dispense all ops in the group at once
                     dest_list += [ops]
                     # Sources will depend on the subgroups selected, one for each subgroup
-                    source_list += [group for group in target_groups]
+                    source_list += [group[0] for group in target_groups]
 
             # Sort the source list and dest list by the tips used in each subgroup
             # This just makes sure the pipetting occurs in an order that's less confusing visually,
