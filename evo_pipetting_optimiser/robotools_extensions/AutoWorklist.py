@@ -474,7 +474,7 @@ class AutoWorklist(EvoWorklist):
                     if ops_to_cut > 0:
                         tips_for_combo = tips_for_combo[:-ops_to_cut]
 
-                    tips_needed = max(tips_for_combo)
+                    tips_needed = max(tips_for_combo) + 1
 
                     op_count = 0
                     combination_cut = []
@@ -486,7 +486,10 @@ class AutoWorklist(EvoWorklist):
                                 continue
                             group_ops.append(op)
 
-                            if op_count >= len(tips_for_combo) - ops_to_cut:
+                            if (
+                                op_count
+                                >= (len(tips_for_combo) + cut_from_start) - ops_to_cut
+                            ):
                                 break
                         if len(group_ops) > 0:
                             combination_cut.append(group_ops)
@@ -607,7 +610,7 @@ class AutoWorklist(EvoWorklist):
                 if len(set(selected_ops + ops)) != len(selected_ops) + len(ops):
                     continue
 
-                tips_needed = max(tips_selected)
+                tips_needed = max(tips_selected) + 1
 
                 # Initial check this group won't use too many tips
                 if tips_used + tips_needed > 8:
@@ -625,7 +628,7 @@ class AutoWorklist(EvoWorklist):
 
                 for i in range(len(ops)):
                     # Convert to 1-indexed tips for robotools commands
-                    ops[i].selected_tip = tips_selected[i] + 1
+                    ops[i].selected_tip = tips_used + tips_selected[i] + 1
 
                 tips_used += tips_needed
 
