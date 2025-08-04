@@ -506,9 +506,9 @@ class AutoWorklist(EvoWorklist):
 
         # Count the aspirates, dispenses, and washes we use
         # for performance tracking
-        asp_count = 0
-        disp_count = 0
-        wash_count = 0
+        self.asp_count = 0
+        self.disp_count = 0
+        self.wash_count = 0
 
         # Repeat until we have no more operations pending
         while len(self.pending_ops) > 0:
@@ -677,7 +677,7 @@ class AutoWorklist(EvoWorklist):
                     + ",".join([str(op.id) for op in source_group]),
                     silence_append_warning=True,
                 )
-                asp_count += 1
+                self.asp_count += 1
 
             for dest_group in dest_list:
                 # Get the first op in the group
@@ -719,7 +719,7 @@ class AutoWorklist(EvoWorklist):
                     silence_append_warning=True,
                 )
 
-                disp_count += 1
+                self.disp_count += 1
 
             # Wash after this group of ops
             self._evo_wash(
@@ -732,21 +732,28 @@ class AutoWorklist(EvoWorklist):
             # Line after each group just to make worklist easier to read
             super().append("B;")
 
-            wash_count += 1
+            self.wash_count += 1
 
             # Update the completed and pending ops sets
             self.pending_ops.difference_update(selected_ops)
             self.completed_ops.update(selected_ops)
 
-        print(f"aspirates: {asp_count}, dispenses: {disp_count}, washes: {wash_count}")
+        print(
+            f"Optimisation complete. aspirates: {self.asp_count}, dispenses: {self.disp_count}, washes: {self.wash_count}"
+        )
 
         return
 
-    def commit(self):
-        # List the ops before any optimising
-        # For debugging purposes
-        for op in sorted(self.pending_ops, key=lambda x: x.id):
+    def report_ops(self):
+        """
+        List the operations queued for the current optimisation process
+        """
+        for op in sorted(
+            self.pending_ops.union(self.completed_ops), key=lambda x: x.id
+        ):
             print(op)
+
+    def commit(self):
 
         # If we have ops pending, optimise and apply them
         if len(self.pending_ops) > 0:
