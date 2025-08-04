@@ -595,6 +595,7 @@ class AutoWorklist(EvoWorklist):
 
                         if source_check > 0 or dest_check > 0:
                             tip_extra_offset += max(source_check, dest_check)
+                            offset_limited = True
 
                         # Tips passed to robotools are 1-indexed, so add 1
                         op.selected_tip = tip_extra_offset + tip_assigned + 1
@@ -611,6 +612,10 @@ class AutoWorklist(EvoWorklist):
                 # If no conflicts have occurred, add this group to the selected groups and ops
                 selected_groups.append((group_type, ops, target_groups))
                 selected_ops += ops
+
+                # If we have taken a part of a group (but left some ops due to an offset limit), stop searching new groups
+                if offset_limited:
+                    break
 
             if len(selected_ops) == 0:
                 raise Exception("No valid groups to select")
@@ -668,6 +673,11 @@ class AutoWorklist(EvoWorklist):
                 tips_volumes.sort()
                 tips, volumes = zip(*tips_volumes)
 
+                # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
+                offset = tips[0] - source_rows[0]
+                for i in range(len(source_rows)):
+                    assert tips[i] - source_rows[i] == offset
+
                 # Perform the aspiration
                 self._evo_aspirate(
                     source_op.source,
@@ -707,6 +717,11 @@ class AutoWorklist(EvoWorklist):
                 tips_volumes = list(zip(tips, volumes))
                 tips_volumes.sort()
                 tips, volumes = zip(*tips_volumes)
+
+                # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
+                offset = tips[0] - dest_rows[0]
+                for i in range(len(dest_rows)):
+                    assert tips[i] - dest_rows[i] == offset
 
                 # Perform the dispense op
                 self._evo_dispense(
