@@ -442,6 +442,7 @@ class AutoWorklist(EvoWorklist):
                         primary != "source"
                         or not isinstance(selected_ops[0].source, Trough)
                     ):
+
                         # Check that we don't have a conflict in primary mask
                         # Get all indices in the primary mask for each group
                         tip_indices = [
@@ -481,7 +482,10 @@ class AutoWorklist(EvoWorklist):
             # Extract the list of groups from this combo
             selected_groups = [
                 (
-                    sorted(list(ops), key=lambda op: secondary_pos(op)[0]),
+                    sorted(
+                        list(ops),
+                        key=lambda op: (primary_pos(op)[0], secondary_pos(op)[0]),
+                    ),
                     primary_mask,
                     secondary_mask,
                 )
@@ -718,13 +722,15 @@ class AutoWorklist(EvoWorklist):
                     source_rows = [tip - 1 for tip in tips]
 
                 # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
-                offset = tips[0] - source_rows[0]
+                offset = source_rows[0] - tips[0]
                 for i in range(len(source_rows)):
-                    assert tips[i] - source_rows[i] == offset
+                    assert source_rows[i] - tips[i] == offset
 
-                assert offset < getattr(
-                    source_op.source, "offset_limit_down", 10000
-                ) and offset > -getattr(source_op.source, "offset_limit_up", 10000)
+                assert offset < (
+                    getattr(source_op.source, "offset_limit_down", None) or 10000
+                ) and offset > -(
+                    getattr(source_op.source, "offset_limit_up", None) or 10000
+                )
 
                 # Perform the aspiration
                 self._evo_aspirate(
@@ -766,9 +772,9 @@ class AutoWorklist(EvoWorklist):
                 ]
 
                 # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
-                offset = tips[0] - dest_rows[0]
+                offset = dest_rows[0] - tips[0]
                 for i in range(len(dest_rows)):
-                    assert tips[i] - dest_rows[i] == offset
+                    assert dest_rows[i] - tips[i] == offset
 
                 assert offset < (
                     dest_op.destination.offset_limit_down or 10000
