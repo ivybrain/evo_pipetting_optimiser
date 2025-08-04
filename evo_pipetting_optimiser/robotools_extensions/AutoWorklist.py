@@ -292,10 +292,14 @@ class AutoWorklist(EvoWorklist):
             # function that gives the source pos (row, column) when we call for primary
             primary_pos = lambda op: op.source_pos
             secondary_pos = lambda op: op.dest_pos
+            primary_labware = lambda op: op.source
+            secondary_labware = lambda op: op.destination
             secondary = "destination"
         elif primary == "destination":
             primary_pos = lambda op: op.dest_pos
             secondary_pos = lambda op: op.source_pos
+            primary_labware = lambda op: op.destination
+            secondary_labware = lambda op: op.source
             secondary = "source"
 
         # Group available operations by primary labware and primary column
@@ -305,8 +309,29 @@ class AutoWorklist(EvoWorklist):
         # Track the groupings we've found so far
         best_groupings = []
 
+        primary_queue = deque(primary_dict.values())
+
         # Loop through all the primary groups we've found
-        for selected_ops in primary_dict.values():
+        while len(primary_queue) > 0:
+            selected_ops = primary_queue.popleft()
+
+            primary_nrows = primary_labware(selected_ops[0]).n_rows
+
+            # Check if this set of ops takes more than 8 rows (in say a 12 row tube carrier)
+            # In which case, split into subgroups by row
+            primary_rows = [(primary_pos(op)[0], op) for op in selected_ops]
+            primary_rows.sort()
+
+            if max(primary_rows)[0] - min(primary_rows)[0] >= 8:
+                window_size = len(primary_rows) - 1
+                for window_slide in range(2):
+                    window_selected = primary_rows[
+                        window_slide : window_slide + window_size
+                    ]
+
+                    primary_queue.appendleft([row[1] for row in window_selected])
+                    pass
+                continue
 
             # Group by secondary
             # i.e. when primary=source, find all the destination (labware, column) pairs we need to dispense to
@@ -333,7 +358,10 @@ class AutoWorklist(EvoWorklist):
                 ]
 
                 primary_rows_mask = "".join(
-                    ["t" if i in primary_rows_group else "f" for i in range(8)]
+                    [
+                        "t" if i in primary_rows_group else "f"
+                        for i in range(primary_nrows)
+                    ]
                 )
                 secondary_rows_mask = "".join(
                     [
@@ -348,10 +376,12 @@ class AutoWorklist(EvoWorklist):
                 # Are a substring of the source rows (like fffftftf)
                 # We can aspirate this group in one shot
                 # If the source is a trough, the rows are flexible, so we don't need this check
+                # For sources with more than 12 rows, we can only take 8 rows
                 if (
                     isinstance(selected_ops[0].source, Trough)
                     or secondary_rows_mask in primary_rows_mask
-                ) and len(secondary_rows_group) == len(set(secondary_rows_group)):
+                    and len(secondary_rows_group) == len(set(secondary_rows_group))
+                ):
 
                     # This means that the seccondary rows line up with the primary rows
                     # Append the group to the confirmed reachable list, along with the rows needed
@@ -566,7 +596,7 @@ class AutoWorklist(EvoWorklist):
                 # Check that the cost of adding this group (and saving washes)
                 # Isn't greater than the cost of the second best group with additional washes
                 cost_of_adding = steps / len(ops)
-                if cost_of_adding >= second_best_cost:
+                if cost_of_adding > second_best_cost:
                     break
 
                 tip_index = 0
@@ -575,8 +605,12 @@ class AutoWorklist(EvoWorklist):
                 for group, _, _ in target_groups:
                     for op in group:
 
-                        source_limit = getattr(op.source, "offset_limit", None)
-                        dest_limit = op.destination.offset_limit
+                        source_limit_up = getattr(op.source, "offset_limit_up", None)
+                        source_limit_down = getattr(
+                            op.source, "offset_limit_down", None
+                        )
+                        dest_limit_up = op.destination.offset_limit_up
+                        dest_limit_down = op.destination.offset_limit_down
                         # Get the tip assigned to this op in the grouping process
 
                         tip_assigned = tips_used + tips_selected[tip_index]
@@ -584,19 +618,29 @@ class AutoWorklist(EvoWorklist):
                         source_offset = op.source_pos[0] - tip_assigned
                         dest_offset = op.dest_pos[0] - tip_assigned
 
-                        def check_limit(limit, offset):
+                        def check_limit(offset, limit, subtract=False):
                             # Check if we have exceeded the offset limit allowed
                             if limit is None:
                                 return 0
-                            if limit >= 0:
+                            if subtract:
                                 return offset - limit
-                            return limit - offset
+                            return offset + limit
 
-                        source_check = check_limit(source_limit, source_offset)
-                        dest_check = check_limit(dest_limit, dest_offset)
+                        source_up_check = check_limit(source_offset, source_limit_up)
+                        source_down_check = check_limit(
+                            source_offset, source_limit_down, True
+                        )
+                        dest_up_check = check_limit(dest_offset, dest_limit_up)
+                        dest_down_check = check_limit(
+                            dest_offset, dest_limit_down, True
+                        )
 
-                        if source_check > 0 or dest_check > 0:
-                            tip_extra_offset += max(source_check, dest_check)
+                        if dest_up_check < 0 or source_up_check < 0:
+                            tip_extra_offset += min(source_up_check, dest_up_check)
+                            offset_limited = True
+
+                        if dest_down_check > 0 or source_down_check > 0:
+                            tip_extra_offset += max(source_down_check, dest_down_check)
                             offset_limited = True
 
                         # Tips passed to robotools are 1-indexed, so add 1
@@ -650,6 +694,9 @@ class AutoWorklist(EvoWorklist):
             # Loop through the source list, aspirating for each group
             for source_group in source_list:
 
+                # Sort the group by assigned tip
+                source_group.sort(key=lambda op: op.selected_tip)
+
                 # Get the first op in the group
                 source_op = next(iter(source_group))
                 # Get the col of this source group
@@ -670,15 +717,14 @@ class AutoWorklist(EvoWorklist):
                 if isinstance(source_op.source, Trough):
                     source_rows = [tip - 1 for tip in tips]
 
-                # Sort volumes by tips used
-                tips_volumes = list(zip(tips, volumes))
-                tips_volumes.sort()
-                tips, volumes = zip(*tips_volumes)
-
                 # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
                 offset = tips[0] - source_rows[0]
                 for i in range(len(source_rows)):
                     assert tips[i] - source_rows[i] == offset
+
+                assert offset < getattr(
+                    source_op.source, "offset_limit_down", 10000
+                ) and offset > -getattr(source_op.source, "offset_limit_up", 10000)
 
                 # Perform the aspiration
                 self._evo_aspirate(
@@ -696,6 +742,10 @@ class AutoWorklist(EvoWorklist):
                 self.asp_count += 1
 
             for dest_group in dest_list:
+
+                # Sort the group by assigned tip
+                dest_group.sort(key=lambda op: op.selected_tip)
+
                 # Get the first op in the group
                 dest_op = next(iter(dest_group))
                 # Get the col of this source group
@@ -715,15 +765,14 @@ class AutoWorklist(EvoWorklist):
                     for op in dest_group
                 ]
 
-                # Sort volumes by tips
-                tips_volumes = list(zip(tips, volumes))
-                tips_volumes.sort()
-                tips, volumes = zip(*tips_volumes)
-
                 # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
                 offset = tips[0] - dest_rows[0]
                 for i in range(len(dest_rows)):
                     assert tips[i] - dest_rows[i] == offset
+
+                assert offset < (
+                    dest_op.destination.offset_limit_down or 10000
+                ) and offset > -(dest_op.destination.offset_limit_up or 10000)
 
                 # Perform the dispense op
                 self._evo_dispense(

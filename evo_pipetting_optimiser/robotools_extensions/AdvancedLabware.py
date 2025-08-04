@@ -20,7 +20,14 @@ class AdvancedLabware(robotools.Labware):
             for well in self.wells.flatten("F")
         }
 
-    def __init__(self, *args, location=None, offset_limit=None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        location=None,
+        offset_limit_up=None,
+        offset_limit_down=None,
+        **kwargs
+    ):
         """Creates an `AdvancedLabware` object for AutoWorklist pipetting optimisation
 
         Parameters
@@ -37,15 +44,18 @@ class AdvancedLabware(robotools.Labware):
             Maximum volume that must not be exceeded after a dispense.
         initial_volumes : float, array-like, optional
             Initial filling volume of the wells (default: 0)
-        offset_limit : int, [-7, 7], optional, default=None
-            Limits the vertical translation of tips accessing this Labware (when used with AutoWorklist.auto_transfer)
-            Useful for labware near the top or bottom of the evo deck, where not every row can be accessed by every tip
-            If negative, limits the upwards translation of the tips: -4 means the tips can shift no more than 4 rows above
+        offset_limit_up : int, optional, default=None
+            Limits the vertical translation upwards (towards the back of the evo) of tips accessing this Labware
+            (when used with AutoWorklist.auto_transfer)
+            Useful for labware near the top of the evo deck, where not every row can be accessed by every tip
+            If set to an int, limits the upwards translation of the tips: 4 means the tips can shift no more than 4 rows above
             their default position. I.e. tip 5 can access row A, but tip 6 cannot
-            If positive, limits the downward translation of the tips.
-            If 0, no offsets are allowed
+            If 0, no upwards shift is allowed
             If none, no offset limit and any offsets are permitted
             Setting a limit will reduce optimisation effectiveness and increase pipetting time
+        offset_limit_down : int, optional, default=None
+            Same as offset_limit_up, but limits tip translation downwards
+            Note: a 12-row labware needs a least a down offset of 4 for tip 8 to access row 12
         virtual_rows : int, optional
             When specified to a positive number, the `Labware` is treated as a trough.
             Must be used in combination with `rows=1`.
@@ -61,6 +71,7 @@ class AdvancedLabware(robotools.Labware):
             raise ValueError("Grid and Site must be specified")
         self.location = location
 
-        self.offset_limit = offset_limit
+        self.offset_limit_up = offset_limit_up
+        self.offset_limit_down = offset_limit_down
 
         self.op_tracking = {well: [] for well in self.wells.flatten("F")}
