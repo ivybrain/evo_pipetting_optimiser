@@ -51,7 +51,11 @@ class TransferOperation:
         self.liquid_class = liquid_class
 
     def __str__(self):
-        return f"{self.id}: {self.label} {self.source_pos} to {self.dest_pos}"
+        source_label = f"{self.source.name}-{'any' if isinstance(self.source, Trough) else self.source.wells[self.source_pos]}"
+        dest_label = f"{self.destination.name}-{self.destination.wells[self.dest_pos]}"
+        return "{0:>3}: {1:>20} to {2:<20} {3:3.1f}ul\t{4}".format(
+            self.id, source_label, dest_label, self.volume, self.label
+        )
 
     def __repr__(self):
         return str(self.id)

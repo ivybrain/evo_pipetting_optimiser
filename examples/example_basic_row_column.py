@@ -84,6 +84,9 @@ def basic_row_column(worklist):
             liquid_class="Water free dispense",
         )
 
+        # Print the operations we have registered, so we can sanity check
+        wl.report_ops()
+
         wl.commit()
 
 
