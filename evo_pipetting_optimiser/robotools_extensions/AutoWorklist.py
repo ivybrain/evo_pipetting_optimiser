@@ -101,6 +101,8 @@ class AutoWorklist(EvoWorklist):
         self.waste_location = waste_location
         self.cleaner_location = cleaner_location
 
+        self.processing = False
+
     def auto_transfer(
         self,
         source: Union[AdvancedLabware, Trough],
@@ -196,7 +198,7 @@ class AutoWorklist(EvoWorklist):
                 if isinstance(source, AdvancedLabware)
                 else None
             )
-            dest_dep = (destination.last_op[destination_wells[i]],)
+            dest_dep = destination.last_op[destination_wells[i]]
 
             for j in range(repeats):
 
@@ -775,10 +777,12 @@ class AutoWorklist(EvoWorklist):
     def commit(self):
 
         # If we have ops pending, optimise and apply them
-        if len(self.pending_ops) > 0:
+        if len(self.pending_ops) > 0 and not self.processing:
+            self.processing = True
             self.make_plan()
             self.pending_ops = set()
             self.completed_ops = set()
+            self.processing = False
         self.currently_optimising = False
         self.append("B;")
 
