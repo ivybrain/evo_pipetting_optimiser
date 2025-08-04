@@ -1,0 +1,80 @@
+stages:
+  - test
+  - package
+  - deploy
+  - deploy_dev
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  PUBLISHING_PROJECT_ID: "68793459"  # ID of the GitLab repo where the Python package is published
+  DEV_PACKAGE_REGISTRY_ID: "70893083"
+
+
+default:
+  image: python:3.11
+
+test:
+  stage: test
+  before_script:
+    - python -m pip install --upgrade pip
+    - mkdir -p ~/.config/pip
+    - |
+      cat > ~/.config/pip/pip.conf <<EOF
+      [global]
+      extra-index-url = https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/api/v4/projects/${PUBLISHING_PROJECT_ID}/packages/pypi/simple
+      EOF
+  script:
+    - pip install .
+    - pip install pytest pytest-cov pytest-mock
+    - mkdir junit
+    - python -m pytest --junitxml=junit/test-results.xml --cov=evo_pipetting_optimiser --cov-report=term --cov-report=xml
+  coverage: '/TOTAL\s+\d+\s+\d+\s+(\d+)%/'
+  artifacts:
+    reports:
+      junit: junit/test-results.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+    paths:
+      - coverage.xml
+    when: always
+
+package:
+  stage: package
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "server_commands"'
+  script:
+    - pip install wheel
+    - python setup.py bdist_wheel
+  artifacts:
+    paths:
+      - dist/*.whl
+
+deploy:
+  stage: deploy
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  script:
+    - pip install twine
+    - echo "[distutils]" > ~/.pypirc
+    - echo "index-servers = gitlab" >> ~/.pypirc
+    - echo "[gitlab]" >> ~/.pypirc
+    - echo "repository = ${CI_API_V4_URL}/projects/${PUBLISHING_PROJECT_ID}/packages/pypi" >> ~/.pypirc
+    - echo "username = gitlab-ci-token" >> ~/.pypirc
+    - echo "password = ${CI_JOB_TOKEN}" >> ~/.pypirc
+    - python -m twine upload --repository gitlab dist/*.whl
+
+deploy_dev:
+  stage: deploy_dev
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev"'
+  script:
+    - pip install twine
+    - echo "[distutils]" > ~/.pypirc
+    - echo "index-servers = dev-gitlab" >> ~/.pypirc
+    - echo "[dev-gitlab]" >> ~/.pypirc
+    - echo "repository = ${CI_API_V4_URL}/projects/${DEV_PACKAGE_REGISTRY_ID}/packages/pypi" >> ~/.pypirc
+    - echo "username = gitlab-ci-token" >> ~/.pypirc
+    - echo "password = ${CI_JOB_TOKEN}" >> ~/.pypirc
+    - python -m twine upload --repository dev-gitlab dist/*.whl
+
