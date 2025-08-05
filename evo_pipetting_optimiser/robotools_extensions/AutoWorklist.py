@@ -29,6 +29,7 @@ class TransferOperation:
         source_dep=None,
         dest_dep=None,
         liquid_class=None,
+        wash_scheme: Literal["D", 1, None] = 1,
         **kwargs,
     ):
         self.id = TransferOperation.op_id_counter
@@ -80,6 +81,7 @@ class AutoWorklist(EvoWorklist):
         *args,
         waste_location: Tuple[int, int] = None,
         cleaner_location: Tuple[int, int] = None,
+        decon_location: Tuple[int, int] = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -114,7 +116,7 @@ class AutoWorklist(EvoWorklist):
         label: Optional[str] = "",
         on_underflow: Literal["debug", "warn", "raise"] = "raise",
         liquid_class: str = None,
-        wash=True,
+        wash_scheme: Literal["D", 1, None] = 1,
         **kwargs,
     ) -> None:
         """Transfer operation between two labwares with automatic pipetting order optimisation
@@ -193,23 +195,31 @@ class AutoWorklist(EvoWorklist):
             # Check for large volume handling
             repeats = math.ceil(volumes[i] / self.max_volume)
             volume = volumes[i] / repeats
+
+            # Rationalise to A01 format
+            source_well = source_wells[i]
+            if len(source_well) == 2:
+                source_well = source_well[0] + "0" + source_well[1]
+            dest_well = destination_wells[i]
+            if len(dest_well) == 2:
+                dest_well = dest_well[0] + "0" + dest_well[1]
             source_dep = (
-                source.last_op[source_wells[i]]
+                source.last_op[source_well]
                 if isinstance(source, AdvancedLabware)
                 else None
             )
-            dest_dep = destination.last_op[destination_wells[i]]
+            dest_dep = destination.last_op[dest_well]
 
             for j in range(repeats):
 
                 op = TransferOperation(
                     source,
-                    source.indices[source_wells[i]],
+                    source.indices[source_well],
                     destination,
-                    destination.indices[destination_wells[i]],
+                    destination.indices[dest_well],
                     volume,
                     label=label,
-                    wash=wash,
+                    wash_scheme=wash_scheme,
                     on_underflow=on_underflow,
                     source_dep=source_dep,
                     dest_dep=dest_dep,
