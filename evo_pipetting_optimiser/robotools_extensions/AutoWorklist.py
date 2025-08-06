@@ -368,7 +368,11 @@ class AutoWorklist(EvoWorklist):
         super().evo_dispense(*args, **kwargs)
         self.silence_append_warning = False
 
-    def _wash(
+    # Patch in decontamination wash for utility
+    def wash(self, wash_scheme: Literal[1, 2, 3, 4, "D"] = 1):
+        self.append(f"W{wash_scheme};")
+
+    def _auto_wash(
         self,
         *args,
         silence_append_warning=True,
@@ -405,7 +409,7 @@ class AutoWorklist(EvoWorklist):
         if len(decon_tips) > 0:
             self.comment("Decontaminating")
             cmd = evotools.commands.evo_aspirate(
-                n_rows=(max(tips) - min(tips)) + 1,
+                n_rows=8,
                 n_columns=1,
                 wells=Trough(
                     "dummy", 8, 1, min_volume=0, max_volume=1000, initial_volumes=1000
@@ -971,7 +975,7 @@ class AutoWorklist(EvoWorklist):
                 self.disp_count += 1
 
             # Wash after this group of ops
-            self._wash(
+            self._auto_wash(
                 tips=[op.selected_tip for op in selected_ops],
                 tip_volumes=[op.volume for op in selected_ops],
                 wash_schemes=[op.wash_scheme for op in selected_ops],
@@ -1012,6 +1016,10 @@ class AutoWorklist(EvoWorklist):
             self.processing = False
         self.currently_optimising = False
         self.append("B;")
+
+    def __enter__(self) -> "AutoWorklist":
+        # Redefine to give correct type hint
+        return super().__enter__()
 
     def __exit__(self, *args):
 
