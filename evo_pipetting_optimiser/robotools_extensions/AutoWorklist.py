@@ -83,7 +83,6 @@ class AutoWorklist(EvoWorklist):
         *args,
         waste_location: Tuple[int, int] = None,
         cleaner_location: Tuple[int, int] = None,
-        decon_location: Tuple[int, int] = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -107,7 +106,6 @@ class AutoWorklist(EvoWorklist):
         self.wash_params = {
             "waste_location": waste_location,
             "cleaner_location": cleaner_location,
-            "decon_location": decon_location,
         }
         self.set_wash_parameters()
 
