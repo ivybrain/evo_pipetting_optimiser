@@ -49,6 +49,8 @@ class TransferOperation:
 
         self.selected_tip = None
 
+        self.wash_scheme = wash_scheme
+
         self.liquid_class = liquid_class
 
     def __str__(self):
@@ -100,10 +102,104 @@ class AutoWorklist(EvoWorklist):
             cleaner_location is not None
         ), "Must define cleaner location grid and site"
 
-        self.waste_location = waste_location
-        self.cleaner_location = cleaner_location
-
         self.processing = False
+
+        self.wash_params = {
+            "waste_location": waste_location,
+            "cleaner_location": cleaner_location,
+            "decon_location": decon_location,
+        }
+        self.set_wash_parameters()
+
+    def set_wash_parameters(
+        self,
+        cleaner_location=None,
+        waste_location=None,
+        decon_location=None,
+        waste_vol: float = 3.0,
+        waste_delay: int = 500,
+        cleaner_vol: float = 4.0,
+        cleaner_delay: int = 500,
+        airgap: int = 10,
+        airgap_speed: int = 70,
+        retract_speed: int = 30,
+        fastwash: int = 1,
+        low_volume: int = 0,
+        decon_excess_volume: int = 20,
+        decon_liquid_class: str = None,
+        decon_delay: int = 1000,
+    ):
+        """
+        Set the parameters that will be passed to evo_wash for washes triggered by auto_transfer().
+        Normally, these are fine to leave as defaults
+        Params not explicity passed to this method will stay as their previous value
+        You can only set wash parameters once per optimisation session. If you need different wash parameters for different transfers,
+        call commit() first to optimise transfers with the old wash parameters, before changing parameters for the next session
+        Params starting with decon_ determine the behaviour of an aspiration from a decontamination trough
+        Which occurs before the wash when auto_transfer() is called with wash_scheme="D"
+
+        Parameters
+        ----------
+        waste_location : tuple
+            Tuple with grid position (1-67) and site number (0-127) of waste as integers
+        cleaner_location : tuple
+            Tuple with grid position (1-67) and site number (0-127) of cleaner as integers
+        decon_location : tuple
+            Tuple with grid position (1-67) and site number (0-127) of a trough to aspirate for decontamination
+        arm : int
+            number of the LiHa performing the action: 0 = LiHa 1, 1 = LiHa 2
+        waste_vol: float
+            Volume in waste in mL (0-100)
+        waste_delay : int
+            Delay before closing valves in waste in ms (0-1000)
+        cleaner_vol: float
+            Volume in cleaner in mL (0-100)
+        cleaner_delay : int
+            Delay before closing valves in cleaner in ms (0-1000)
+        airgap : int
+            Volume of airgap in µL which is aspirated after washing the tips (system trailing airgap) (0-100)
+        airgap_speed : int
+            Speed of airgap aspiration in µL/s (1-1000)
+        retract_speed : int
+            Retract speed in mm/s (1-100)
+        fastwash : int
+            Use fast-wash module = 1, don't use it = 0
+        low_volume : int
+            Use pinch valves = 1, don't use them = 0
+        decon_excess_volume : int
+            Decon will aspirate however much liquid was present in a given tip, plus this excess value. Default 20ul
+        decon_liquid_class : str
+            Liquid class to use for decon aspiration
+        decon_delay : int
+            Delay to soak the tips after aspirating decon solution. Default 1000ms
+        """
+
+        param_defaults = {
+            "cleaner_location": None,
+            "waste_location": None,
+            "decon_location": None,
+            "waste_vol": 3.0,
+            "waste_delay": 500,
+            "cleaner_vol": 4.0,
+            "cleaner_delay": 500,
+            "airgap": 10,
+            "airgap_speed": 70,
+            "retract_speed": 30,
+            "fastwash": 1,
+            "low_volume": 0,
+            "decon_excess_volume": 20,
+            "decon_liquid_class": None,
+            "decon_delay": 1000,
+        }
+
+        for key, default in param_defaults.items():
+
+            # If the passed parameter is the default value, and the property is already set, don't overwrite it
+            passed_value = locals()[key]
+            if passed_value == default and key in self.wash_params:
+                continue
+
+            self.wash_params[key] = passed_value
 
     def auto_transfer(
         self,
@@ -178,6 +274,19 @@ class AutoWorklist(EvoWorklist):
             liquid_class is not None
         ), "Liquid class must be speicified for auto_transfer"
 
+        assert wash_scheme in [
+            "D",
+            1,
+            None,
+        ], "Wash schemes supported for auto_transfer are D, 1, or None"
+
+        assert (
+            wash_scheme != "D" or self.wash_params["decon_location"] is not None
+        ), "Using decon wash without decon_location specified. Call set_wash_parameters() to set it."
+        assert (
+            wash_scheme != "D" or self.wash_params["decon_liquid_class"] is not None
+        ), "Using decon wash without decon_liquid_class specified. Call set_wash_parameters() to set it."
+
         # Track if we currently have operations waiting to be optimised
         # That haven't been committed to the worklist. If so, we want to warn if the user
         # Tries to add anything else to the worklist.
@@ -251,19 +360,75 @@ class AutoWorklist(EvoWorklist):
 
     # evo_aspirate, dispense, and wash overrides that we will use interally when committing optimisations.
     # Avoid warning the user in this case
-    def _evo_aspirate(self, *args, silence_append_warning=False, **kwargs):
+    def _evo_aspirate(self, *args, silence_append_warning=True, **kwargs):
         self.silence_append_warning = silence_append_warning
         super().evo_aspirate(*args, **kwargs)
         self.silence_append_warning = False
 
-    def _evo_dispense(self, *args, silence_append_warning=False, **kwargs):
+    def _evo_dispense(self, *args, silence_append_warning=True, **kwargs):
         self.silence_append_warning = silence_append_warning
         super().evo_dispense(*args, **kwargs)
         self.silence_append_warning = False
 
-    def _evo_wash(self, *args, silence_append_warning=False, **kwargs):
+    def _wash(
+        self,
+        *args,
+        silence_append_warning=True,
+        tips=[],
+        wash_schemes=[],
+        tip_volumes=[],
+        **kwargs,
+    ):
+        """
+        Internal method called by auto_transfer to conduct a wash, with or without decon
+
+        """
+
         self.silence_append_warning = silence_append_warning
-        super().evo_wash(*args, **kwargs)
+
+        assert (
+            len(tips) == len(wash_schemes) == len(tip_volumes)
+        ), "Internal wash assignment error"
+        decon_mask = [scheme == "D" for scheme in wash_schemes]
+        decon_tips = [tips[i] for i in range(len(tips)) if decon_mask[i]]
+        decon_wells = [tip - 1 for tip in decon_tips]
+        decon_volumes = [
+            min(
+                self.max_volume,
+                tip_volumes[i] + self.wash_params["decon_excess_volume"],
+            )
+            for i in range(len(tips))
+            if decon_mask[i]
+        ]
+
+        decon_sorted = sorted(list(zip(decon_tips, decon_volumes)))
+        if decon_sorted:
+            decon_tips, decon_volumes = zip(*decon_sorted)
+        if len(decon_tips) > 0:
+            self.comment("Decontaminating")
+            cmd = evotools.commands.evo_aspirate(
+                n_rows=(max(tips) - min(tips)) + 1,
+                n_columns=1,
+                wells=Trough(
+                    "dummy", 8, 1, min_volume=0, max_volume=1000, initial_volumes=1000
+                ).wells[decon_wells, 0],
+                labware_position=self.wash_params["decon_location"],
+                volume=list(decon_volumes),
+                tips=list(decon_tips),
+                liquid_class=self.wash_params["decon_liquid_class"],
+            )
+            self.append(cmd)
+
+        wash_mask = [scheme is not None for scheme in wash_schemes]
+        wash_tips = [tips[i] for i in range(len(tips)) if wash_mask[i]]
+
+        wash_params = {
+            key: value
+            for key, value in self.wash_params.items()
+            if not key.startswith("decon_")
+        }
+
+        super().evo_wash(tips=wash_tips, **wash_params)
         self.silence_append_warning = False
 
     def group_movments_needed(self, op_set, field):
@@ -734,13 +899,13 @@ class AutoWorklist(EvoWorklist):
                 # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
                 offset = source_rows[0] - tips[0]
                 for i in range(len(source_rows)):
-                    assert source_rows[i] - tips[i] == offset
+                    assert source_rows[i] - tips[i] == offset, "Tip offset issue"
 
                 assert offset < (
                     getattr(source_op.source, "offset_limit_down", None) or 10000
                 ) and offset > -(
                     getattr(source_op.source, "offset_limit_up", None) or 10000
-                )
+                ), "Offset limit violated"
 
                 # Perform the aspiration
                 self._evo_aspirate(
@@ -753,7 +918,6 @@ class AutoWorklist(EvoWorklist):
                     label=" + ".join(set([op.label for op in source_group]))
                     + ", ops: "
                     + ",".join([str(op.id) for op in source_group]),
-                    silence_append_warning=True,
                 )
                 self.asp_count += 1
 
@@ -784,11 +948,13 @@ class AutoWorklist(EvoWorklist):
                 # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
                 offset = dest_rows[0] - tips[0]
                 for i in range(len(dest_rows)):
-                    assert dest_rows[i] - tips[i] == offset
+                    assert dest_rows[i] - tips[i] == offset, "Tip offest issue"
 
                 assert offset < (
                     dest_op.destination.offset_limit_down or 10000
-                ) and offset > -(dest_op.destination.offset_limit_up or 10000)
+                ) and offset > -(
+                    dest_op.destination.offset_limit_up or 10000
+                ), "Offset limit exceeded"
 
                 # Perform the dispense op
                 self._evo_dispense(
@@ -802,17 +968,15 @@ class AutoWorklist(EvoWorklist):
                     + ", ops: "
                     + ",".join([str(op.id) for op in dest_group]),
                     compositions=compositions,
-                    silence_append_warning=True,
                 )
 
                 self.disp_count += 1
 
             # Wash after this group of ops
-            self._evo_wash(
+            self._wash(
                 tips=[op.selected_tip for op in selected_ops],
-                waste_location=self.waste_location,
-                cleaner_location=self.cleaner_location,
-                silence_append_warning=True,
+                tip_volumes=[op.volume for op in selected_ops],
+                wash_schemes=[op.wash_scheme for op in selected_ops],
             )
 
             # Line after each group just to make worklist easier to read
