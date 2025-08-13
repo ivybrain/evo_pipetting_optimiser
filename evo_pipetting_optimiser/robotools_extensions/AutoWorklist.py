@@ -167,6 +167,10 @@ class AutoWorklist(EvoWorklist):
             Label of the operation to log into labware history
         liquid_class : str
             Liquid class to use for pipetting
+        wash_scheme : "D", 1, or None
+            Desired wash behaviour. None will not insert any washes. 1 (default) will conduct a wash for each tip that is used,
+            before it is used again. It does this by calling evo_wash. Parameters passed to evo_wash can be set by calling set_wash_parameters
+            "D" will conduct a decontamination wash.
 
         on_underflow
             What to do about volume underflows (going below ``vmin``) in non-empty wells.

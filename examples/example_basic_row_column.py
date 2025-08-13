@@ -1,7 +1,7 @@
 import robotools
 
 
-from evo_pipetting_optimiser.robotools_extensions import *
+from evo_pipetting_optimiser import AdvancedLabware, AutoWorklist
 
 # Define a rack of sample matrix tubes as sample plate. It is a 96-well microplate, so 8 rows, 12 columns
 sample_plate = AdvancedLabware(
