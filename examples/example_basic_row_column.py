@@ -38,26 +38,26 @@ def basic_row_column(worklist):
     with AutoWorklist(worklist, waste_location=(1, 2), cleaner_location=(1, 3)) as wl:
 
         # Basic: Transfer col 0 to row 0
-        # wl.auto_transfer(
-        #     sample_plate,
-        #     sample_plate.wells[:, 0],
-        #     dilution_plate,
-        #     dilution_plate.wells[0, :8],
-        #     50,
-        #     liquid_class="Water free dispense",
-        # )
+        wl.auto_transfer(
+            sample_plate,
+            sample_plate.wells[:, 0],
+            dilution_plate,
+            dilution_plate.wells[0, :8],
+            50,
+            liquid_class="Water free dispense",
+        )
 
-        # wl.auto_transfer(
-        #     sample_plate,
-        #     sample_plate.wells[0, :8],
-        #     dilution_plate,
-        #     dilution_plate.wells[:, 0],
-        #     50,
-        #     liquid_class="Water free dispense",
-        # )
+        wl.auto_transfer(
+            sample_plate,
+            sample_plate.wells[0, :8],
+            dilution_plate,
+            dilution_plate.wells[:, 0],
+            50,
+            liquid_class="Water free dispense",
+        )
 
         # # Optimise these steps and add to worklist
-        # wl.commit()
+        wl.commit()
 
         # Situation where we transfer a column to a row, with a range across 8 wells but excluding a middle well
         # Will aspirate in one op, leaving tip 5 empty
