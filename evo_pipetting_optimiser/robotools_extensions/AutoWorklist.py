@@ -113,7 +113,7 @@ class AutoWorklist(EvoWorklist):
         self,
         cleaner_location=None,
         waste_location=None,
-        decon_location=None,
+        decon_troughs: Union[Trough, Sequence[Trough]] = None,
         waste_vol: float = 3.0,
         waste_delay: int = 500,
         cleaner_vol: float = 4.0,
@@ -142,8 +142,9 @@ class AutoWorklist(EvoWorklist):
             Tuple with grid position (1-67) and site number (0-127) of waste as integers
         cleaner_location : tuple
             Tuple with grid position (1-67) and site number (0-127) of cleaner as integers
-        decon_location : tuple
-            Tuple with grid position (1-67) and site number (0-127) of a trough to aspirate for decontamination
+        decon_troughs : Trough or list of Troughs
+            Troughs to aspirate for deontamination. If one trough, that trough will be used regardless. If a list of Troughs, the first Trough
+            will be used until its min_volume is reached, then the next trough will be used. Troughs must have the .location parameter set
         arm : int
             number of the LiHa performing the action: 0 = LiHa 1, 1 = LiHa 2
         waste_vol: float
@@ -175,7 +176,7 @@ class AutoWorklist(EvoWorklist):
         param_defaults = {
             "cleaner_location": None,
             "waste_location": None,
-            "decon_location": None,
+            "decon_troughs": None,
             "waste_vol": 3.0,
             "waste_delay": 500,
             "cleaner_vol": 4.0,
@@ -279,8 +280,8 @@ class AutoWorklist(EvoWorklist):
         ], "Wash schemes supported for auto_transfer are D, 1, or None"
 
         assert (
-            wash_scheme != "D" or self.wash_params["decon_location"] is not None
-        ), "Using decon wash without decon_location specified. Call set_wash_parameters() to set it."
+            wash_scheme != "D" or self.wash_params["decon_troughs"] is not None
+        ), "Using decon wash without decon_troughs specified. Call set_wash_parameters() to set it."
         assert (
             wash_scheme != "D" or self.wash_params["decon_liquid_class"] is not None
         ), "Using decon wash without decon_liquid_class specified. Call set_wash_parameters() to set it."
@@ -408,18 +409,36 @@ class AutoWorklist(EvoWorklist):
             decon_tips, decon_volumes = zip(*decon_sorted)
         if len(decon_tips) > 0:
             self.comment("Decontaminating")
-            cmd = evotools.commands.evo_aspirate(
-                n_rows=8,
-                n_columns=1,
-                wells=Trough(
-                    "dummy", 8, 1, min_volume=0, max_volume=1000, initial_volumes=1000
-                ).wells[decon_wells, 0],
-                labware_position=self.wash_params["decon_location"],
-                volume=list(decon_volumes),
+
+            needed_volume = sum(decon_volumes)
+            # If we have a single trough, just use that
+            if isinstance(self.wash_params["decon_troughs"], Trough):
+                decon_trough = self.wash_params["decon_troughs"]
+            else:
+                # If we have a list of decon troughs, find the first with sufficient volume
+                decon_trough_index = 0
+                decon_trough = self.wash_params["decon_troughs"][decon_trough_index]
+                while (
+                    decon_trough.volumes[0, 0] - needed_volume
+                    <= decon_trough.min_volume
+                    and decon_trough_index < len(self.wash_params["decon_troughs"]) - 1
+                ):
+                    decon_trough_index += 1
+                    decon_trough = self.wash_params["decon_troughs"][decon_trough_index]
+
+            self._evo_aspirate(
+                decon_trough,
+                decon_trough.wells[decon_wells, 0],
+                decon_trough.location,
                 tips=list(decon_tips),
+                volumes=list(decon_volumes),
                 liquid_class=self.wash_params["decon_liquid_class"],
             )
-            self.append(cmd)
+
+            # Run timer to soak the tips for the specified delay
+            self.append('B;StartTimer("1");')
+            duration_str = "{0:.2f}".format(self.wash_params["decon_delay"] / 1000)
+            self.append(f'B;WaitTimer("1","{duration_str}");')
 
         wash_mask = [scheme is not None for scheme in wash_schemes]
         wash_tips = [tips[i] for i in range(len(tips)) if wash_mask[i]]
