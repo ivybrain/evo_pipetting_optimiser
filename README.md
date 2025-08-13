@@ -129,7 +129,19 @@ Setting a limit will reduce optimisation effectiveness and increase pipetting ti
 
 `offset_limit_down` likewise limits the movement of the tips downwards, useful for labware near the bottom of the evo deck.
 
-Complete examples are available in the examples folder.
+After several `auto_transfer` operations but before a commit, you can call `report_ops` to see a list of operations that are pending.
+
+A report will look like this, with the operation ID, the name and well of the source and destination, and the volume.
+```
+16:              smp-A01 to dilplate-A01         625.0ul
+17:              smp-A01 to dilplate-A01         625.0ul
+18:              smp-B01 to dilplate-A02         625.0ul
+19:              smp-B01 to dilplate-A02         625.0ul
+```
+
+After a commit, the volumes and compositions of labware will reflect the operations applied, just as if `transfer` had been used. This, along with the `report` method of labware, can be used to validate pipetting was conducted as expected
+
+Complete examples are available in the examples folder. Start with [example_basic_row_column.py](examples/example_basic_row_column.py)
 
 ## Architecture
 This package is designed first to track the operations which a user wishes to conduct on all defined Labware, then rearrange the order of these operations
