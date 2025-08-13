@@ -32,26 +32,6 @@ dilution_plate = AdvancedLabware(
     location=(32, 2),
 )
 
-decon_trough = robotools.Trough(
-    "Decon",
-    8,
-    1,
-    min_volume=3000,
-    max_volume=100_000,
-    initial_volumes=4000,
-)
-decon_trough.location = (2, 1)
-
-decon_trough_2 = robotools.Trough(
-    "Decon2",
-    8,
-    1,
-    min_volume=3000,
-    max_volume=100_000,
-    initial_volumes=80_000,
-)
-decon_trough_2.location = (2, 2)
-
 
 def basic_row_column(worklist):
 
@@ -84,11 +64,6 @@ def basic_row_column(worklist):
         # Unlike default Evoware, which would aspirate rows A-D with tips 1-4 then rows F-H with tips 5-7
         # Large volume (>950) means we repeat each op twoce
 
-        wl.set_wash_parameters(
-            decon_troughs=[decon_trough, decon_trough_2],
-            decon_liquid_class="Water free dispense",
-        )
-
         wl.auto_transfer(
             sample_plate,
             sample_plate.wells[[0, 1, 2, 3, 5, 6, 7], 0],
@@ -107,7 +82,6 @@ def basic_row_column(worklist):
             dilution_plate.wells[[0, 1, 2, 3, 5, 6, 7], 0],
             1250,
             liquid_class="Water free dispense",
-            wash_scheme="D",
         )
 
         # Print the operations we have registered, so we can sanity check

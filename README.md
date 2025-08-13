@@ -1,5 +1,34 @@
 # Evo_Pipetting_Optimiser
 
+## Introduction
+A frequent challenge in using the Tecan EVO is the flawed optimisation that EVOware conducts for basic worklist commands (A and D),
+as produced by `robotools.EvoWorklist.transfer()`. The strategy it selects can often make pipetting slower, and B; commands 
+`EvoWorklist.commit()` must be inserted between commands to stop the EVO from rearranging them inefficiently.
+
+Additionally, a common use case for robotools is dilution/processing/preparation of several samples in a plate. In such cases,
+the easiest way to translate the process to Python and robotools is to loop through each sample, and define the pipetting steps which 
+must be conducted for that sample to be processed. Unfortunately, this leads to inefficient worklist commands, which pipette one sample at
+a time. Previously, careful design and more complicated code was employed to pre-calculate the operations required for all samples,
+then make fewer calls to `transfer()`, ideally only one (covering all samples) for each step in the process. This allowed several samples to
+be pipetted at once, at the cost of making code more difficult to write and understand. Additionally, it could still fall victim to poor
+optimisation from the EVOware side, and miss potential speed.
+
+Thus an optimiser which tracks all operations a user wishes to conduct, before automatically grouping them into the most efficient order,
+is desired
+
+### In scope
+Optimisation of pipetting operations for an 8-tip LiHa on the Tecan EVO
+
+Provision of an interface with minimal differences to existing robotools `EvoWorklist` and `transfer` funtionality so that operation is
+understandable to existing users
+
+Maintainence of pipetting order; no operations on a particular well shall be conducted in a different order to that which they were specified in code
+
+Support for the existing composition tracking and reporting functionality in robotools
+
+### Out of scope
+Other liquid handlers or arms.
+
 ## Overview and usage
 
 ### Installation
@@ -18,40 +47,29 @@ You can just uninstall the package with:
 
 ### Usage
 
-The file  [`example_using_pkg.py`](example_using_pkg.py) shows how we can import and use functions from the package.
+The file  [`example_basic_row_column.py`](examples/example_basic_row_column.py) shows how we can import and use functions from the package.
 
-## What makes a package?
 
-`__init__.py` is the magic sauce to change a directory of Python files into a package. In this repo, the package is the directory [`evo_pipetting_optimiser`](evo_pipetting_optimiser), take a second to look in the folder and the files' contents.  We have 3 files containing functions and then the good ole [`__init__.py`](evo_pipetting_optimiser/__init__.py).
+## Architecture
+This package is designed first to track the operations which a user wishes to conduct on all defined Labware, then rearrange the order of these operations
+to achieve maximum pipetting efficiency, before adding them to a worklist with Advanced Worklist Commands (Aspirate and Dispense). This allows us to 
+precisely define which tips should be used in which wells, and prevent EVOware's built in optimiser from changing our optimised order.
 
-In the [`__init__.py`](evo_pipetting_optimiser/__init__.py) we can specify how users can reach our functionality.  For example, core functionality might be listed out here so users can access easier.  In this package the area functions might be considered more core because they're listed in [`__init__.py`](my_pkg/__init__.py).  Note in [`example_using_pkg.py`](example_using_pkg.py) how this effects how we interact with the area vs perimeter functions.
+Some additional properties must be defined to allow us to automatically generate advanced worklist commands. E.g. each labware in use must have a location tuple
+(grid, site) defined.
 
-## [`setup.py`](setup.py)
+The `AutoWorklist` class is defined as an equivalent to `EvoWorklist`, but with additional functionality to enable this tracking and optimisation. Its use is identical to
+`EvoWorklist`, except that a waste_location and cleaner_location must be specified, which allow us to generate advanced worklist Wash commands (as the basic worklist W command does not work in conjunction with advanced worklist Aspirate and Dispense) All functionality present in `EvoWorklist` is present and unchanged; you can use `.transfer` just as usual, and the corresponding operations will not be optimised.
 
-This file is what leads our package to be easily installed with `pip`.  It contains some info on the package as well as dependency information. Add the required packages that your package needs inside `setup.py` at `install_requires`.
+A `TransferOperation` class is defined, which captures all the relevant details for a transfer from one well to another, including the plate and position of the source
+and destination wells, the volume, and the liquid class. Each `TransferOperation` has a unique ID. The `auto_transfer` method, which is equivalent to `transfer` but adds optimisation, produces one `TransferOperation` for each well it is passed, recording the details appropriate to that well. It then adds all the ops to a set `pending_ops` which records the operations defined by the user but not yet optimised and recorded to the worklist.
 
-## Unit tests
+An `AdvancedLabware` class is defined, which, in addition to requiring the `location` property, also tracks the last `TransferOperation` to touch each of its wells.
+When a `TransferOperation` is created, it records the latest `TransferOperation` referenced at the relevant source and destination wells as `source_dep` and `dest_dep`. An operation will only be considered for optimisation if both of these dependent operations have already been completed. This ensures that all operations on a particular well occur in the order they are defined in code, the same order that they would occur in if `transfer` were used instead. This ensures that, if an `auto_transfer` dispensing diluent to a well occurs before one which dispenses sample, diluent will always be dispensed before sample.
 
-Python makes it very easy to write and execute unit tests. Just put the tests you want to write into the folder tests and make sure that the file has the form test_*.py. Look into the tests folder for an example. To execute the tests locally, just run 
-```
-pytest
-```
-on the commandline from the root directory. If you want to measure code coverage run
+It is assumed that Troughs will only be aspirated from, never dispensed to, so their composition will remain unchanged. Therefore, operation tracking for Troughs is not defined. A `Trough` can be used as the source for an `auto_transfer` (as long as it has the location property set), but not the Destination.
 
-```
-pytest --cov=evo_pipetting_optimiser tests/
-```
+Details of the pending operations can be printed by calling `report_ops`. Operations will be optimised and committed to the worklist whenever `commit()` is called, or when the worklist is saved.
 
-## CI Pipeline
+The particulars of how operations are optimised is rather complex, however it is the intention of this package that, as long as a user understands and trusts the `TransferOperation` creation and dependency constraint, they do not need to understand the means by which operations are grouped - they can be confident that all operations will be executed in the order they defined.
 
-Since we use Azure Devops for organization of the agile process we can leverage it's CI pipeline. In Azure Devops UI you can just connect the repository to a pipeline with a few clicks, see [here](https://learn.microsoft.com/en-us/azure/devops/pipelines/create-first-pipeline?view=azure-devops&tabs=python%2Ctfs-2018-2%2Cbrowser) for additional information. Here, the `azure-pipelines.yml` excutes the unit tests with `pytest` with code coverage getting displayed afterwards.
-
-## .vscode
-
-In the settings.json you can specify some rules for working in visual studio code. Here, we have the following settings:
-1. File gets autoformatted during save adhering to the official Python style-guide `PEP8` using `black`. See [here](https://pep8.org/) and [here](https://pypi.org/project/black/) for further information.
-2. pylint is used to check for errors, give hints for coding standard, look for code smells, and make suggestions about how the code could be refactored.
-
-## Package versioning
-
-To increment the version of the package, manually adjust the version number in the setup.py file.
