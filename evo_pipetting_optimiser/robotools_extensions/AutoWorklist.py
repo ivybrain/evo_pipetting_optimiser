@@ -568,12 +568,11 @@ class AutoWorklist(EvoWorklist):
                     if tips_needed > 8:
                         continue
 
-                    # If the combo is bigger than 1 group, and the primary isn't a trough source,
+                    # If the primary isn't a trough source,
                     # We need to make sure none of the rows in the primary are repeated
                     # As this would require more than one aspirate/dispense
-                    if combo_size > 1 and (
-                        primary != "source"
-                        or not isinstance(selected_ops[0].source, Trough)
+                    if primary != "source" or not isinstance(
+                        selected_ops[0].source, Trough
                     ):
 
                         # Check that we don't have a conflict in primary mask
