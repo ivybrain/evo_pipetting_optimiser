@@ -7,6 +7,7 @@ from collections import deque
 import numpy as np
 import math
 from .TransferOperation import TransferOperation
+from .utils import *
 
 
 class AutoWorklist(EvoWorklist):
@@ -597,6 +598,37 @@ class AutoWorklist(EvoWorklist):
                         op_count = sum([len(group[0]) for group in combination])
                         tips_for_combo = list(range(op_count))
 
+                    skip_group = False
+                    tip_index = 0
+                    for group, _, _ in combination:
+                        op = next(iter(group))
+
+                        tip = tips_for_combo[tip_index]
+
+                        # Check if an up offset limit or a down offset limit is voilated
+                        offset_up_check, offset_down_check = check_offset_limits(
+                            op, tip
+                        )
+
+                        if offset_up_check < 0:
+                            # This means tips are travelling too far up, so we need to switch to earlier tips
+                            # However, we already started at tip 1 for this group. This means the group can't work
+                            # So skip it
+                            skip_group = True
+
+                        if offset_down_check > 0:
+
+                            for i in range(len(tips_for_combo)):
+                                # If we need more than 8 tips to work with this offset, the group can't work
+                                if tips_for_combo[i] + offset_down_check >= 8:
+                                    skip_group = True
+                                tips_for_combo[i] += offset_down_check
+
+                        tip_index += len(group)
+
+                    if skip_group:
+                        continue
+
                     # Track the maximum tips we've seen for a combo
                     most_tips_achieved = max(most_tips_achieved, tips_needed)
                     # Append this combo to the valid list
@@ -736,60 +768,23 @@ class AutoWorklist(EvoWorklist):
                     break
 
                 tip_index = 0
-                tip_extra_offset = 0
                 exclude_group = False
                 for group, _, _ in target_groups:
                     for op in group:
 
-                        source_limit_up = getattr(op.source, "offset_limit_up", None)
-                        source_limit_down = getattr(
-                            op.source, "offset_limit_down", None
-                        )
-                        dest_limit_up = op.destination.offset_limit_up
-                        dest_limit_down = op.destination.offset_limit_down
-                        # Get the tip assigned to this op in the grouping process
-
                         tip_assigned = tips_used + tips_selected[tip_index]
 
-                        source_offset = op.source_pos[0] - tip_assigned
-                        dest_offset = op.dest_pos[0] - tip_assigned
-
-                        def check_limit(offset, limit, subtract=False):
-                            # Check if we have exceeded the offset limit allowed
-                            if limit is None:
-                                return 0
-                            if subtract:
-                                return offset - limit
-                            return offset + limit
-
-                        source_up_check = check_limit(source_offset, source_limit_up)
-                        source_down_check = check_limit(
-                            source_offset, source_limit_down, True
-                        )
-                        dest_up_check = check_limit(dest_offset, dest_limit_up)
-                        dest_down_check = check_limit(
-                            dest_offset, dest_limit_down, True
-                        )
-
-                        if dest_up_check < 0 or source_up_check < 0:
-                            tip_extra_offset += min(source_up_check, dest_up_check)
-                            offset_limited = True
-
-                        if dest_down_check > 0 or source_down_check > 0:
-                            tip_extra_offset += max(source_down_check, dest_down_check)
-                            offset_limited = True
-
                         # Tips passed to robotools are 1-indexed, so add 1
-                        op.selected_tip = tip_extra_offset + tip_assigned + 1
+                        op.selected_tip = tip_assigned + 1
                         tip_index += 1
 
                 # If this puts us over 8 tips, skip this group
-                if tips_used + tips_needed + tip_extra_offset > 8:
+                if tips_used + tips_needed > 8:
                     continue
                 if exclude_group:
                     continue
 
-                tips_used += tips_needed + tip_extra_offset
+                tips_used += tips_needed
 
                 # If no conflicts have occurred, add this group to the selected groups and ops
                 selected_groups.append((group_type, ops, target_groups))
@@ -854,13 +849,15 @@ class AutoWorklist(EvoWorklist):
                     source_rows = [tip - 1 for tip in tips]
 
                 # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
-                offset = source_rows[0] - tips[0]
+                offset = source_rows[0] - (tips[0] - 1)
                 for i in range(len(source_rows)):
-                    assert source_rows[i] - tips[i] == offset, "Tip offset issue"
+                    assert (
+                        source_rows[i] - (tips[i] - 1) == offset
+                    ), "Tip assignment offset inconsistency"
 
-                assert offset < (
+                assert offset <= (
                     getattr(source_op.source, "offset_limit_down", None) or 10000
-                ) and offset > -(
+                ) and offset >= -(
                     getattr(source_op.source, "offset_limit_up", None) or 10000
                 ), "Offset limit violated"
 
