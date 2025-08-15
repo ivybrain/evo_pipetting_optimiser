@@ -10,6 +10,10 @@ from .TransferOperation import TransferOperation
 from .utils import *
 
 
+class OffsetLimitException(Exception):
+    pass
+
+
 class AutoWorklist(EvoWorklist):
 
     def __init__(
@@ -735,10 +739,8 @@ class AutoWorklist(EvoWorklist):
                 if len(set(selected_ops + ops)) != len(selected_ops) + len(ops):
                     continue
 
-                tips_needed = (max(tips_selected) - min(tips_selected)) + 1
-
                 # Initial check this group won't use too many tips
-                if tips_used + tips_needed > 8:
+                if tips_used + max(tips_selected) >= 8:
                     continue
 
                 # Check that the cost of adding this group (and saving washes)
@@ -765,13 +767,10 @@ class AutoWorklist(EvoWorklist):
                     if offset_check_up < 0 or offset_check_down > 0:
                         exclude_group = True
 
-                # If this puts us over 8 tips, skip this group
-                if tips_used + tips_needed > 8:
-                    continue
                 if exclude_group:
                     continue
 
-                tips_used += tips_needed
+                tips_used += max(tips_selected) + 1
 
                 # If no conflicts have occurred, add this group to the selected groups and ops
                 selected_groups.append((group_type, ops, target_groups))
@@ -782,7 +781,9 @@ class AutoWorklist(EvoWorklist):
                     break
 
             if len(selected_ops) == 0:
-                raise Exception("No valid groups to select")
+                raise OffsetLimitException(
+                    "No valid groups to select. This probably means you're trying to transfer between two plates with offset restrictions that don't allow this transfer"
+                )
 
             # Process the groups into a list of sources to aspirate and a list of destinations to dispense
             source_list = []
@@ -887,13 +888,13 @@ class AutoWorklist(EvoWorklist):
                 ]
 
                 # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
-                offset = dest_rows[0] - tips[0]
+                offset = dest_rows[0] - (tips[0] - 1)
                 for i in range(len(dest_rows)):
-                    assert dest_rows[i] - tips[i] == offset, "Tip offest issue"
+                    assert dest_rows[i] - (tips[i] - 1) == offset, "Tip offest issue"
 
-                assert offset < (
+                assert offset <= (
                     dest_op.destination.offset_limit_down or 10000
-                ) and offset > -(
+                ) and offset >= -(
                     dest_op.destination.offset_limit_up or 10000
                 ), "Offset limit exceeded"
 
@@ -929,9 +930,9 @@ class AutoWorklist(EvoWorklist):
             self.pending_ops.difference_update(selected_ops)
             self.completed_ops.update(selected_ops)
 
-        print(
-            f"Optimisation complete. aspirates: {self.asp_count}, dispenses: {self.disp_count}, washes: {self.wash_count}"
-        )
+        # print(
+        #     f"Optimisation complete. aspirates: {self.asp_count}, dispenses: {self.disp_count}, washes: {self.wash_count}"
+        # )
 
         return
 
