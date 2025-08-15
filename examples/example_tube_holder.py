@@ -3,8 +3,11 @@ import robotools
 
 from evo_pipetting_optimiser.robotools_extensions import *
 
-# Define a rack of sample matrix tubes as sample plate. It is a 96-well microplate, so 8 rows, 12 columns
-# Limit the LiHa offset to 4 downwards - ie, tip 1 can reach row E but not row F
+# Define a 12 tube holder for sample tubes
+# Often, the LiHa can't go beyond the edges of a tube holder
+# offset_limit_up = 0 means tip 1 can't go above the first tube
+# offset_limit_down = 4 means tip 8 can't go below the 8th tube
+# If you set offset_limit_down = 0, only the first 8 tubes can be accessed
 sample_tubes = AdvancedLabware(
     "smp",
     12,
@@ -20,6 +23,7 @@ sample_tubes = AdvancedLabware(
     },
     location=(2, 1),
     offset_limit_up=0,
+    offset_limit_down=4,
 )
 
 
