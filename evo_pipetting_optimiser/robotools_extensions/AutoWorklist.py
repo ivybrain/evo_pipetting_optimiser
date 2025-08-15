@@ -390,26 +390,6 @@ class AutoWorklist(EvoWorklist):
         super().evo_wash(tips=wash_tips, **wash_params)
         self.silence_append_warning = False
 
-    def group_movments_needed(self, op_set, field):
-        """
-        Group operations by the specified field (source or destination),
-        The column, and the liquid class. We group like this because these are the constraints
-        To aspirating (or dispensing) something in one step
-        """
-        group_dict = {}
-        for op in op_set:
-
-            if field == "source":
-                key = (op.source.name, op.source_pos[1], op.liquid_class)
-            else:
-                key = (op.destination.name, op.dest_pos[1], op.liquid_class)
-            if key not in group_dict:
-                group_dict[key] = []
-
-            group_dict[key].append(op)
-
-        return group_dict
-
     def group_by(self, open_ops, primary="source"):
         """
         Group open operations into efficient possibilities with an associated cost
@@ -438,7 +418,7 @@ class AutoWorklist(EvoWorklist):
 
         # Group available operations by primary labware and primary column
         # i.e. Group by what can be achieved in a single aspiration (for primary=source)
-        primary_dict = self.group_movments_needed(open_ops, primary)
+        primary_dict = group_movments_needed(open_ops, primary)
 
         # Track the groupings we've found so far
         best_groupings = []
@@ -469,7 +449,7 @@ class AutoWorklist(EvoWorklist):
 
             # Group by secondary
             # i.e. when primary=source, find all the destination (labware, column) pairs we need to dispense to
-            secondary_labware_col = self.group_movments_needed(selected_ops, secondary)
+            secondary_labware_col = group_movments_needed(selected_ops, secondary)
             secondary_labware_col_queue = deque(
                 [set(x) for x in secondary_labware_col.values()]
             )
@@ -777,6 +757,13 @@ class AutoWorklist(EvoWorklist):
                         # Tips passed to robotools are 1-indexed, so add 1
                         op.selected_tip = tip_assigned + 1
                         tip_index += 1
+
+                    # Check that assigning this group to later tips hasn't violated offset limits
+                    offset_check_up, offset_check_down = check_offset_limits(
+                        op, tip_assigned
+                    )
+                    if offset_check_up < 0 or offset_check_down > 0:
+                        exclude_group = True
 
                 # If this puts us over 8 tips, skip this group
                 if tips_used + tips_needed > 8:

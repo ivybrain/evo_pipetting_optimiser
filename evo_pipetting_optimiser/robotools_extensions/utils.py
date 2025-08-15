@@ -1,4 +1,33 @@
+def group_movments_needed(op_set, field):
+    """
+    Group operations by the specified field (source or destination),
+    The column, and the liquid class. We group like this because these are the constraints
+    To aspirating (or dispensing) something in one step
+    """
+    group_dict = {}
+    for op in op_set:
+
+        if field == "source":
+            key = (op.source.name, op.source_pos[1], op.liquid_class)
+        else:
+            key = (op.destination.name, op.dest_pos[1], op.liquid_class)
+        if key not in group_dict:
+            group_dict[key] = []
+
+        group_dict[key].append(op)
+
+    return group_dict
+
+
 def check_offset_limits(op, tip):
+    """
+    Check if we have violated an offset limit on the source or destination, and how much by
+    Inputs: an operation, and the tip we have assigned to that operation
+    Outputs: tuple of up_limit_violation, down_limit_violation
+    up_limit_violation - if < 0 the tips are too far up. Need to add this value to tip used (lower tip number will be used)
+    down_limit_violation - if > 0 the tips are too far down. Need to add this value to tip used (higher tip number will be used)
+    """
+
     source_limit_up = getattr(op.source, "offset_limit_up", None)
     source_limit_down = getattr(op.source, "offset_limit_down", None)
     dest_limit_up = op.destination.offset_limit_up
