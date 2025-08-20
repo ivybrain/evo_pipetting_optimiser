@@ -553,34 +553,34 @@ class AutoWorklist(EvoWorklist):
                     if tips_needed > 8:
                         continue
 
-                    # If the primary isn't a trough source,
                     # We need to make sure none of the rows in the primary are repeated
                     # As this would require more than one aspirate/dispense
-                    if primary != "source" or not isinstance(
+
+                    # Check that we don't have a conflict in primary mask
+                    # Get all indices in the primary mask for each group
+
+                    if primary == "source" and isinstance(
                         selected_ops[0].source, Trough
                     ):
+                        tip_indices = [
+                            (np.array(list(group[2])) == "t").nonzero()[0].tolist()
+                            for group in combination
+                        ]
 
-                        # Check that we don't have a conflict in primary mask
-                        # Get all indices in the primary mask for each group
+                    else:
                         tip_indices = [
                             (np.array(list(group[1])) == "t").nonzero()[0].tolist()
                             for group in combination
                         ]
-                        all_tips = [
-                            tip for group_tips in tip_indices for tip in group_tips
-                        ]
-                        # If there are repeats, skip this group
-                        if len(set(all_tips)) != len(all_tips):
-                            continue
 
-                        # List the tips needed for this group, if we offset tips to use tip 1 first
-                        # This will be used to assign tips for pipetting later
-                        tips_for_combo = [tip - min(all_tips) for tip in all_tips]
+                    all_tips = [tip for group_tips in tip_indices for tip in group_tips]
+                    # If there are repeats, skip this group
+                    if len(set(all_tips)) != len(all_tips):
+                        continue
 
-                    else:
-                        # If the primary is a trough source, we just need one tip per op
-                        op_count = sum([len(group[0]) for group in combination])
-                        tips_for_combo = list(range(op_count))
+                    # List the tips needed for this group, if we offset tips to use tip 1 first
+                    # This will be used to assign tips for pipetting later
+                    tips_for_combo = [tip - min(all_tips) for tip in all_tips]
 
                     skip_group = False
                     tip_index = 0
