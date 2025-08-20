@@ -50,8 +50,6 @@ You can just uninstall the package with:
  ```
 
 ### Usage
-
-First, import evo_piptting_optimiser and create an AutoWorklist
 First import AutoWorklist and AdvancedLabware
 ```
 from evo_pipetting_optimiser import AdvancedLabware, AutoWorklist

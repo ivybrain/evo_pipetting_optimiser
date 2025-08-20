@@ -57,7 +57,7 @@ def basic_row_column(worklist):
 
         wl.auto_transfer(
             sample_tubes,
-            sample_tubes.wells[:4, 0],
+            sample_tubes.wells[8:, 0],
             dilution_plate,
             dilution_plate.wells[:4, 1],
             50,
