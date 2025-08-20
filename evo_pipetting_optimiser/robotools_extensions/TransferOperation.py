@@ -65,6 +65,8 @@ class TransferOperation:
         return self.id > other.id
 
     def __eq__(self, other):
+        if not isinstance(other, TransferOperation):
+            return False
         return self.id == other.id
 
     def __hash__(self):

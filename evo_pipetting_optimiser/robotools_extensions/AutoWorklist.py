@@ -470,35 +470,44 @@ class AutoWorklist(EvoWorklist):
                 # Otherwise more
 
                 # Get the rows needed among the source and the destination
-                primary_rows_group = [primary_pos(op)[0] for op in secondary_op_group]
-                secondary_rows_group = [
-                    secondary_pos(op)[0] for op in secondary_op_group
+                primary_rows_group = {}
+                secondary_rows_group = {}
+                row_conflict = False
+                for op in secondary_op_group:
+                    primary_row = primary_pos(op)[0]
+                    secondary_row = secondary_pos(op)[0]
+                    # Check for row conflicts - if there is a repeated row in a labware (not trough) we can't use this group
+                    if (
+                        primary_row in primary_rows_group
+                        and not isinstance(primary_labware(op), Trough)
+                    ) or (
+                        secondary_row in secondary_rows_group
+                        and not isinstance(secondary_labware(op), Trough)
+                    ):
+                        row_conflict = True
+                    primary_rows_group[primary_row] = op
+                    secondary_rows_group[secondary_row] = op
+
+                # Represent the rows as a list with op.id if the row is used by an op, or none if it isn't
+                primary_rows_mask = [
+                    primary_rows_group[i] if i in primary_rows_group else None
+                    for i in range(primary_nrows)
+                ]
+                secondary_rows_mask = [
+                    secondary_rows_group[i] if i in secondary_rows_group else None
+                    for i in range(
+                        min(secondary_rows_group), max(secondary_rows_group) + 1
+                    )
                 ]
 
-                primary_rows_mask = "".join(
-                    [
-                        "t" if i in primary_rows_group else "f"
-                        for i in range(primary_nrows)
-                    ]
-                )
-                secondary_rows_mask = "".join(
-                    [
-                        "t" if i in secondary_rows_group else "f"
-                        for i in range(
-                            min(secondary_rows_group), max(secondary_rows_group) + 1
-                        )
-                    ]
-                )
-
-                # If the destionation rows, represented in a string (like tft for rows [5,7])
-                # Are a substring of the source rows (like fffftftf)
+                # If the secondary rows, represented in a list (like [0, None, 1] for ops [0,1] on rows [5,7])
+                # Are a substring of the primary rows (like [None, None, 0, None, 1, None, None, None])
                 # We can aspirate this group in one shot
                 # If the source is a trough, the rows are flexible, so we don't need this check
                 # For sources with more than 12 rows, we can only take 8 rows
-                if (
+                if not row_conflict and (
                     isinstance(selected_ops[0].source, Trough)
-                    or secondary_rows_mask in primary_rows_mask
-                    and len(secondary_rows_group) == len(set(secondary_rows_group))
+                    or check_sublist(primary_rows_mask, secondary_rows_mask)
                 ):
 
                     # This means that the seccondary rows line up with the primary rows
@@ -521,7 +530,9 @@ class AutoWorklist(EvoWorklist):
                 # Want to sort by biggest, so use negative
                 size = -1 * len(group[0])
                 # If size is tied, sort by lowest primary row
-                first_row = group[1].index("t")
+                first_row = 0
+                while group[1][first_row] == None:
+                    first_row += 1
                 return (size, first_row)
 
             secondary_labware_col_reachable.sort(key=group_sort_key)
@@ -553,25 +564,27 @@ class AutoWorklist(EvoWorklist):
                     if tips_needed > 8:
                         continue
 
-                    # We need to make sure none of the rows in the primary are repeated
-                    # As this would require more than one aspirate/dispense
-
                     # Check that we don't have a conflict in primary mask
                     # Get all indices in the primary mask for each group
 
                     if primary == "source" and isinstance(
                         selected_ops[0].source, Trough
                     ):
+                        # If the primary is a trough, the primary rows are irrelevant, so get tips from the secondary rows instead
                         tip_indices = [
-                            (np.array(list(group[2])) == "t").nonzero()[0].tolist()
+                            (np.array(list(group[2])) != None).nonzero()[0].tolist()
                             for group in combination
                         ]
 
                     else:
+                        # Otherwise, determine tip indices based on the primary mask
                         tip_indices = [
-                            (np.array(list(group[1])) == "t").nonzero()[0].tolist()
+                            (np.array(list(group[1])) != None).nonzero()[0].tolist()
                             for group in combination
                         ]
+
+                    # We need to make sure none of the rows in the primary are repeated
+                    # As this would require more than one aspirate/dispense
 
                     all_tips = [tip for group_tips in tip_indices for tip in group_tips]
                     # If there are repeats, skip this group
