@@ -573,10 +573,20 @@ class AutoWorklist(EvoWorklist):
                         selected_ops[0].source, Trough
                     ):
                         # If the primary is a trough, the primary rows are irrelevant, so get tips from the secondary rows instead
-                        tip_indices = [
-                            (np.array(list(group[2])) != None).nonzero()[0].tolist()
-                            for group in combination
-                        ]
+
+                        tips_used = 0
+                        tip_indices = []
+                        for group in combination:
+                            group_indices = (
+                                (np.array(list(group[2])) != None).nonzero()[0].tolist()
+                            )
+
+                            # Adjust so we don't overlap with the tips from the previous group
+                            tip_indices.append(
+                                [tip + tips_used for tip in group_indices]
+                            )
+
+                            tips_used = max(group_indices) + 1
 
                     else:
                         # Otherwise, determine tip indices based on the primary mask
