@@ -955,10 +955,6 @@ class AutoWorklist(EvoWorklist):
             self.pending_ops.difference_update(selected_ops)
             self.completed_ops.update(selected_ops)
 
-        # print(
-        #     f"Optimisation complete. aspirates: {self.asp_count}, dispenses: {self.disp_count}, washes: {self.wash_count}"
-        # )
-
         return
 
     def report_ops(self):
@@ -970,7 +966,7 @@ class AutoWorklist(EvoWorklist):
         ):
             print(op)
 
-    def commit(self):
+    def commit(self, report=False):
 
         # If we have ops pending, optimise and apply them
         if len(self.pending_ops) > 0 and not self.processing:
@@ -979,6 +975,10 @@ class AutoWorklist(EvoWorklist):
             self.pending_ops = set()
             self.completed_ops = set()
             self.processing = False
+            if report:
+                print(
+                    f"Optimisation complete. aspirates: {self.asp_count}, dispenses: {self.disp_count}, washes: {self.wash_count}"
+                )
         self.currently_optimising = False
         self.append("B;")
 
