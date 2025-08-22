@@ -293,6 +293,7 @@ class AutoWorklist(EvoWorklist):
         # user appends.
         # Warn the user, then commit the auto transfers automatically
         if self.currently_optimising and not self.silence_append_warning:
+
             warnings.warn(
                 "Modifying worklist after auto_transfer without commit. Auto transfers will be committed now, before your modification"
             )
@@ -377,6 +378,7 @@ class AutoWorklist(EvoWorklist):
                 liquid_class=self.wash_params["decon_liquid_class"],
             )
 
+            self.silence_append_warning = silence_append_warning
             # Run timer to soak the tips for the specified delay
             self.append('B;StartTimer("1");')
             duration_str = "{0:.2f}".format(self.wash_params["decon_delay"] / 1000)
