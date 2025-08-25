@@ -1,4 +1,9 @@
+<span><div style="width:256px;">
+  <img src="figures/CSL_Logo_RGB_Highres_M01.png">
+</div></span>
+
 # Evo_Pipetting_Optimiser
+
 
 ## Introduction
 A frequent challenge in using the Tecan EVO is the flawed optimisation that EVOware conducts for basic worklist commands (A and D),
