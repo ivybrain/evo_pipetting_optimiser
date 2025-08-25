@@ -1,9 +1,12 @@
-<span><div style="width:256px;">
+<span><div algin="left" style="width:256px;">
   <img src="figures/CSL_Logo_RGB_Highres_M01.png">
-</div></span>
+</div>
+
+</span>
 
 # Evo_Pipetting_Optimiser
 
+Published by CSL Innovation PTY LTD under the GNU Affero General Public License v3.0. CSL is a global biotechnology leader that develops and delivers innovative lifesaving medicines, protects public health and helps people with life-threatening medical conditions live full lives.
 
 ## Introduction
 A frequent challenge in using the Tecan EVO is the flawed optimisation that EVOware conducts for basic worklist commands (A and D),
