@@ -3,9 +3,11 @@
 Published by CSL Innovation PTY LTD under the GNU Affero General Public License v3.0. CSL is a global biotechnology leader that develops and delivers innovative lifesaving medicines, protects public health and helps people with life-threatening medical conditions live full lives.
 
 ## Introduction
-A frequent challenge in using the Tecan EVO is the flawed optimisation that EVOware conducts for basic worklist commands (A and D),
-as produced by `robotools.EvoWorklist.transfer()`. The strategy it selects can often make pipetting slower, and B; commands 
-`EvoWorklist.commit()` must be inserted between commands to stop the EVO from rearranging them inefficiently. It can even cause intermittent errors, where, if sample positions change, it may attempt to pipette a well with a tip that cannot reach that well, if the labware is near the top or bottom of the deck.
+[robotools](https://github.com/JuBiotech/robotools) provides a simple python interface for writing Tecan Liquid Handler worklists to perform pipetting workflows. Most commonly used is the `Evoworklist.transfer` method, which, for the Tecan EVO, procudes basic worklist commands (A, D, and W) in the worklist. These are sufficient for defining pipetting workflows, but have several limitations.
+
+A frequent challenge is the flawed optimisation that EVOware conducts for basic worklist commands (A and D),
+as produced by `EvoWorklist.transfer()`. The strategy it selects can often make pipetting slower, and B; commands 
+(produced by `EvoWorklist.commit()`) must be inserted between commands to stop the EVO from rearranging them inefficiently. It can even cause intermittent errors, where, if sample positions change, it may attempt to pipette a well with a tip which cannot reach that well, if the labware is near the top or bottom of the deck.
 
 Additionally, a common use case for robotools is dilution/processing/preparation of several samples in a plate. In such cases,
 the easiest way to translate the process to Python and robotools is to loop through each sample, and define the pipetting steps which 
