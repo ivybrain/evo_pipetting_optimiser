@@ -967,11 +967,6 @@ class AutoWorklist(EvoWorklist):
             print(op)
 
     def commit(self, report=False):
-        """
-        Calculates optimal pipetting solution for any pending auto_transfer operations and adds the corresponding commands
-        to the worklist
-        report: If true, will print how many aspirates, dispenses, and washes are generated
-        """
 
         # If we have ops pending, optimise and apply them
         if len(self.pending_ops) > 0 and not self.processing:
@@ -991,9 +986,10 @@ class AutoWorklist(EvoWorklist):
         # Redefine to give correct type hint
         return super().__enter__()
 
-    def __exit__(self, *args):
+    def __exit__(self, exc_type, exc_value, traceback):
 
-        # Commit to optimise and apply any pending ops before exiting
-        self.commit()
+        # Commit to optimise and apply any pending ops before exiting, but only if we haven't hit an exception
+        if exc_type is None:
+            self.commit()
 
-        super().__exit__(*args)
+        super().__exit__(exc_type, exc_value, traceback)
