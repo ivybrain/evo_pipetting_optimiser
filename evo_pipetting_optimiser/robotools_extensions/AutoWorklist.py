@@ -393,7 +393,8 @@ class AutoWorklist(EvoWorklist):
             if not key.startswith("decon_")
         }
 
-        super().evo_wash(tips=wash_tips, **wash_params)
+        if len(wash_tips) > 0:
+            super().evo_wash(tips=wash_tips, **wash_params)
         self.silence_append_warning = False
 
     def group_by(self, open_ops, primary="source"):
