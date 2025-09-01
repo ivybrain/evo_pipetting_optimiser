@@ -18,12 +18,13 @@ class AutoWorklist(EvoWorklist):
 
     def __init__(
         self,
+        worklist_path,
+        waste_location: Tuple[int, int],
+        cleaner_location: Tuple[int, int],
         *args,
-        waste_location: Tuple[int, int] = None,
-        cleaner_location: Tuple[int, int] = None,
         **kwargs,
     ):
-        super().__init__(*args, **kwargs)
+        super().__init__(worklist_path, *args, **kwargs)
 
         self.completed_ops = set()
         self.pending_ops = set()
@@ -33,11 +34,6 @@ class AutoWorklist(EvoWorklist):
 
         self.currently_optimising = False
         self.silence_append_warning = False
-
-        assert waste_location is not None, "Must define waste location grid and site"
-        assert (
-            cleaner_location is not None
-        ), "Must define cleaner location grid and site"
 
         self.processing = False
 
