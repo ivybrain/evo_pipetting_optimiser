@@ -4,7 +4,8 @@ import robotools
 from evo_pipetting_optimiser.robotools_extensions import *
 
 # Define a 12 tube holder for sample tubes
-# Often, the LiHa can't go beyond the edges of a tube holder
+# Often, the LiHa (with tips spread for accessing tubes) can't move beyond the edges of
+# a tube holder in the y direction, because there is not enough space in front of or behind the tubes
 # offset_limit_up = 0 means tip 1 can't go above the first tube
 # offset_limit_down = 4 means tip 8 can't go below the 12th tube
 # If you set offset_limit_down = 0, only the first 8 tubes can be accessed
