@@ -20,7 +20,7 @@ optimisation from the EVOware side, and miss potential speed.
 Thus an optimiser which tracks all operations a user wishes to conduct, before automatically grouping them into the most efficient order,
 is desired. This package provides this, by providing an `auto_transfer` method which records the desired operations for later optimisation. When `commit` is called or the worklist is saved, the recorded operations are optimised and added to the worklist as advanced worklist commands.
 
-WARNING: advanced worklist commands can cause damage if not used carefully. Ensure all grid and site locations specified are accurate.
+WARNING: Like any advanced worklist commands, commands produced by the optimiser can cause damage if not specified correctly. Ensure that all grid and site positions are defined correctly, and that this matches the deck layout set in the EVOware script.
 
 ### In scope
 Optimisation of pipetting operations for an 8-tip LiHa on the Tecan EVO
