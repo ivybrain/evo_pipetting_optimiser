@@ -85,7 +85,7 @@ def basic_row_column(worklist):
         )
 
         # Print the operations we have registered, so we can sanity check
-        wl.report_ops()
+        print(wl.report)
 
         wl.commit()
 

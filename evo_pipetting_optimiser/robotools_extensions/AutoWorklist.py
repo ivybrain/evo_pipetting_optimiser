@@ -956,12 +956,23 @@ class AutoWorklist(EvoWorklist):
 
     def report_ops(self):
         """
-        List the operations queued for the current optimisation process
+        Prints the report directly to stdout
         """
-        for op in sorted(
-            self.pending_ops.union(self.completed_ops), key=lambda x: x.id
-        ):
-            print(op)
+        print(self.report)
+
+    @property
+    def report(self):
+        """
+        String report of all operations queued for the current optimisation session
+        """
+        return "\n".join(
+            [
+                str(op)
+                for op in sorted(
+                    self.pending_ops.union(self.completed_ops), key=lambda x: x.id
+                )
+            ]
+        )
 
     def commit(self, report=False):
 
