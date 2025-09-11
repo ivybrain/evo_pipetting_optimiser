@@ -308,10 +308,6 @@ class AutoWorklist(EvoWorklist):
         super().evo_dispense(*args, **kwargs)
         self.silence_append_warning = False
 
-    # Patch in decontamination wash for utility
-    def wash(self, wash_scheme: Literal[1, 2, 3, 4, "D"] = 1):
-        self.append(f"W{wash_scheme};")
-
     def _auto_wash(
         self,
         *args,
