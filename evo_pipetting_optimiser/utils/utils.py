@@ -1,4 +1,4 @@
-def group_movments_needed(op_set, field):
+def group_movements_needed(op_set, field):
     """
     Group operations by the specified field (source or destination),
     The column, and the liquid class. We group like this because these are the constraints

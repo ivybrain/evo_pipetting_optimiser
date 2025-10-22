@@ -24,7 +24,7 @@ class TransferOperation:
         source_dep=None,
         dest_dep=None,
         liquid_class=None,
-        wash_scheme: Literal["D", 1, None] = 1,
+        wash_scheme: Literal["D", 1, None, "smart"] = 1,
         **kwargs,
     ):
         self.id = TransferOperation.op_id_counter
