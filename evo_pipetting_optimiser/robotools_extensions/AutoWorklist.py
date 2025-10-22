@@ -24,6 +24,17 @@ class AutoWorklist(EvoWorklist):
         *args,
         **kwargs,
     ):
+        """
+        worklist_path
+            Optional filename/filepath to write when the context is exited (must include a .gwl extension)
+        waste_location:  (int, int)
+            (grid, site) tuple for the waste station location on the evo. Used for automatic washes
+        cleaner_location: (int, int)
+            (grid, site) tuple for the cleaner station location on the evo. Used for automatic washes
+        max_volume : int
+            Maximum aspiration volume in µL
+
+        """
         super().__init__(worklist_path, *args, **kwargs)
 
         self.completed_ops = set()
@@ -878,6 +889,7 @@ class AutoWorklist(EvoWorklist):
                     label=" + ".join(set([op.label for op in source_group]))
                     + ", ops: "
                     + ",".join([str(op.id) for op in source_group]),
+                    on_underflow=source_op.on_underflow,
                 )
                 self.asp_count += 1
 
@@ -991,7 +1003,6 @@ class AutoWorklist(EvoWorklist):
         return super().__enter__()
 
     def __exit__(self, exc_type, exc_value, traceback):
-
         # Commit to optimise and apply any pending ops before exiting, but only if we haven't hit an exception
         if exc_type is None:
             self.commit()
