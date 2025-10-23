@@ -1,7 +1,6 @@
 import robotools
 
-
-from evo_pipetting_optimiser import AdvancedLabware, AutoWorklist
+from evo_pipetting_optimiser import AdvancedLabware, AutoWorklist, AdvancedTrough
 
 # Define a rack of sample matrix tubes as sample plate. It is a 96-well microplate, so 8 rows, 12 columns
 sample_plate = AdvancedLabware(
@@ -32,10 +31,30 @@ dilution_plate = AdvancedLabware(
     location=(32, 2),
 )
 
+test_trough = AdvancedTrough(
+    "Trough1",
+    8,
+    1,
+    min_volume=100,
+    max_volume=100_000,
+    initial_volumes=100_000,
+    location=(2, 1),
+)
+
 
 def basic_row_column(worklist):
 
     with AutoWorklist(worklist, waste_location=(1, 2), cleaner_location=(1, 3)) as wl:
+
+        # Transfer diluent to dilution plate
+        wl.auto_transfer(
+            test_trough,
+            test_trough.wells,
+            dilution_plate,
+            dilution_plate.wells[0, :8],
+            50,
+            liquid_class="Water free dispense",
+        )
 
         # Basic: Transfer col 0 to row 0
         wl.auto_transfer(
@@ -55,6 +74,8 @@ def basic_row_column(worklist):
             50,
             liquid_class="Water free dispense",
         )
+
+        print(wl.report)
 
         # # Optimise these steps and add to worklist
         wl.commit()
