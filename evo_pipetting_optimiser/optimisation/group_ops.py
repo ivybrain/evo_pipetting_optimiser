@@ -5,7 +5,7 @@ from ..utils import *
 import numpy as np
 
 
-def group_ops(pending_ops):
+def group_ops(pending_ops, available_tips=list(range(8))):
 
     # Get open ops - the pending operations that don't have an unfulfilled dependency
     # Ie all ops we can select from at this time point
@@ -20,8 +20,8 @@ def group_ops(pending_ops):
     # Get the best groups of ops when grouping by source,
     # and grouping by destination
     # See group_by method for more details
-    best_groupings = group_by(open_ops, "source")
-    best_groupings += group_by(open_ops, "destination")
+    best_groupings = group_by(open_ops, "source", available_tips)
+    best_groupings += group_by(open_ops, "destination", available_tips)
 
     # Sort the groups by best cost, then earliest op, then the most ops achieved
     def group_sort_key(group):
@@ -35,7 +35,7 @@ def group_ops(pending_ops):
     return best_groupings
 
 
-def group_by(open_ops, primary="source"):
+def group_by(open_ops, primary="source", available_tips=list(range(8))):
     """
     Group open operations into efficient possibilities with an associated cost
     If we group by source (primary = source), then for each possible aspiration source (labware, column),
@@ -120,11 +120,14 @@ def group_by(open_ops, primary="source"):
                 # Check for row conflicts - if there is a repeated row in a labware (not trough) we can't use this group
                 if (
                     primary_row in primary_rows_group
-                    and not isinstance(primary_labware(op), Trough)
+                    and not getattr(primary_labware(op), "virtual_rows", 0)
+                    >= primary_row
                 ) or (
                     secondary_row in secondary_rows_group
-                    and not isinstance(secondary_labware(op), Trough)
+                    and not getattr(secondary_labware(op), "virtual_rows", 0)
+                    >= secondary_row
                 ):
+                    # if primary_row in primary_rows_group:
                     row_conflict = True
                 primary_rows_group[primary_row] = op
                 secondary_rows_group[secondary_row] = op

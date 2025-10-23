@@ -51,7 +51,7 @@ def basic_row_column(worklist):
             test_trough,
             test_trough.wells,
             dilution_plate,
-            dilution_plate.wells[0, :8],
+            dilution_plate.wells[:8, 0],
             50,
             liquid_class="Water free dispense",
         )
@@ -74,6 +74,10 @@ def basic_row_column(worklist):
             50,
             liquid_class="Water free dispense",
         )
+
+        # Now transfer back to trough
+        # wl.auto_transfer(dilution_plate, dilution_plate.wells[:, 0],
+        #                  test_trough, test_trough.wells, )
 
         print(wl.report)
 

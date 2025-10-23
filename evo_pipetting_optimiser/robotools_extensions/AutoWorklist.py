@@ -433,64 +433,11 @@ class AutoWorklist(EvoWorklist):
             # divided by the number of ops achieved by that group
             second_best_cost = (best_groupings[1][0] + 2) / len(best_groupings[1][2])
 
-            # Track which group we're looking at
-            index = 0
-            # While we haven't checked every group, and haven't used all our tips
-
-            offset_limited = False
-
-            while tips_used < 8 and index < len(best_groupings):
-
-                # Get the contents of this group
-                (steps, group_type, ops, target_groups, tips_selected) = best_groupings[
-                    index
-                ]
-                index += 1
-
-                # Check the ops in previously selected groups and new group are disjoint - ie don't try and do the same op twice
-                if len(set(selected_ops + ops)) != len(selected_ops) + len(ops):
-                    continue
-
-                # Initial check this group won't use too many tips
-                if tips_used + max(tips_selected) >= 8:
-                    continue
-
-                # Check that the cost of adding this group (and saving washes)
-                # Isn't greater than the cost of the second best group with additional washes
-                cost_of_adding = steps / len(ops)
-                if cost_of_adding > second_best_cost:
-                    break
-
-                tip_index = 0
-                exclude_group = False
-                for group, _, _ in target_groups:
-                    for op in group:
-
-                        tip_assigned = tips_used + tips_selected[tip_index]
-
-                        # Tips passed to robotools are 1-indexed, so add 1
-                        op.selected_tip = tip_assigned + 1
-                        tip_index += 1
-
-                    # Check that assigning this group to later tips hasn't violated offset limits
-                    offset_check_up, offset_check_down = check_offset_limits(
-                        op, tip_assigned
-                    )
-                    if offset_check_up < 0 or offset_check_down > 0:
-                        exclude_group = True
-
-                if exclude_group:
-                    continue
-
-                tips_used += max(tips_selected) + 1
-
-                # If no conflicts have occurred, add this group to the selected groups and ops
-                selected_groups.append((group_type, ops, target_groups))
-                selected_ops += ops
-
-                # If we have taken a part of a group (but left some ops due to an offset limit), stop searching new groups
-                if offset_limited:
-                    break
+            (steps, group_type, ops, target_groups, tips_selected) = best_groupings[0]
+            for op, tip in zip(ops, tips_selected):
+                op.selected_tip = tip + 1
+            selected_groups.append((group_type, ops, target_groups))
+            selected_ops += ops
 
             if len(selected_ops) == 0:
                 raise OffsetLimitException(
