@@ -1,5 +1,7 @@
 from .group_ops import group_ops
-from copy import copy
+from copy import copy, deepcopy
+
+import time
 
 
 class OffsetLimitException(Exception):
@@ -27,10 +29,24 @@ def make_plan(pending_ops):
 
     completed_ops = set()
 
+    labware_copies = {}
+
+    def labware_copy(labware):
+        if labware.name not in labware_copies:
+            labware_copies[labware.name] = deepcopy(labware)
+
+        return labware_copies[labware.name]
+
+    start_time = time.time()
+
     # Repeat until we have no more operations pending
     while len(pending_ops) > 0:
         # Group the operations. See group_ops method for details
         best_groupings = group_ops(pending_ops)
+
+        # TO implement: All groups that do not contain newly completed ops are still valid
+        # keep in memory and skip calculation for next
+
         # In the simple case, we can just take the single best group. However, if the best group doesn't use all 8 tips,
         # We can select other groups to use the remaining tips
         # Before washing them all together
@@ -95,6 +111,14 @@ def make_plan(pending_ops):
                 ("Aspirate", source_group, [op_tip[op] for op in source_group])
             )
 
+            # Remove liquid from our virtual copy of the plates so we can track composition
+
+            virtual_source = labware_copy(source_group[0].source)
+            virtual_source.remove(
+                [virtual_source.wells[op.source_pos] for op in source_group],
+                [op.volume for op in source_group],
+            )
+
             asp_count += 1
 
         for dest_group in dest_list:
@@ -104,11 +128,29 @@ def make_plan(pending_ops):
 
             actions.append(("Dispense", dest_group, [op_tip[op] for op in dest_group]))
 
+            # Add liquid to our virtual copy of the plates so we can track composition
+            virtual_dest = labware_copy(dest_group[0].destination)
+            compositions = [
+                labware_copy(op.source).get_well_composition(
+                    op.source.wells[op.source_pos]
+                )
+                for op in dest_group
+            ]
+            virtual_dest.add(
+                [virtual_dest.wells[op.dest_pos] for op in dest_group],
+                [op.volume for op in dest_group],
+                compositions=compositions,
+            )
+
             disp_count += 1
 
         pending_ops.difference_update(selected_ops)
         completed_ops.update(selected_ops)
 
     cost = asp_count + disp_count + (wash_count * 2)
+
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print(f"Execution time: {elapsed_time:.4f} seconds")
 
     return actions, cost, (asp_count, disp_count, wash_count)
