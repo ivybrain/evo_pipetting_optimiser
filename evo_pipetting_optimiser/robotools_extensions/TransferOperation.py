@@ -42,8 +42,6 @@ class TransferOperation:
         self.source_dep = source_dep
         self.dest_dep = dest_dep
 
-        self.selected_tip = None
-
         self.wash_scheme = wash_scheme
 
         self.liquid_class = liquid_class

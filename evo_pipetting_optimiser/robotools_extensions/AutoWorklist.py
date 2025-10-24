@@ -6,11 +6,7 @@ import numpy as np
 import math
 from .TransferOperation import TransferOperation
 from ..utils.utils import *
-from ..optimisation import group_ops
-
-
-class OffsetLimitException(Exception):
-    pass
+from ..optimisation import group_ops, make_plan
 
 
 class AutoWorklist(EvoWorklist):
@@ -35,8 +31,6 @@ class AutoWorklist(EvoWorklist):
 
         """
         super().__init__(worklist_path, *args, **kwargs)
-
-        self.completed_ops = set()
         self.pending_ops = set()
 
         self.tips_used = [False] * 8
@@ -402,97 +396,28 @@ class AutoWorklist(EvoWorklist):
             super().evo_wash(tips=wash_tips, **wash_params)
         self.silence_append_warning = False
 
-    def make_plan(self):
+    def execute_plan(self, plan):
 
-        # Count the aspirates, dispenses, and washes we use
-        # for performance tracking
-        self.asp_count = 0
-        self.disp_count = 0
-        self.wash_count = 0
+        for action, ops, tips in plan:
 
-        # Repeat until we have no more operations pending
-        while len(self.pending_ops) > 0:
-            # Group the operations. See group_ops method for details
-            best_groupings = group_ops(self.pending_ops)
-            # In the simple case, we can just take the single best group. However, if the best group doesn't use all 8 tips,
-            # We can select other groups to use the remaining tips
-            # Before washing them all together
-
-            # Track how many tips we've used across the currently selected groups
-            tips_used = 0
-            # Track the selected groups, and the ops among those selected groups
-            selected_groups = []
-            selected_ops = []
-
-            # Store the cost of executing the second best group available
-            # This is a benchmark for whether to include subsequent groups
-            # e.g. if it's more efficient to select the second best group and do an additional wash,
-            # compared to adding an unefficient group to the remaining tips,
-            # Then don't add any more groups, and leave the remaining tips empty
-            # second best cost is the number of ((aspirates + dispenses) + 2 (as a wash takes two movements into the waste then cleaner)),
-            # divided by the number of ops achieved by that group
-            second_best_cost = (best_groupings[1][0] + 2) / len(best_groupings[1][2])
-
-            (steps, group_type, ops, target_groups, tips_selected) = best_groupings[0]
-            for op, tip in zip(ops, tips_selected):
-                op.selected_tip = tip + 1
-            selected_groups.append((group_type, ops, target_groups))
-            selected_ops += ops
-
-            if len(selected_ops) == 0:
-                raise OffsetLimitException(
-                    "No valid groups to select. This probably means you're trying to transfer between two plates with offset restrictions that don't allow this transfer"
-                )
-
-            # Process the groups into a list of sources to aspirate and a list of destinations to dispense
-            source_list = []
-            dest_list = []
-            for group_type, ops, target_groups in selected_groups:
-
-                if group_type == "source":
-                    # If we've grouped by source, we can aspirate all ops in the group at once
-                    source_list += [ops]
-                    # Destinations will depend on the subgroups selected, one for each subgroup
-                    dest_list += [group[0] for group in target_groups]
-
-                else:
-                    # If we've grouped by destination, we can dispense all ops in the group at once
-                    dest_list += [ops]
-                    # Sources will depend on the subgroups selected, one for each subgroup
-                    source_list += [group[0] for group in target_groups]
-
-            # Sort the source list and dest list by the tips used in each subgroup
-            # This just makes sure the pipetting occurs in an order that's less confusing visually,
-            # starting from tip 1 to tip 8
-            sort_tip_key = lambda x: min([op.selected_tip for op in x])
-            source_list.sort(key=sort_tip_key)
-
-            dest_list.sort(key=sort_tip_key)
-
-            # Loop through the source list, aspirating for each group
-            for source_group in source_list:
-
-                # Sort the group by assigned tip
-                source_group.sort(key=lambda op: op.selected_tip)
+            if action == "Aspirate":
 
                 # Get the first op in the group
-                source_op = next(iter(source_group))
+                source_op = ops[0]
                 # Get the col of this source group
                 source_col = source_op.source_pos[1]
                 # Get the rows we need to aspirate from the source_pos attribute of each op
-                source_rows = [op.source_pos[0] for op in source_group]
+                source_rows = [op.source_pos[0] for op in ops]
 
                 # Get the volumes stored in the ops
-                volumes = [op.volume for op in source_group]
-                # Get the tips assigned to the ops in the previous step
-                tips = [op.selected_tip for op in source_group]
+                volumes = [op.volume for op in ops]
 
                 # Check from earlier troubleshooting
                 if len(tips) != len(set(tips)):
                     raise Exception("Error in tip logic")
 
                 # If we have a trough, just set source rows to whichever tips we're using
-                if isinstance(source_op.source, Trough):
+                if getattr(source_op.source, "virtual_rows", 0) or 0 > max(tips) - 1:
                     source_rows = [tip - 1 for tip in tips]
 
                 # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
@@ -516,35 +441,29 @@ class AutoWorklist(EvoWorklist):
                     list(tips),
                     list(volumes),
                     liquid_class=source_op.liquid_class,
-                    label=" + ".join(set([op.label for op in source_group]))
+                    label=" + ".join(set([op.label for op in ops]))
                     + ", ops: "
-                    + ",".join([str(op.id) for op in source_group]),
+                    + ",".join([str(op.id) for op in ops]),
                     on_underflow=source_op.on_underflow,
                 )
-                self.asp_count += 1
 
-            for dest_group in dest_list:
-
-                # Sort the group by assigned tip
-                dest_group.sort(key=lambda op: op.selected_tip)
+            if action == "Dispense":
 
                 # Get the first op in the group
-                dest_op = next(iter(dest_group))
+                dest_op = next(iter(ops))
                 # Get the col of this source group
                 dest_col = dest_op.dest_pos[1]
 
                 # Get the rows we need to dispense to for the group
-                dest_rows = [op.dest_pos[0] for op in dest_group]
+                dest_rows = [op.dest_pos[0] for op in ops]
 
                 # Get the volume stored in each op
-                volumes = [op.volume for op in dest_group]
+                volumes = [op.volume for op in ops]
 
-                # Get the tips assigned in previous steps
-                tips = [op.selected_tip for op in dest_group]
                 # Get the composition from the source labware for each op
                 compositions = [
                     op.source.get_well_composition(op.source.wells[op.source_pos])
-                    for op in dest_group
+                    for op in ops
                 ]
 
                 # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
@@ -566,29 +485,20 @@ class AutoWorklist(EvoWorklist):
                     list(tips),
                     list(volumes),
                     liquid_class=dest_op.liquid_class,
-                    label=" + ".join(set([op.label for op in dest_group]))
+                    label=" + ".join(set([op.label for op in ops]))
                     + ", ops: "
-                    + ",".join([str(op.id) for op in dest_group]),
+                    + ",".join([str(op.id) for op in ops]),
                     compositions=compositions,
                 )
 
-                self.disp_count += 1
+            if action == "Wash":
 
-            # Wash after this group of ops
-            self._auto_wash(
-                tips=[op.selected_tip for op in selected_ops],
-                tip_volumes=[op.volume for op in selected_ops],
-                wash_schemes=[op.wash_scheme for op in selected_ops],
-            )
-
-            # Line after each group just to make worklist easier to read
-            super().append("B;")
-
-            self.wash_count += 1
-
-            # Update the completed and pending ops sets
-            self.pending_ops.difference_update(selected_ops)
-            self.completed_ops.update(selected_ops)
+                # Wash after this group of ops
+                self._auto_wash(
+                    tips=tips,
+                    tip_volumes=[op.volume for op in ops],
+                    wash_schemes=[op.wash_scheme for op in ops],
+                )
 
         return
 
@@ -604,12 +514,7 @@ class AutoWorklist(EvoWorklist):
         String report of all operations queued for the current optimisation session
         """
         return "\n".join(
-            [
-                str(op)
-                for op in sorted(
-                    self.pending_ops.union(self.completed_ops), key=lambda x: x.id
-                )
-            ]
+            [str(op) for op in sorted(self.pending_ops, key=lambda x: x.id)]
         )
 
     def commit(self, report=False):
@@ -617,13 +522,15 @@ class AutoWorklist(EvoWorklist):
         # If we have ops pending, optimise and apply them
         if len(self.pending_ops) > 0 and not self.processing:
             self.processing = True
-            self.make_plan()
+            plan, cost, (asp_count, disp_count, wash_count) = make_plan(
+                self.pending_ops
+            )
+            self.execute_plan(plan)
             self.pending_ops = set()
-            self.completed_ops = set()
             self.processing = False
             if report:
                 print(
-                    f"Optimisation complete. aspirates: {self.asp_count}, dispenses: {self.disp_count}, washes: {self.wash_count}"
+                    f"Optimisation complete. aspirates: {asp_count}, dispenses: {disp_count}, washes: {wash_count}"
                 )
         self.currently_optimising = False
         self.append("B;")
