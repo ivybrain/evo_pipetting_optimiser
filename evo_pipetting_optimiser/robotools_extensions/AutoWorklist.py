@@ -397,7 +397,7 @@ class AutoWorklist(EvoWorklist):
             super().evo_wash(tips=wash_tips, **wash_params)
         self.silence_append_warning = False
 
-    def execute_plan(self, plan):
+    def execute_plan(self, plan, counts):
 
         for action, ops, tips in plan:
 
@@ -500,11 +500,17 @@ class AutoWorklist(EvoWorklist):
                     tip_volumes=[op.volume for op in ops],
                     wash_schemes=[op.wash_scheme for op in ops],
                 )
+                # Add a break after each wash to improve readability
+                super().append("B;")
 
         # Wash at the end for safety
         self._auto_wash(
             tips=list(range(1, 9)), tip_volumes=[950] * 8, wash_schemes=[1] * 8
         )
+        super().append(
+            f"C;Optimisation session complete. aspirates: {counts[0]}, dispenses: {counts[1]}, washes: {counts[2]}"
+        )
+        super().append("B;")
 
         return
 
@@ -531,7 +537,7 @@ class AutoWorklist(EvoWorklist):
             plan, cost, (asp_count, disp_count, wash_count) = make_plan(
                 self.pending_ops
             )
-            self.execute_plan(plan)
+            self.execute_plan(plan, (asp_count, disp_count, wash_count))
             self.pending_ops = set()
             self.processing = False
             if report:
@@ -539,7 +545,7 @@ class AutoWorklist(EvoWorklist):
                     f"Optimisation complete. aspirates: {asp_count}, dispenses: {disp_count}, washes: {wash_count}"
                 )
         self.currently_optimising = False
-        self.append("B;")
+        super().append("B;")
 
     def __enter__(self) -> "AutoWorklist":
         # Redefine to give correct type hint

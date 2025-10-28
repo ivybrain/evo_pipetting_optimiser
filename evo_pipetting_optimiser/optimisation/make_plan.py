@@ -107,7 +107,6 @@ def make_plan(pending_ops):
                 )
 
                 source_comp = source.get_well_composition(source.wells[op.source_pos])
-                dest_comp = dest.get_well_composition(dest.wells[op.dest_pos])
 
                 past_touched = list(past_source_comp.items()) + list(
                     past_dest_comp.items()
