@@ -87,12 +87,52 @@ def make_plan(pending_ops):
         wash_needed = False
         for tip, op in zip(tips_selected, ops):
             # Standard or decontamination mean we require a wash
-            if op.wash_scheme in [1, "D"]:
+            if op.wash_scheme in [1, "D"] and tip in prev_tip_op:
                 wash_needed = True
+
+            if op.wash_scheme == "smart" and tip in prev_tip_op:
+                past_op = prev_tip_op[tip]
+
+                past_source = labware_copy(past_op.source)
+                past_dest = labware_copy(past_op.destination)
+                source = labware_copy(op.source)
+                dest = labware_copy(op.destination)
+
+                past_source_comp = past_source.get_well_composition(
+                    past_source.wells[past_op.source_pos]
+                )
+
+                past_dest_comp = past_dest.get_well_composition(
+                    past_dest.wells[past_op.dest_pos]
+                )
+
+                source_comp = source.get_well_composition(source.wells[op.source_pos])
+                dest_comp = dest.get_well_composition(dest.wells[op.dest_pos])
+
+                past_touched = list(past_source_comp.items()) + list(
+                    past_dest_comp.items()
+                )
+
+                for prev_key, prev_conc in past_touched:
+                    # If the previous op touched a liquid that is not present in our source, we need to wash to not contaminate it
+                    if prev_key not in source_comp:
+                        wash_needed = True
+                        break
+
+                    # If last op touched a well with more than twice the conc of the source, wash to not contaminate with the higher conc
+                    if prev_conc > 2 * source_comp[prev_key]:
+                        wash_needed = True
+                        break
+
+                # If we've already determined we need a wash, no point checking the other tips
+                if wash_needed:
+                    break
+
             prev_tip_op[tip] = op
 
         if wash_needed:
             actions.append(("Wash", ops, list(op_tip.values())))
+            wash_count += 1
 
         for group_type, ops, target_groups, tips_selected in selected_groups:
 

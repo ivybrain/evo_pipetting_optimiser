@@ -220,6 +220,7 @@ class AutoWorklist(EvoWorklist):
 
         assert wash_scheme in [
             "D",
+            "smart",
             1,
             None,
         ], "Wash schemes supported for auto_transfer are D, 1, or None"
