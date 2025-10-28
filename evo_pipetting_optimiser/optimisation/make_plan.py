@@ -39,6 +39,8 @@ def make_plan(pending_ops):
 
     start_time = time.time()
 
+    prev_tip_op = {}
+
     # Repeat until we have no more operations pending
     while len(pending_ops) > 0:
         # Group the operations. See group_ops method for details
@@ -80,6 +82,17 @@ def make_plan(pending_ops):
         source_list = []
         dest_list = []
         op_tip = {op: tip + 1 for op, tip in zip(ops, tips_selected)}
+
+        # Check if we need to wash any tips
+        wash_needed = False
+        for tip, op in zip(tips_selected, ops):
+            # Standard or decontamination mean we require a wash
+            if op.wash_scheme in [1, "D"]:
+                wash_needed = True
+            prev_tip_op[tip] = op
+
+        if wash_needed:
+            actions.append(("Wash", ops, list(op_tip.values())))
 
         for group_type, ops, target_groups, tips_selected in selected_groups:
 

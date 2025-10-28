@@ -500,6 +500,11 @@ class AutoWorklist(EvoWorklist):
                     wash_schemes=[op.wash_scheme for op in ops],
                 )
 
+        # Wash at the end for safety
+        self._auto_wash(
+            tips=list(range(1, 9)), tip_volumes=[950] * 8, wash_schemes=[1] * 8
+        )
+
         return
 
     def report_ops(self):
