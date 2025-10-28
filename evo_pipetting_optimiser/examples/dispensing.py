@@ -159,6 +159,7 @@ with AutoWorklist(
         900,
         liquid_class=liquid_class,
         wash_scheme="smart",
+        label="Dispense diluent",
     )
 
     # First, process the 'compact' dispenses

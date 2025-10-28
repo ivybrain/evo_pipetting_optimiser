@@ -194,9 +194,11 @@ def group_by(open_ops, primary="source", available_tips=list(range(8))):
         # NOTE: Efficiency could be drastically improved with dynamic programming
         # First, see how many tips we fill with combos of only 1 group
         # increase this to combos of up to 8 groups
-        for combo_size in range(1, 8):
-            # Iterate all possible combinations of groups
-            # Of the specified size
+
+        # First see if we have a combination that uses 8 tips
+        # for tips_used in range(8, 0, -1):
+        for combo_size in range(8):
+
             for combination in itertools.combinations(
                 secondary_labware_col_reachable, combo_size
             ):
