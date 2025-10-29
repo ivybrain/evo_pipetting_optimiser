@@ -546,7 +546,7 @@ class AutoWorklist(EvoWorklist):
                 )
         self.currently_optimising = False
         super().append("B;")
-        TransferOperation.op_id_counter = 0
+        TransferOperation.reset_counters()
 
     def __enter__(self) -> "AutoWorklist":
         # Redefine to give correct type hint
