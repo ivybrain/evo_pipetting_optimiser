@@ -69,46 +69,41 @@ def create_conflict_graph(pending_ops):
     return source_groups, dest_groups
 
 
-def pulp_grouping(ops, source_groups, dest_groups):
+def pulp_grouping(ops, source_groups, dest_groups, tips_available=8):
 
     prob = pulp.LpProblem("Pipetting ops", pulp.LpMinimize)
+    ops = list(ops)
+    max_bins = (len(ops) // 8) + 1
 
     # Decision variable of include op or not
-    x = [pulp.LpVariable(f"x_{i}", 0, 1, pulp.LpBinary) for i in range(len(ops))]
+    # x = [pulp.LpVariable(f"x_{i}", 0, 1, pulp.LpBinary) for i in range(len(ops))]
+    op_in_bin = pulp.LpVariable.dicts(
+        "OpInBin", (range(len(ops)), range(max_bins)), 0, 1, pulp.LpBinary
+    )
 
-    # Variables for each possible group of labware, column
-    possible_locations = range(ops[0].loc_counter)
+    bin_used = pulp.LpVariable.dicts("BinUsed", range(max_bins), 0, 1, pulp.LpBinary)
 
-    # Variables to track if locations are present in the selected set
-
-    # sp[i] is 1 if location i is present in the selected set of x sources
-    source_present = pulp.LpVariable.dicts("sp", possible_locations, cat="Binary")
-
-    # dp[i] is 1 if location i is present in the selected set of x dests
-    dest_present = pulp.LpVariable.dicts("dp", possible_locations, cat="Binary")
-
-    # constraints for source_present and dest_present
-
-    for l in possible_locations:
-        ops_with_source = [i for i, op in enumerate(ops) if op.source_loc == l]
-        ops_with_dest = [i for i, op in enumerate(ops) if op.dest_loc == l]
-
+    for b in bin_used:
         prob += (
-            pulp.lpSum(x[i] for i in ops_with_source)
-            <= len(ops_with_source) * source_present[l],
-            f"Source_Used_{l}",
-        )
-        prob += (
-            pulp.lpSum(x[i] for i in ops_with_dest)
-            <= len(ops_with_dest) * dest_present[l],
-            f"Dest_Used_{l}",
+            pulp.lpSum(op_in_bin[i][b] for i in range(len(ops))) <= 8 * bin_used[b],
+            f"Capacity_Bin_{b}",
         )
 
     prob += (
-        pulp.lpSum(source_present) + pulp.lpSum(dest_present),
-        "Objective",
+        pulp.lpSum(bin_used),
+        "Objective minimise bins used",
     )
-    prob += pulp.lpSum(x) == 8, "tip constraint"
+
+    # Assignment constraint
+    for i in range(len(ops)):
+        prob += (
+            pulp.lpSum([op_in_bin[i][b] for b in range(max_bins)]) == 1,
+            f"Assign_Item_{i}",
+        )
+
+    for i in range(len(ops)):
+        for b in bin_used:
+            prob += op_in_bin[i][b] <= bin_used[b], f"Link_{i}_{b}"
 
     # Constraints from conflict graph
     for i, i_op in enumerate(ops):
@@ -117,25 +112,26 @@ def pulp_grouping(ops, source_groups, dest_groups):
                 source_groups[i_op.id, j_op.id] == 0
                 and dest_groups[i_op.id, j_op.id] == 0
             ):
-                prob += x[i] + x[j] <= 1, f"Conflict between {i_op.id} and {j_op.id}"
+                for b in range(max_bins):
+                    prob += (
+                        op_in_bin[i][b] + op_in_bin[j][b] <= 1,
+                        f"Conflict between {i_op.id} and {j_op.id} in bin {b}",
+                    )
 
     prob.solve()
 
-    selected_ops = [ops[i] for i in range(len(ops)) if x[i].varValue == 1]
+    result = []
 
-    print(selected_ops)
+    for b in bin_used:
+        if pulp.value(bin_used[b]) == 1:
+            this_bin = []
+            for i in range(len(ops)):
+                if pulp.value(op_in_bin[i][b]) == 1:
+                    this_bin.append(ops[i])
 
-    for source in range(ops[0].loc_counter):
-        if pulp.value(source_present[source]) == 1:
-            print(f"  - {source}")
+            result.append(this_bin)
 
-    source_grouped = group_movements_needed(selected_ops, "source")
-    dest_grouped = group_movements_needed(selected_ops, "dest")
-
-    for v in prob.variables():
-        print(v.name, "=", v.varValue)
-
-    return selected_ops
+    return result
 
 
 def group_ops(pending_ops, source_groups, dest_groups, available_tips=list(range(8))):
@@ -160,7 +156,16 @@ def group_ops(pending_ops, source_groups, dest_groups, available_tips=list(range
 
     open_ops.sort()
 
-    group = pulp_grouping(open_ops, source_groups, dest_groups)
+    selected_groups = pulp_grouping(
+        pending_ops, source_groups, dest_groups, tips_available=8
+    )
+
+    for i, group in enumerate(selected_groups):
+
+        source_grouped = group_movements_needed(group, "source")
+        dest_grouped = group_movements_needed(group, "dest")
+        print(f"Group {i}, {len(source_grouped)} sources, {len(dest_grouped)} dests")
+        pass
 
     # np.savetxt("conflicts.csv", conflicts, delimiter=",", fmt="%d")
 
