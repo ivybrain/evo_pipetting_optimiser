@@ -80,19 +80,17 @@ def ortools_grouping(
     solver = pywraplp.Solver("", pywraplp.Solver.BOP_INTEGER_PROGRAMMING)
     # solver.EnableOutput()
 
-    solver.SetTimeLimit(20000)
+    solver.SetTimeLimit(30000)
     solver.EnableOutput()
 
     if not solver:
         raise Exception("Error creating solver")
 
-    # Track which op is in which bin and which tip is assigned
-    # x [i,b,t] is 1 if op i is assigned to tip t in bin b
+    # Track which op is in which bin
     x = {}
     for i in range(len(ops)):
-        for b in range(max_bins):
-            for t in range(n_tips):
-                x[(i, b, t)] = solver.BoolVar(f"x_{i}_{b}")
+        for j in range(max_bins):
+            x[(i, j)] = solver.BoolVar(f"x_{i}_{j}")
 
     # Track bins used
     y = {}
@@ -119,12 +117,12 @@ def ortools_grouping(
         for b in range(max_bins):
 
             solver.Add(
-                sum(x[i, b, t] for i in ops_with_source for t in range(n_tips))
+                sum(x[i, b] for i in ops_with_source)
                 <= len(ops_with_source) * source_present[(l, b)]
             )
 
             solver.Add(
-                sum(x[i, b, t] for i in ops_with_dest for t in range(n_tips))
+                sum(x[i, b] for i in ops_with_dest)
                 <= len(ops_with_dest) * dest_present[(l, b)]
             )
 
@@ -143,23 +141,42 @@ def ortools_grouping(
         lc = ops[i].lc_id
         for b in range(max_bins):
             # Want to add that x[i, b] => bin_lc[b, lc]
-            solver.Add(sum(x[(i, b, t)] for t in range(n_tips)) <= bin_lc[(b, lc)])
+            solver.Add(x[(i, b)] <= bin_lc[(b, lc)])
 
-    # Each bin must only have one of each tip
+    # Track tips for each op
+    op_tip = {}
+    for i in range(len(ops)):
+        for t in range(n_tips):
+            op_tip[i, t] = solver.BoolVar(f"op_tip_{i}_{t}")
+        # Each op must have a tip assigned
+        solver.Add(sum(op_tip[i, t] for t in range(n_tips)) == 1)
+
+    # Each bin can only have one of each tip
     for b in range(max_bins):
         for t in range(n_tips):
-            solver.Add(sum(x[i, b, t] for i in range(len(ops))) <= 1)
+            tip_bin_link_vars = []
+            for i in range(len(ops)):
+                link = solver.BoolVar(f"link_{i}_{b}_{t}")
+                tip_bin_link_vars.append(link)
+
+                # Link var can only be true if op i is in bin b
+                solver.Add(link <= x[i, b])
+
+                # Link var can only be true if op i has tip t
+                solver.Add(link <= op_tip[i, t])
+
+                # Link var is true if both are true
+                solver.Add(link >= x[i, b] + op_tip[i, t] - 1)
+
+            solver.Add(sum(tip_bin_link_vars) <= 1)
 
     # Each item must be in exactly one bin.
     for i in range(len(ops)):
-        solver.Add(sum(x[i, b, t] for b in range(max_bins) for t in range(n_tips)) == 1)
+        solver.Add(sum(x[i, b] for b in range(max_bins)) == 1)
 
     # Bin capacity 8 items
     for b in range(max_bins):
-        solver.Add(
-            sum(x[(i, b, t)] for i in range(len(ops)) for t in range(n_tips))
-            <= y[b] * 8
-        )
+        solver.Add(sum(x[(i, b)] for i in range(len(ops))) <= y[b] * 8)
 
     # Enforce op dependency
 
@@ -168,10 +185,7 @@ def ortools_grouping(
             # Enforce that dep is in an earlier bin than child
             # If child is in bin b, then dep must be in one of the bins for dep_bin < b
             solver.Add(
-                sum(x[child.id, b, t] for t in range(n_tips))
-                <= sum(
-                    x[dep.id, dep_bin, t] for dep_bin in range(b) for t in range(n_tips)
-                )
+                x[child.id, b] <= sum(x[dep.id, dep_bin] for dep_bin in range(b))
             )
 
     for op in ops:
@@ -186,7 +200,7 @@ def ortools_grouping(
             if conflicts[i_op.id, j_op.id] == 0:
                 for b in range(max_bins):
 
-                    solver.Add(sum(x[i, b, t] + x[j, b, t] for t in range(n_tips)) <= 1)
+                    solver.Add(x[i, b] + x[j, b] <= 1)
 
     solver.Minimize(
         solver.Sum(
@@ -201,20 +215,22 @@ def ortools_grouping(
     result_groups = []
     if status == pywraplp.Solver.OPTIMAL or status == pywraplp.Solver.FEASIBLE:
         num_bins = 0
-        for b in range(max_bins):
+        for j in range(max_bins):
             if y[j].solution_value() == 1:
                 bin_items = []
-                bin_tips = []
                 for i in range(len(ops)):
-                    for t in range(n_tips):
-                        if x[i, b, t].solution_value() > 0:
-                            bin_items.append(ops[i])
-                            bin_tips.append(t)
+                    if x[i, j].solution_value() > 0:
+                        tip = 0
+                        for t in range(n_tips):
+                            if op_tip[i, t].solution_value() > 0:
+                                tip = t
+                                break
+                        bin_items.append((tip, ops[i]))
 
                 if bin_items:
-                    result_groups.append((bin_items, bin_tips))
+                    result_groups.append(bin_items)
                     num_bins += 1
-                    print(f"Group {num_bins} {bin_items} {bin_tips}")
+                    print(f"Group {num_bins} {bin_items}")
         print()
         print("Time = ", solver.WallTime(), " milliseconds")
         print(f"Objective {solver.Objective().Value()}")
