@@ -43,13 +43,13 @@ def make_plan(pending_ops):
     # profiler = cProfile.Profile()
     # profiler.enable()
 
-    source_groups, dest_groups = create_conflict_graph(pending_ops)
+    conflicts = create_conflict_graph(pending_ops)
 
     # Repeat until we have no more operations pending
     while len(pending_ops) > 0:
         # Group the operations. See group_ops method for details
 
-        best_groupings = group_ops(pending_ops, source_groups, dest_groups)
+        best_groupings = group_ops(pending_ops, conflicts)
 
         # TO implement: All groups that do not contain newly completed ops are still valid
         # keep in memory and skip calculation for next
