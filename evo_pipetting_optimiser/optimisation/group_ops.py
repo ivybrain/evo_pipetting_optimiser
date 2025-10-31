@@ -5,6 +5,9 @@ from ..utils import *
 import numpy as np
 import pulp
 from ..robotools_extensions import TransferOperation
+from ortools.sat.python import cp_model
+from ortools.linear_solver import pywraplp
+import time
 
 
 def create_conflict_graph(pending_ops):
@@ -67,6 +70,145 @@ def create_conflict_graph(pending_ops):
                 dest_groups[i, j] = i_op.dest_loc
 
     return source_groups, dest_groups
+
+
+def ortools_grouping_lp(ops, source_groups, dest_groups):
+    start_time = time.time()
+    ops = list(ops)
+    max_bins = len(ops)
+
+    solver = pywraplp.Solver.CreateSolver("SCIP")
+
+    if not solver:
+        raise Exception("Error creating solver")
+
+    # Track which op is in which bin
+    x = {}
+    for i in range(len(ops)):
+        for j in range(max_bins):
+            x[(i, j)] = solver.IntVar(0, 1, f"x_{i}_{j}")
+
+    # Track bins used
+    y = {}
+    for j in range(max_bins):
+        y[j] = solver.IntVar(0, 1, f"y_{j}")
+
+    # Each item must be in exactly one bin.
+    for i in range(len(ops)):
+        solver.Add(sum(x[i, j] for j in range(max_bins)) == 1)
+
+    # Bin capacity 8 items
+    for j in range(max_bins):
+        solver.Add(sum(x[(i, j)] for i in range(len(ops))) <= y[j] * 8)
+
+    # Item conflict constraints from graph
+    for i, i_op in enumerate(ops):
+        for j, j_op in enumerate(ops):
+            if (
+                source_groups[i_op.id, j_op.id] == 0
+                and dest_groups[i_op.id, j_op.id] == 0
+            ):
+                for b in range(max_bins):
+                    solver.Add(x[i, b] + x[j, b] <= 1)
+
+    solver.Minimize(solver.Sum(y[j] for f in range(max_bins)))
+
+    status = solver.Solve()
+
+    if status == pywraplp.Solver.OPTIMAL:
+        num_bins = 0
+        for j in range(max_bins):
+            if y[j].solution_value() == 1:
+                bin_items = []
+                for i in range(len(ops)):
+                    if x[i, j].solution_value() > 0:
+                        bin_items.append(i)
+                if bin_items:
+                    num_bins += 1
+                    print("Bin number", j)
+                    print("  Items packed:", bin_items)
+                    print()
+        print()
+        print("Number of bins used:", num_bins)
+        print("Time = ", solver.WallTime(), " milliseconds")
+    else:
+        print("The problem does not have an optimal solution.")
+
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print(f"Execution time: {elapsed_time:.4f} seconds")
+
+    return
+
+
+def ortools_grouping(ops, source_groups, dest_groups):
+    start_time = time.time()
+    ops = list(ops)
+    max_bins = len(ops)
+
+    model = cp_model.CpModel()
+
+    if not model:
+        raise Exception("Error creating solver")
+
+    # Track which op is in which bin
+    x = {}
+    for i in range(len(ops)):
+        for j in range(max_bins):
+            x[(i, j)] = model.NewBoolVar(f"x_{i}_{j}")
+
+    # Track bins used
+    bin_used = []
+    for j in range(max_bins):
+        bin_used.append(model.NewBoolVar(f"binused_{j}"))
+
+    # Linking constraint
+    for j in range(max_bins):
+        model.Add(sum(x[(i, j)] for i in range(len(ops))) <= bin_used[j] * 8)
+
+    # Each item must be in exactly one bin.
+    for i in range(len(ops)):
+        model.Add(sum(x[i, j] for j in range(max_bins)) == 1)
+
+    for j in range(max_bins - 1):
+        model.Add(bin_used[j] >= bin_used[j + 1])
+
+    # Item conflict constraints from graph
+    for i, i_op in enumerate(ops):
+        for j, j_op in enumerate(ops):
+            if (
+                source_groups[i_op.id, j_op.id] == 0
+                and dest_groups[i_op.id, j_op.id] == 0
+            ):
+                for b in range(max_bins):
+                    model.Add(x[i, b] + x[j, b] <= 1)
+
+    model.Minimize(sum(bin_used))
+
+    solver = cp_model.CpSolver()
+    status = solver.Solve(model)
+
+    result_groups = []
+
+    if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+        print(f"Solution found with {int(solver.ObjectiveValue())} bins:")
+        for j in range(max_bins):
+            if solver.BooleanValue(bin_used[j]):
+                bin_items = []
+                bin_load = 0
+                for i in range(len(ops)):
+                    if solver.BooleanValue(x[(i, j)]):
+                        bin_items.append(f"Item {i} ")
+                result_groups.append(bin_items)
+                print(f'  Bin {j}: Load = {bin_load}, Items = {", ".join(bin_items)}')
+    else:
+        print("No solution found.")
+
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print(f"Execution time: {elapsed_time:.4f} seconds")
+
+    return bin_items
 
 
 def pulp_grouping(ops, source_groups, dest_groups, tips_available=8):
@@ -156,8 +298,10 @@ def group_ops(pending_ops, source_groups, dest_groups, available_tips=list(range
 
     open_ops.sort()
 
-    selected_groups = pulp_grouping(
-        pending_ops, source_groups, dest_groups, tips_available=8
+    selected_groups = ortools_grouping(
+        pending_ops,
+        source_groups,
+        dest_groups,
     )
 
     for i, group in enumerate(selected_groups):

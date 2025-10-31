@@ -40,8 +40,8 @@ def make_plan(pending_ops):
     start_time = time.time()
 
     prev_tip_op = {}
-    profiler = cProfile.Profile()
-    profiler.enable()
+    # profiler = cProfile.Profile()
+    # profiler.enable()
 
     source_groups, dest_groups = create_conflict_graph(pending_ops)
 
@@ -204,9 +204,9 @@ def make_plan(pending_ops):
         pending_ops.difference_update(selected_ops)
         completed_ops.update(selected_ops)
 
-    profiler.disable()
-    stats = pstats.Stats(profiler)
-    stats.dump_stats("program.cprof")
+    # profiler.disable()
+    # stats = pstats.Stats(profiler)
+    # stats.dump_stats("program.cprof")
 
     cost = asp_count + disp_count + (wash_count * 2)
 
