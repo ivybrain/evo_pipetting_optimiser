@@ -72,12 +72,13 @@ def ortools_grouping(
     ops,
     conflicts,
 ):
-    start_time = time.time()
     ops = list(ops)
-    max_bins = len(ops) // 2
+    max_bins = len(ops)
 
-    solver = pywraplp.Solver.CreateSolver("GLOP")
+    solver = pywraplp.Solver("", pywraplp.Solver.BOP_INTEGER_PROGRAMMING)
     solver.EnableOutput()
+
+    solver.SetTimeLimit(20000)
 
     if not solver:
         raise Exception("Error creating solver")
@@ -86,12 +87,12 @@ def ortools_grouping(
     x = {}
     for i in range(len(ops)):
         for j in range(max_bins):
-            x[(i, j)] = solver.IntVar(0, 1, f"x_{i}_{j}")
+            x[(i, j)] = solver.BoolVar(f"x_{i}_{j}")
 
     # Track bins used
     y = {}
     for j in range(max_bins):
-        y[j] = solver.IntVar(0, 1, f"y_{j}")
+        y[j] = solver.BoolVar(f"y_{j}")
 
     possible_locations = range(ops[0].loc_counter)
 
@@ -100,8 +101,8 @@ def ortools_grouping(
     dest_present = {}
     for l in possible_locations:
         for b in range(max_bins):
-            source_present[(l, b)] = solver.IntVar(0, 1, f"source_{l}_{b}")
-            dest_present[(l, b)] = solver.IntVar(0, 1, f"dest_{l}_{b}")
+            source_present[(l, b)] = solver.BoolVar(f"source_{l}_{b}")
+            dest_present[(l, b)] = solver.BoolVar(f"dest_{l}_{b}")
 
     # constraints to set values of source and dest present
     for l in possible_locations:
@@ -150,7 +151,7 @@ def ortools_grouping(
     status = solver.Solve()
 
     result_groups = []
-    if status == pywraplp.Solver.OPTIMAL:
+    if status == pywraplp.Solver.OPTIMAL or status == pywraplp.Solver.FEASIBLE:
         num_bins = 0
         for j in range(max_bins):
             if y[j].solution_value() == 1:
@@ -161,18 +162,12 @@ def ortools_grouping(
                 if bin_items:
                     result_groups.append(bin_items)
                     num_bins += 1
-                    print("Bin number", j)
-                    print("  Items packed:", bin_items)
-                    print()
+                    print(f"Group {num_bins} {bin_items}")
         print()
-        print("Number of bins used:", num_bins)
         print("Time = ", solver.WallTime(), " milliseconds")
+        print(f"Objective {solver.Objective().Value()}")
     else:
         print("The problem does not have an optimal solution.")
-
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-    print(f"Execution time: {elapsed_time:.4f} seconds")
 
     return result_groups
 
@@ -212,7 +207,7 @@ def group_ops(pending_ops, conflicts, available_tips=list(range(8))):
         source_grouped = group_movements_needed(group, "source")
         dest_grouped = group_movements_needed(group, "dest")
 
-        print(f"Group {i}, {len(source_grouped)} sources, {len(dest_grouped)} dests")
+        # print(f"Group {i}, {len(source_grouped)} sources, {len(dest_grouped)} dests")
         total_asps += len(source_grouped)
         total_disp += len(dest_grouped)
         pass
