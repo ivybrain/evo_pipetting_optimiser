@@ -75,6 +75,10 @@ def ortools_grouping(
     ops = list(ops)
     max_bins = len(ops)
 
+    for i, op in enumerate(ops):
+        if i != op.id:
+            raise Exception("Please provide ops with id increasing from 0")
+
     solver = pywraplp.Solver("", pywraplp.Solver.BOP_INTEGER_PROGRAMMING)
     solver.EnableOutput()
 
@@ -142,11 +146,27 @@ def ortools_grouping(
 
     # Each item must be in exactly one bin.
     for i in range(len(ops)):
-        solver.Add(sum(x[i, j] for j in range(max_bins)) == 1)
+        solver.Add(sum(x[i, b] for b in range(max_bins)) == 1)
 
     # Bin capacity 8 items
-    for j in range(max_bins):
-        solver.Add(sum(x[(i, j)] for i in range(len(ops))) <= y[j] * 8)
+    for b in range(max_bins):
+        solver.Add(sum(x[(i, b)] for i in range(len(ops))) <= y[b] * 8)
+
+    # Enforce op dependency
+
+    def add_op_dep(child, dep):
+        for b in range(max_bins):
+            # Enforce that dep is in an earlier bin than child
+            # If child is in bin b, then dep must be in one of the bins for dep_bin < b
+            solver.Add(
+                x[child.id, b] <= sum(x[dep.id, dep_bin] for dep_bin in range(b))
+            )
+
+    for op in ops:
+        if op.source_dep:
+            add_op_dep(op, op.source_dep)
+        if op.dest_dep:
+            add_op_dep(op, op.dest_dep)
 
     # Item conflict constraints from graph
     for i, i_op in enumerate(ops):
