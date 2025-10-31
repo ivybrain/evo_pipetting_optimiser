@@ -96,6 +96,8 @@ def ortools_grouping(
 
     possible_locations = range(ops[0].loc_counter)
 
+    liquid_classes = range(ops[0].lc_counter)
+
     # source_present[l, b] is 1 if location l is present in the sources of ops in bin b
     source_present = {}
     dest_present = {}
@@ -121,6 +123,23 @@ def ortools_grouping(
                 <= len(ops_with_dest) * dest_present[(l, b)]
             )
 
+    # bin_lc[b, lc] if ops in bin 1 are liquid class lc
+    bin_lc = {}
+    for lc in liquid_classes:
+        for b in range(max_bins):
+            bin_lc[(b, lc)] = solver.BoolVar(f"bin_lc_{b}_{lc}")
+
+    # Each bin can only have one LC
+    for b in range(max_bins):
+        solver.Add(sum(bin_lc[(b, lc)] for lc in liquid_classes) == 1)
+
+    # All ops in bin must have matching lc
+    for i in range(len(ops)):
+        lc = ops[i].lc_id
+        for b in range(max_bins):
+            # Want to add that x[i, b] => bin_lc[b, lc]
+            solver.Add(x[(i, b)] <= bin_lc[(b, lc)])
+
     # Each item must be in exactly one bin.
     for i in range(len(ops)):
         solver.Add(sum(x[i, j] for j in range(max_bins)) == 1)
@@ -129,16 +148,13 @@ def ortools_grouping(
     for j in range(max_bins):
         solver.Add(sum(x[(i, j)] for i in range(len(ops))) <= y[j] * 8)
 
-    # nconflicts = 0
-    # # Item conflict constraints from graph
-    # for i, i_op in enumerate(ops):
-    #     for j, j_op in enumerate(ops):
-    #         if conflicts[i_op.id, j_op.id] == 0:
-    #             nconflicts += 1
-    #             print(f"Conflict {nconflicts}, {i} {j}")
-    #             for b in range(max_bins):
+    # Item conflict constraints from graph
+    for i, i_op in enumerate(ops):
+        for j, j_op in enumerate(ops):
+            if conflicts[i_op.id, j_op.id] == 0:
+                for b in range(max_bins):
 
-    #                 solver.Add(x[i, b] + x[j, b] <= 1)
+                    solver.Add(x[i, b] + x[j, b] <= 1)
 
     solver.Minimize(
         solver.Sum(
