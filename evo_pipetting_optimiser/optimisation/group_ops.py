@@ -5,6 +5,7 @@ from ..utils import *
 import numpy as np
 from ..robotools_extensions import TransferOperation
 from ortools.linear_solver import pywraplp
+import time
 
 
 def create_conflict_graph(pending_ops):
@@ -69,6 +70,7 @@ def ortools_grouping(
     ops,
     conflicts,
 ):
+    start_time = time.time()
     ops = list(ops)
     max_bins = len(ops)
     n_tips = 8
@@ -89,42 +91,15 @@ def ortools_grouping(
     # Track which op is in which bin
     x = {}
     for i in range(len(ops)):
-        for j in range(max_bins):
-            x[(i, j)] = solver.BoolVar(f"x_{i}_{j}")
+        for b in range(max_bins):
+            x[(i, b)] = solver.BoolVar(f"x_{i}_{b}")
 
     # Track bins used
     y = {}
-    for j in range(max_bins):
-        y[j] = solver.BoolVar(f"y_{j}")
-
-    possible_locations = range(ops[0].loc_counter)
+    for b in range(max_bins):
+        y[b] = solver.BoolVar(f"y_{b}")
 
     liquid_classes = range(ops[0].lc_counter)
-
-    # source_present[l, b] is 1 if location l is present in the sources of ops in bin b
-    source_present = {}
-    dest_present = {}
-    for l in possible_locations:
-        for b in range(max_bins):
-            source_present[(l, b)] = solver.BoolVar(f"source_{l}_{b}")
-            dest_present[(l, b)] = solver.BoolVar(f"dest_{l}_{b}")
-
-    # constraints to set values of source and dest present
-    for l in possible_locations:
-        ops_with_source = [i for i, op in enumerate(ops) if op.source_loc == l]
-        ops_with_dest = [i for i, op in enumerate(ops) if op.dest_loc == l]
-
-        for b in range(max_bins):
-
-            solver.Add(
-                sum(x[i, b] for i in ops_with_source)
-                <= len(ops_with_source) * source_present[(l, b)]
-            )
-
-            solver.Add(
-                sum(x[i, b] for i in ops_with_dest)
-                <= len(ops_with_dest) * dest_present[(l, b)]
-            )
 
     # bin_lc[b, lc] if ops in bin 1 are liquid class lc
     bin_lc = {}
@@ -142,6 +117,26 @@ def ortools_grouping(
         for b in range(max_bins):
             # Want to add that x[i, b] => bin_lc[b, lc]
             solver.Add(x[(i, b)] <= bin_lc[(b, lc)])
+
+    possible_locations = {}
+    for op in ops:
+        if op.source_loc not in possible_locations:
+            possible_locations[op.source_loc] = {
+                "min_offset": getattr(op.source, "offset_limit_up", -7) or -7,
+                "max_offset": getattr(
+                    op.source, "offset_limit_up", op.source.n_rows - 1
+                )
+                or op.source.n_rows - 1,
+            }
+        if op.dest_loc not in possible_locations:
+
+            possible_locations[op.dest_loc] = {
+                "min_offset": getattr(op.destination, "offset_limit_up", -7) or -7,
+                "max_offset": getattr(
+                    op.destination, "offset_limit_up", op.destination.n_rows - 1
+                )
+                or op.destination.n_rows - 1,
+            }
 
     # Track tips for each op
     op_tip = {}
@@ -170,6 +165,38 @@ def ortools_grouping(
 
             solver.Add(sum(tip_bin_link_vars) <= 1)
 
+    # source_present[l, o, b] is 1 if location l at iffset o is present in the sources of ops in bin b
+    source_present = {}
+    dest_present = {}
+    for l, offsets in possible_locations.items():
+
+        ops_with_source = [i for i, op in enumerate(ops) if op.source_loc == l]
+        ops_with_dest = [i for i, op in enumerate(ops) if op.dest_loc == l]
+
+        for b in range(max_bins):
+            for o in range(offsets["min_offset"], offsets["max_offset"] + 1):
+                source_present[(l, o, b)] = solver.BoolVar(f"source_{l}_{b}")
+                dest_present[(l, o, b)] = solver.BoolVar(f"dest_{l}_{b}")
+
+            # Ensure each op in the bin is in at least one location,offset pair
+            solver.Add(
+                sum(x[i, b] for i in ops_with_source)
+                <= len(ops_with_source)
+                * sum(
+                    source_present[(l, o, b)]
+                    for o in range(offsets["min_offset"], offsets["max_offset"] + 1)
+                )
+            )
+
+            solver.Add(
+                sum(x[i, b] for i in ops_with_dest)
+                <= len(ops_with_dest)
+                * sum(
+                    dest_present[(l, o, b)]
+                    for o in range(offsets["min_offset"], offsets["max_offset"] + 1)
+                )
+            )
+
     # Each item must be in exactly one bin.
     for i in range(len(ops)):
         solver.Add(sum(x[i, b] for b in range(max_bins)) == 1)
@@ -196,30 +223,35 @@ def ortools_grouping(
 
     # Item conflict constraints from graph
     for i, i_op in enumerate(ops):
-        for j, j_op in enumerate(ops):
+        for b, j_op in enumerate(ops):
             if conflicts[i_op.id, j_op.id] == 0:
                 for b in range(max_bins):
 
-                    solver.Add(x[i, b] + x[j, b] <= 1)
+                    solver.Add(x[i, b] + x[b, b] <= 1)
 
     solver.Minimize(
         solver.Sum(
-            source_present[(l, b)] + dest_present[(l, b)]
+            source_present[(l, o, b)] + dest_present[(l, o, b)]
             for l in possible_locations
             for b in range(max_bins)
+            for o in range(-7, 8)
         )
     )
 
+    print(f"Model set-up: {time.time()-start_time:.4f} seconds")
+    start_time = time.time()
     status = solver.Solve()
+
+    print(f"Solve time: {time.time()-start_time:.4f} seconds")
 
     result_groups = []
     if status == pywraplp.Solver.OPTIMAL or status == pywraplp.Solver.FEASIBLE:
         num_bins = 0
-        for j in range(max_bins):
-            if y[j].solution_value() == 1:
+        for b in range(max_bins):
+            if y[b].solution_value() == 1:
                 bin_items = []
                 for i in range(len(ops)):
-                    if x[i, j].solution_value() > 0:
+                    if x[i, b].solution_value() > 0:
                         tip = 0
                         for t in range(n_tips):
                             if op_tip[i, t].solution_value() > 0:
