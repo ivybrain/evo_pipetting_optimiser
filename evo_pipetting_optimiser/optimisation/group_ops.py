@@ -86,7 +86,7 @@ def ortools_grouping(
     solver = pywraplp.Solver("", pywraplp.Solver.BOP_INTEGER_PROGRAMMING)
     # solver.EnableOutput()
 
-    solver.SetTimeLimit(30000)
+    solver.SetTimeLimit(100000)
     solver.EnableOutput()
 
     if not solver:
@@ -140,6 +140,83 @@ def ortools_grouping(
     for b in range(max_bins):
         solver.Add(sum(bin_source_offset[(b, o)] for o in offsets) == 1)
         solver.Add(sum(bin_dest_offset[(b, o)] for o in offsets) == 1)
+
+    # Track tips for each op
+    op_tip = {}
+    for i in range(len(ops)):
+        for t in range(n_tips):
+            op_tip[i, t] = solver.BoolVar(f"op_tip_{i}_{t}")
+        # Each op must have a tip assigned
+        solver.Add(sum(op_tip[i, t] for t in range(n_tips)) == 1)
+
+    # Each bin must only have one of each tip
+    for b in range(max_bins):
+        for t in range(n_tips):
+            tip_bin_link_vars = []
+            for i in range(len(ops)):
+                link = solver.BoolVar(f"link_{i}_{b}_{t}")
+
+                tip_bin_link_vars.append(link)
+
+                # Link var can only be true if op i is in bin b
+                solver.Add(link <= x[i, b])
+
+                # Link var can only be true if op i has tip t
+                solver.Add(link <= op_tip[i, t])
+
+                # Link var is true if both are true
+                solver.Add(link >= x[i, b] + op_tip[i, t] - 1)
+
+            solver.Add(sum(tip_bin_link_vars) <= 1)
+
+    # If op is in bin, op_tip set equal to op.source_pos[0] - bin_source_offset
+
+    for i in range(len(ops)):
+        for b in range(max_bins):
+            op_tip_in_bin = []
+            for t in range(n_tips):
+                # Create auxiliary variable for "op i uses tip t in bin b"
+                z = solver.BoolVar(f"z_{i}_{b}_{t}")
+                op_tip_in_bin.append(z)
+                # z is 1 only if op i is in bin b AND op_tip[i, t] is 1
+                solver.Add(z <= x[(i, b)])
+                solver.Add(z <= op_tip[i, t])
+                solver.Add(z >= x[(i, b)] + op_tip[i, t] - 1)
+
+            # Now link tip assignment to offset
+            # For each offset o, if bin b has offset o and op i is in bin b,
+            # then op_tip[i, t] must correspond to the correct offset
+            for o in offsets:
+
+                # if source has virtual rows, the only constraint on tips is labware limits
+
+                if (
+                    getattr(ops[i].source, "virtual_rows", 0)
+                    or 0 >= ops[i].source_pos[0]
+                ):
+                    continue
+
+                tip_index = ops[i].source_pos[0] - o
+
+                # If bin b has offset o and op i is in bin b, then enforce tip mapping
+                # We use implication: x[i,b] AND bin_source_offset[b,o] => op_tip[i, t] when t = op_row - o
+                if 0 <= tip_index < n_tips:
+                    solver.Add(
+                        op_tip[i, tip_index]
+                        >= x[(i, b)] + bin_source_offset[(b, o)] - 1
+                    )
+                else:
+                    # Otherwise, this op in this bin with this offset is not feasible
+                    # Cannot have both x[i,b] and bin_source_offset[b,o]
+                    solver.Add(x[i, b] + bin_source_offset[b, o] <= 1)
+
+            # Require that the dest offset matches the tip
+            for t in range(n_tips):
+                dest_offset = ops[i].dest_pos[0] - t
+
+                solver.Add(
+                    bin_dest_offset[b, dest_offset] >= x[i, b] + op_tip[i, t] - 1
+                )
 
     # Track bin liquid classes
     liquid_classes = range(ops[0].lc_counter)
@@ -199,10 +276,12 @@ def ortools_grouping(
         for b in range(max_bins):
             if y[b].solution_value() == 1:
                 bin_items = []
+                bin_tips = []
                 source = 0
                 dest = 0
                 source_offset = 0
                 dest_offset = 0
+
                 for l in possible_locations:
                     if bin_source[b, l].solution_value():
                         source = l
@@ -216,16 +295,20 @@ def ortools_grouping(
                         dest_offset = o
                 for i in range(len(ops)):
                     if x[i, b].solution_value() > 0:
-
+                        tip = 0
+                        for t in range(n_tips):
+                            if op_tip[i, t].solution_value():
+                                tip = t
+                        bin_tips.append(tip)
                         bin_items.append(ops[i])
 
                 if bin_items:
                     result_groups.append(
-                        (bin_items, source, dest, source_offset, dest_offset)
+                        (bin_items, bin_tips, source, dest, source_offset, dest_offset)
                     )
                     num_bins += 1
                     print(
-                        f"Group {num_bins} {bin_items} {source}-{source_offset} {dest}-{dest_offset}"
+                        f"Group {num_bins} {bin_items} {bin_tips} {source}-{source_offset} {dest}-{dest_offset}"
                     )
         print()
         print("Time = ", solver.WallTime(), " milliseconds")

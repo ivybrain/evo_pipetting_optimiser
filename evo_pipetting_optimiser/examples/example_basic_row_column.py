@@ -46,6 +46,19 @@ def basic_row_column(worklist):
 
     with AutoWorklist(worklist, waste_location=(1, 2), cleaner_location=(1, 3)) as wl:
 
+        # # transfer sampel to dilution plate
+        # wl.auto_transfer(
+        #     sample_plate,
+        #     sample_plate.wells[:, 0],
+        #     dilution_plate,
+        #     dilution_plate.wells[:, 0],
+        #     volumes=50,
+        #     liquid_class="Water free dispense",
+        # )
+
+        # wl.commit()
+        # exit(1)
+
         # Transfer diluent to dilution plate
         wl.auto_transfer(
             test_trough,
@@ -55,6 +68,8 @@ def basic_row_column(worklist):
             50,
             liquid_class="Water free dispense",
         )
+        wl.commit()
+        exit(1)
 
         # Basic: Transfer col 0 to row 0
         wl.auto_transfer(
