@@ -55,6 +55,9 @@ class TransferOperation:
         TransferOperation._loc_counter = 0
         TransferOperation._loc_id = {}
         TransferOperation._id_loc = []
+        TransferOperation._lc_counter = 0
+        TransferOperation._lc_id = {}
+        TransferOperation._id_lc = []
 
     def __init__(
         self,

@@ -1,4 +1,5 @@
 import robotools
+import json
 
 from evo_pipetting_optimiser import AdvancedLabware, AutoWorklist, AdvancedTrough
 
@@ -69,7 +70,6 @@ def basic_row_column(worklist):
             liquid_class="Water free dispense",
         )
         wl.commit()
-        exit(1)
 
         # Basic: Transfer col 0 to row 0
         wl.auto_transfer(
@@ -91,8 +91,14 @@ def basic_row_column(worklist):
         )
 
         # Now transfer back to trough
-        # wl.auto_transfer(dilution_plate, dilution_plate.wells[:, 0],
-        #                  test_trough, test_trough.wells, )
+        wl.auto_transfer(
+            dilution_plate,
+            dilution_plate.wells[:, 0],
+            test_trough,
+            test_trough.wells,
+            50,
+            liquid_class="Water free dispense",
+        )
 
         print(wl.report)
 

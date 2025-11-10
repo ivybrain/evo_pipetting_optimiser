@@ -8,67 +8,8 @@ from ortools.linear_solver import pywraplp
 import time
 
 
-def create_conflict_graph(pending_ops):
-
-    max_op_id = max([op.id for op in pending_ops])
-
-    # Show which ops can have their sources grouped together
-    conflicts = np.full((max_op_id + 1, max_op_id + 1), 0, dtype=np.uint8)
-
-    for i_op in pending_ops:
-        for j_op in pending_ops:
-            i = i_op.id
-            j = j_op.id
-            # Can always include op with itself
-            if i == j:
-                conflicts[i, j] = 1
-                continue
-
-            # # Check liquid class is the same
-            # if i_op.liquid_class != j_op.liquid_class:
-            #     continue
-
-            conflicts[i, j] = 1
-
-            # # If can't do in 1 asp or 1 disp, then can't group
-            # source_conflict = False
-            # dest_conflict = False
-            # # Check source is the same
-            # if i_op.source != j_op.source:
-            #     source_conflict = True
-
-            # if i_op.source_pos[1] != j_op.source_pos[1]:
-            #     source_conflict = True
-
-            # # well overlap
-            # if (
-            #     i_op.source_pos[0] == j_op.source_pos[0]
-            #     and not (i_op.source.virtual_rows or 0) >= i_op.source_pos[0]
-            # ):
-            #     source_conflict = True
-
-            # if i_op.destination != j_op.destination:
-            #     dest_conflict = True
-            # if i_op.dest_pos[1] != j_op.dest_pos[1]:
-            #     dest_conflict = True
-            # if (
-            #     i_op.dest_pos[0] == j_op.dest_pos[0]
-            #     and not (i_op.destination.virtual_rows or 0) >= i_op.dest_pos[0]
-            # ):
-            #     dest_conflict = True
-
-            # if not source_conflict:
-            #     source_groups[i, j] = i_op.source_loc
-
-            # if not dest_conflict:
-            #     dest_groups[i, j] = i_op.dest_loc
-
-    return conflicts
-
-
 def ortools_grouping(
     ops,
-    conflicts,
 ):
     start_time = time.time()
     ops = list(ops)
@@ -183,19 +124,26 @@ def ortools_grouping(
                 solver.Add(z <= op_tip[i, t])
                 solver.Add(z >= x[(i, b)] + op_tip[i, t] - 1)
 
-            # Require that the dest offset matches the tip
-            for t in range(n_tips):
-                dest_offset = ops[i].dest_pos[0] - t
+            # Require that the dest offset matches the tip, if dest is not a trough
+            if not (
+                getattr(ops[i].destination, "virtual_rows", 0) or 0 > ops[i].dest_pos[0]
+            ):
+                for t in range(n_tips):
+                    # The offset that matches the given dest row and this tip
+                    dest_offset = ops[i].dest_pos[0] - t
 
-                solver.Add(
-                    bin_dest_offset[b, dest_offset] >= x[i, b] + op_tip[i, t] - 1
-                )
+                    # If op i is in bin b AND op i has tip t, the dest offset must be set according to the dest row and that tip
+                    solver.Add(
+                        bin_dest_offset[b, dest_offset] >= x[i, b] + op_tip[i, t] - 1
+                    )
+            else:
+                # Otherwise, just set the dest offset to 0 as it's irrelevant
+                solver.Add(bin_dest_offset[(b, 0)] >= x[i, b])
 
             # if source has virtual rows, the only constraint on tips is labware limits
-
-            if getattr(ops[i].source, "virtual_rows", 0) or 0 >= ops[i].source_pos[0]:
+            if getattr(ops[i].source, "virtual_rows", 0) or 0 > ops[i].source_pos[0]:
                 # Set offset 0, as it's irrelevant
-                solver.Add(bin_source_offset[(b, 0)] == 1)
+                solver.Add(bin_source_offset[(b, 0)] >= x[i, b])
                 continue
 
             # Now link tip assignment to offset
@@ -264,6 +212,8 @@ def ortools_grouping(
     solver.Minimize(solver.Sum(y[b] for b in range(max_bins)))
 
     print(f"Model set-up: {time.time()-start_time:.4f} seconds")
+
+    # solver.WriteModelToMpsFile("model.txt", False, False)
     start_time = time.time()
     status = solver.Solve()
 
@@ -302,9 +252,7 @@ def ortools_grouping(
                         bin_items.append(ops[i])
 
                 if bin_items:
-                    result_groups.append(
-                        (bin_items, bin_tips, source, dest, source_offset, dest_offset)
-                    )
+                    result_groups.append([(bin_items, bin_tips)])
                     num_bins += 1
                     print(
                         f"Group {num_bins} {bin_items} {bin_tips} {source}-{source_offset} {dest}-{dest_offset}"
@@ -314,11 +262,12 @@ def ortools_grouping(
         print(f"Objective {solver.Objective().Value()}")
     else:
         print("The problem does not have an optimal solution.")
+        raise Exception("Solver error")
 
     return result_groups
 
 
-def group_ops(pending_ops, conflicts, available_tips=list(range(8))):
+def group_ops(pending_ops):
     """
     A group is a 5-tuple of
     (
@@ -330,23 +279,9 @@ def group_ops(pending_ops, conflicts, available_tips=list(range(8))):
     )
     """
 
-    # Get open ops - the pending operations that don't have an unfulfilled dependency
-    # Ie all ops we can select from at this time point
-    open_ops = [
-        op
-        for op in pending_ops
-        if op.source_dep not in pending_ops and op.dest_dep not in pending_ops
-    ]
-
-    open_ops.sort()
-
     selected_groups = ortools_grouping(
         pending_ops,
-        conflicts,
     )
-
-    total_asps = 0
-    total_disp = 0
 
     for i, (group, tips) in enumerate(selected_groups):
 

@@ -1,4 +1,4 @@
-from .group_ops import group_ops, create_conflict_graph
+from .group_ops import group_ops, ortools_grouping
 from copy import copy, deepcopy
 import cProfile, pstats
 import time
@@ -27,8 +27,6 @@ def make_plan(pending_ops):
     # Create a copy of pending ops set that we can mutate
     pending_ops = copy(pending_ops)
 
-    completed_ops = set()
-
     labware_copies = {}
 
     def labware_copy(labware):
@@ -43,49 +41,21 @@ def make_plan(pending_ops):
     # profiler = cProfile.Profile()
     # profiler.enable()
 
-    conflicts = create_conflict_graph(pending_ops)
+    # Group the operations. See group_ops method for details
 
-    # Repeat until we have no more operations pending
-    while len(pending_ops) > 0:
-        # Group the operations. See group_ops method for details
+    best_groupings = ortools_grouping(pending_ops)
 
-        best_groupings = group_ops(pending_ops, conflicts)
+    # In the simple case, we can just take the single best group. However, if the best group doesn't use all 8 tips,
+    # We can select other groups to use the remaining tips
+    # Before washing them all together
 
-        # TO implement: All groups that do not contain newly completed ops are still valid
-        # keep in memory and skip calculation for next
+    for group in best_groupings:
 
-        # In the simple case, we can just take the single best group. However, if the best group doesn't use all 8 tips,
-        # We can select other groups to use the remaining tips
-        # Before washing them all together
-
-        # Track how many tips we've used across the currently selected groups
-        tips_used = 0
-        # Track the selected groups, and the ops among those selected groups
-        selected_groups = []
-        selected_ops = []
-
-        # Store the cost of executing the second best group available
-        # This is a benchmark for whether to include subsequent groups
-        # e.g. if it's more efficient to select the second best group and do an additional wash,
-        # compared to adding an unefficient group to the remaining tips,
-        # Then don't add any more groups, and leave the remaining tips empty
-        # second best cost is the number of ((aspirates + dispenses) + 2 (as a wash takes two movements into the waste then cleaner)),
-        # divided by the number of ops achieved by that group
-        second_best_cost = (best_groupings[1][0] + 2) / len(best_groupings[1][2])
-
-        (steps, group_type, ops, target_groups, tips_selected) = best_groupings[0]
-
-        selected_groups.append((group_type, ops, target_groups, tips_selected))
-        selected_ops += ops
-
-        if len(selected_ops) == 0:
-            raise OffsetLimitException(
-                "No valid groups to select. This probably means you're trying to transfer between two plates with offset restrictions that don't allow this transfer"
-            )
+        (ops, tips_selected) = group[0]
 
         # Process the groups into a list of sources to aspirate and a list of destinations to dispense
-        source_list = []
-        dest_list = []
+        source_list = [ops]
+        dest_list = [ops]
         op_tip = {op: tip + 1 for op, tip in zip(ops, tips_selected)}
 
         # Check if we need to wash any tips
@@ -138,19 +108,19 @@ def make_plan(pending_ops):
             actions.append(("Wash", ops, list(op_tip.values())))
             wash_count += 1
 
-        for group_type, ops, target_groups, tips_selected in selected_groups:
+        # for group_type, ops, target_groups, tips_selected in selected_groups:
 
-            if group_type == "source":
-                # If we've grouped by source, we can aspirate all ops in the group at once
-                source_list += [ops]
-                # Destinations will depend on the subgroups selected, one for each subgroup
-                dest_list += [group[0] for group in target_groups]
+        #     if group_type == "source":
+        #         # If we've grouped by source, we can aspirate all ops in the group at once
+        #         source_list += [ops]
+        #         # Destinations will depend on the subgroups selected, one for each subgroup
+        #         dest_list += [group[0] for group in target_groups]
 
-            else:
-                # If we've grouped by destination, we can dispense all ops in the group at once
-                dest_list += [ops]
-                # Sources will depend on the subgroups selected, one for each subgroup
-                source_list += [group[0] for group in target_groups]
+        #     else:
+        #         # If we've grouped by destination, we can dispense all ops in the group at once
+        #         dest_list += [ops]
+        #         # Sources will depend on the subgroups selected, one for each subgroup
+        #         source_list += [group[0] for group in target_groups]
 
         # Sort the source list and dest list by the tips used
         # This just makes sure the pipetting occurs in an order that's less confusing visually,
@@ -168,13 +138,13 @@ def make_plan(pending_ops):
                 ("Aspirate", source_group, [op_tip[op] for op in source_group])
             )
 
-            # Remove liquid from our virtual copy of the plates so we can track composition
+            # # Remove liquid from our virtual copy of the plates so we can track composition
 
-            virtual_source = labware_copy(source_group[0].source)
-            virtual_source.remove(
-                [virtual_source.wells[op.source_pos] for op in source_group],
-                [op.volume for op in source_group],
-            )
+            # virtual_source = labware_copy(source_group[0].source)
+            # virtual_source.remove(
+            #     [virtual_source.wells[op.source_pos] for op in source_group],
+            #     [op.volume for op in source_group],
+            # )
 
             asp_count += 1
 
@@ -186,23 +156,20 @@ def make_plan(pending_ops):
             actions.append(("Dispense", dest_group, [op_tip[op] for op in dest_group]))
 
             # Add liquid to our virtual copy of the plates so we can track composition
-            virtual_dest = labware_copy(dest_group[0].destination)
-            compositions = [
-                labware_copy(op.source).get_well_composition(
-                    op.source.wells[op.source_pos]
-                )
-                for op in dest_group
-            ]
-            virtual_dest.add(
-                [virtual_dest.wells[op.dest_pos] for op in dest_group],
-                [op.volume for op in dest_group],
-                compositions=compositions,
-            )
+            # virtual_dest = labware_copy(dest_group[0].destination)
+            # compositions = [
+            #     labware_copy(op.source).get_well_composition(
+            #         op.source.wells[op.source_pos]
+            #     )
+            #     for op in dest_group
+            # ]
+            # virtual_dest.add(
+            #     [virtual_dest.wells[op.dest_pos] for op in dest_group],
+            #     [op.volume for op in dest_group],
+            #     compositions=compositions,
+            # )
 
             disp_count += 1
-
-        pending_ops.difference_update(selected_ops)
-        completed_ops.update(selected_ops)
 
     # profiler.disable()
     # stats = pstats.Stats(profiler)

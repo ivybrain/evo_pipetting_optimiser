@@ -137,3 +137,5 @@ dmypy.json
 evo_pipetting_optimiser/examples/TecanEvo_sample_dilution_ppd.py
 
 *.cprof
+
+model.txt
