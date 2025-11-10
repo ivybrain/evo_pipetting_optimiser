@@ -124,7 +124,7 @@ def ortools_grouping(
     for i in range(len(ops)):
         for b in range(max_bins):
 
-            possible_offsets = copy(offsets)
+            source_constrained = True
 
             # Require that the dest offset matches the tip, if dest is not a trough
             if not (
@@ -140,33 +140,45 @@ def ortools_grouping(
                     )
             else:
                 # Otherwise, just set the dest offset to 0 as it's irrelevant
-                possible_offsets = [0]
+                solver.Add(bin_source_offset[(b, 0)] >= x[i, b])
 
             # if source has virtual rows, the only constraint on tips is labware limits
             if getattr(ops[i].source, "virtual_rows", 0) or 0 > ops[i].source_pos[0]:
                 # Set offset 0, as it's irrelevant
-                possible_offsets = [0]
+                source_constrained = False
+                solver.Add(bin_dest_offset[(b, 0)] >= x[i, b])
 
             # Now link tip assignment to offset
             # For each offset o, if bin b has offset o and op i is in bin b,
             # then op_tip[i, t] must correspond to the correct offset
-            for o in possible_offsets:
+            for o in offsets:
 
-                tip_index = ops[i].source_pos[0] - o
+                if source_constrained:
+                    tip_index = ops[i].source_pos[0] - o
+                else:
+                    tip_index = ops[i].dest_pos[0] - o
 
                 # If bin b has offset o and op i is in bin b, then enforce tip mapping
                 # We use implication: x[i,b] AND bin_source_offset[b,o] => op_tip[i, t] when t = op_row - o
                 if 0 <= tip_index < n_tips:
-                    solver.Add(
-                        op_tip[i, tip_index]
-                        >= x[(i, b)] + bin_source_offset[(b, o)] - 1
-                    )
 
-                    # Also, if this op is in this bin with this offset, the bin must have the matching tip enabled
-                    solver.Add(
-                        bin_tip[(b, tip_index)]
-                        >= x[(i, b)] + bin_source_offset[(b, o)] - 1
-                    )
+                    if source_constrained:
+                        solver.Add(
+                            op_tip[i, tip_index]
+                            >= x[(i, b)] + bin_source_offset[(b, o)] - 1
+                        )
+
+                        # Also, if this op is in this bin with this offset, the bin must have the matching tip enabled
+                        solver.Add(
+                            bin_tip[(b, tip_index)]
+                            >= x[(i, b)] + bin_source_offset[(b, o)] - 1
+                        )
+                    else:
+                        solver.Add(
+                            bin_tip[(b, tip_index)]
+                            >= x[(i, b)] + bin_dest_offset[(b, o)] - 1
+                        )
+
                 else:
                     # Otherwise, this op in this bin with this offset is not feasible
                     # Cannot have both x[i,b] and bin_source_offset[b,o]
@@ -243,7 +255,12 @@ def ortools_grouping(
         for j in range(i + 1, len(ops)):
             if (
                 ops[i].source_pos[0] == ops[j].source_pos[0]
-                or ops[i].dest_pos[0] == ops[j].dest_pos[0]
+                and (getattr(ops[i].source, "virtual_rows", 0) or 0)
+                <= ops[i].source_pos[0]
+            ) or (
+                ops[i].dest_pos[0] == ops[j].dest_pos[0]
+                and (getattr(ops[i].destination, "virtual_rows", 0) or 0)
+                <= ops[i].source_pos[0]
             ):
                 for b in range(max_bins):
                     solver.Add(x[i, b] + x[j, b] <= 1)

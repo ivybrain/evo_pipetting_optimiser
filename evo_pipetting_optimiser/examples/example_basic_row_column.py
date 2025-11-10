@@ -66,9 +66,6 @@ def basic_row_column(worklist):
             50,
             liquid_class="Water free dispense",
         )
-        print(wl.report)
-        wl.commit()
-        exit(0)
 
         # Basic: Transfer col 0 to row 0
         wl.auto_transfer(
