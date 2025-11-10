@@ -29,7 +29,7 @@ def ortools_grouping(
     solver = pywraplp.Solver("", pywraplp.Solver.BOP_INTEGER_PROGRAMMING)
     # solver.EnableOutput()
 
-    solver.SetTimeLimit(20000)
+    solver.SetTimeLimit(200000)
     solver.EnableOutput()
 
     if not solver:
@@ -105,6 +105,24 @@ def ortools_grouping(
     # Each bin must be in exactly one group
     for b in range(max_bins):
         solver.Add(solver.Sum(bin_in_group[b, g] for g in range(max_groups)) == 1)
+
+    # track sources and dests present in each group
+    group_source = {}
+    group_dest = {}
+    for l in possible_locations:
+        for g in range(max_groups):
+            group_source[(g, l)] = solver.BoolVar(f"group_source_{g}_{l}")
+            group_dest[(g, l)] = solver.BoolVar(f"group_dest_{g}_{l}")
+
+            # If a bin has a source or dest, and bin is in a group, that group must have that source or dest
+            for b in range(max_bins):
+                solver.Add(
+                    group_source[(g, l)]
+                    >= bin_source[(b, l)] + bin_in_group[(b, g)] - 1
+                )
+                solver.Add(
+                    group_dest[(g, l)] >= bin_dest[(b, l)] + bin_in_group[(b, g)] - 1
+                )
 
     # Track tips for each op
     op_tip = {}
@@ -266,8 +284,12 @@ def ortools_grouping(
                     solver.Add(x[i, b] + x[j, b] <= 1)
 
     solver.Minimize(
-        (2 * solver.Sum(groups[g] for g in range(max_groups)))
-        + solver.Sum(y[b] for b in range(max_bins))
+        solver.Sum(
+            group_source[g, l] for g in range(max_groups) for l in possible_locations
+        )
+        + solver.Sum(
+            group_dest[g, l] for g in range(max_groups) for l in possible_locations
+        )
     )
 
     print(f"Model set-up: {time.time()-start_time:.4f} seconds")
