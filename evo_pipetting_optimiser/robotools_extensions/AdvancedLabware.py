@@ -20,6 +20,9 @@ class AdvancedLabware(robotools.Labware):
             for well in self.wells.flatten("F")
         }
 
+    def reset_op_tracking(self):
+        self.op_tracking = {well: [] for well in self.wells.flatten("F")}
+
     def __init__(
         self,
         *args,
@@ -74,4 +77,4 @@ class AdvancedLabware(robotools.Labware):
         self.offset_limit_up = offset_limit_up
         self.offset_limit_down = offset_limit_down
 
-        self.op_tracking = {well: [] for well in self.wells.flatten("F")}
+        self.reset_op_tracking()

@@ -7,9 +7,12 @@ import math
 from .TransferOperation import TransferOperation
 from ..utils.utils import *
 from ..optimisation import group_ops, make_plan
+import time
 
 
 class AutoWorklist(EvoWorklist):
+
+    all_labware = set()
 
     def __init__(
         self,
@@ -189,6 +192,11 @@ class AutoWorklist(EvoWorklist):
             - ``"warn"`` emits an :class:`~robotools.liquidhandling.exceptions.VolumeUnderflowWarning`. This `can be captured in unit tests <https://docs.pytest.org/en/stable/how-to/capture-warnings.html#additional-use-cases-of-warnings-in-tests>`_.
             - ``"raise"`` raises a :class:`~robotools.liquidhandling.exceptions.VolumeUnderflowError` about underflowing wells.
         """
+
+        # add the labware to the set of all labware we've used
+        self.all_labware.add(source)
+        self.all_labware.add(destination)
+
         # reformat the convenience parameters
         source_wells = np.array(source_wells).flatten("F")
         destination_wells = np.array(destination_wells).flatten("F")
@@ -539,6 +547,13 @@ class AutoWorklist(EvoWorklist):
             )
             self.execute_plan(plan, (asp_count, disp_count, wash_count))
             self.pending_ops = set()
+
+            # Reset the op tracking on all labware
+            for labware in self.all_labware:
+                if isinstance(labware, AdvancedLabware):
+                    labware.reset_op_tracking()
+
+            self.all_labware = set()
             self.processing = False
             if report:
                 print(

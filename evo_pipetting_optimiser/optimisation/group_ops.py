@@ -206,14 +206,19 @@ def ortools_grouping(
     for op in ops:
         if op.source_dep:
             add_op_dep(op, op.source_dep)
+            print(f"Source dep {op.id} -> {op.source_dep}")
         if op.dest_dep:
             add_op_dep(op, op.dest_dep)
+            print(f"Dest dep {op.id} -> {op.dest_dep}")
 
     solver.Minimize(solver.Sum(y[b] for b in range(max_bins)))
 
     print(f"Model set-up: {time.time()-start_time:.4f} seconds")
 
-    # solver.WriteModelToMpsFile("model.txt", False, False)
+    # with open("model.txt", "w") as f:
+
+    #     f.write(solver.ExportModelAsLpFormat(False))
+
     start_time = time.time()
     status = solver.Solve()
 
