@@ -475,6 +475,13 @@ class AutoWorklist(EvoWorklist):
                     for op in ops
                 ]
 
+                # If we have a trough, just set rows to whichever tips we're using
+                if (
+                    getattr(source_op.destination, "virtual_rows", 0)
+                    or 0 > max(tips) - 1
+                ):
+                    dest_rows = [tip - 1 for tip in tips]
+
                 # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
                 offset = dest_rows[0] - (tips[0] - 1)
                 for i in range(len(dest_rows)):

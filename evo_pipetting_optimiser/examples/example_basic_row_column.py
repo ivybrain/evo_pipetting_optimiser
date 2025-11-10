@@ -69,7 +69,6 @@ def basic_row_column(worklist):
             50,
             liquid_class="Water free dispense",
         )
-        wl.commit()
 
         # Basic: Transfer col 0 to row 0
         wl.auto_transfer(
@@ -99,11 +98,6 @@ def basic_row_column(worklist):
             50,
             liquid_class="Water free dispense",
         )
-
-        print(wl.report)
-
-        # # Optimise these steps and add to worklist
-        wl.commit()
 
         # Situation where we transfer a column to a row, with a range across 8 wells but excluding a middle well
         # Will aspirate in one op, leaving tip 5 empty
