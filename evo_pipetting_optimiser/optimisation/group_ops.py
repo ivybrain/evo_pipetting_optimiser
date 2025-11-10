@@ -183,18 +183,25 @@ def ortools_grouping(
                 solver.Add(z <= op_tip[i, t])
                 solver.Add(z >= x[(i, b)] + op_tip[i, t] - 1)
 
+            # Require that the dest offset matches the tip
+            for t in range(n_tips):
+                dest_offset = ops[i].dest_pos[0] - t
+
+                solver.Add(
+                    bin_dest_offset[b, dest_offset] >= x[i, b] + op_tip[i, t] - 1
+                )
+
+            # if source has virtual rows, the only constraint on tips is labware limits
+
+            if getattr(ops[i].source, "virtual_rows", 0) or 0 >= ops[i].source_pos[0]:
+                # Set offset 0, as it's irrelevant
+                solver.Add(bin_source_offset[(b, 0)] == 1)
+                continue
+
             # Now link tip assignment to offset
             # For each offset o, if bin b has offset o and op i is in bin b,
             # then op_tip[i, t] must correspond to the correct offset
             for o in offsets:
-
-                # if source has virtual rows, the only constraint on tips is labware limits
-
-                if (
-                    getattr(ops[i].source, "virtual_rows", 0)
-                    or 0 >= ops[i].source_pos[0]
-                ):
-                    continue
 
                 tip_index = ops[i].source_pos[0] - o
 
@@ -209,14 +216,6 @@ def ortools_grouping(
                     # Otherwise, this op in this bin with this offset is not feasible
                     # Cannot have both x[i,b] and bin_source_offset[b,o]
                     solver.Add(x[i, b] + bin_source_offset[b, o] <= 1)
-
-            # Require that the dest offset matches the tip
-            for t in range(n_tips):
-                dest_offset = ops[i].dest_pos[0] - t
-
-                solver.Add(
-                    bin_dest_offset[b, dest_offset] >= x[i, b] + op_tip[i, t] - 1
-                )
 
     # Track bin liquid classes
     liquid_classes = range(ops[0].lc_counter)
