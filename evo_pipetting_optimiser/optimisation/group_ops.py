@@ -33,7 +33,7 @@ def ortools_grouping(
     complexity = len(ops) * len(possible_locations)
 
     # solver.SetTimeLimit(int((complexity / 20) * 1000))
-    solver.SetTimeLimit(30000)
+    solver.SetTimeLimit(100000)
     solver.EnableOutput()
 
     if not solver:
