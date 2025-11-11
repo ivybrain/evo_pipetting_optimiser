@@ -16,7 +16,7 @@ def ortools_grouping(
     ops = list(ops)
     n_tips = 8
     max_bins = len(ops)
-    max_groups = int(len(ops) // 8) + 1
+    max_groups = int(len(ops) // 2) + 1
 
     min_offset = -7
     max_offset = 15
@@ -29,24 +29,29 @@ def ortools_grouping(
     solver = pywraplp.Solver("", pywraplp.Solver.BOP_INTEGER_PROGRAMMING)
     # solver.EnableOutput()
 
-    solver.SetTimeLimit(200000)
+    possible_locations = range(ops[0].loc_counter)
+    complexity = len(ops) * len(possible_locations)
+
+    # solver.SetTimeLimit(int((complexity / 20) * 1000))
+    solver.SetTimeLimit(30000)
     solver.EnableOutput()
 
     if not solver:
         raise Exception("Error creating solver")
 
-    possible_locations = range(ops[0].loc_counter)
-
     # Track which op is in which bin
     x = {}
+    x_hints = {}
     for i in range(len(ops)):
         for b in range(max_bins):
             x[(i, b)] = solver.BoolVar(f"x_{i}_{b}")
+        # solver.SetHint([x[(i, i)]], [1])
 
     # Track bins used
     y = {}
     for b in range(max_bins):
         y[b] = solver.BoolVar(f"y_{b}")
+        # solver.SetHint([y[b]], [1])
 
     # track source and dest location of each bin
     bin_source = {}
@@ -56,6 +61,8 @@ def ortools_grouping(
         for b in range(max_bins):
             bin_source[(b, l)] = solver.BoolVar(f"bin_source_{b}_{l}")
             bin_dest[(b, l)] = solver.BoolVar(f"bin_dest_{b}_{l}")
+            # solver.SetHint([bin_source[(b, l)]], [ops[i].source_loc == l])
+            # solver.SetHint([bin_dest[(b, l)]], [ops[i].dest_loc == l])
 
     # Each bin can only have one loc
     for b in range(max_bins):
@@ -74,10 +81,15 @@ def ortools_grouping(
     # # track offset of each bin
     bin_source_offset = {}
     bin_dest_offset = {}
-    for o in offsets:
-        for b in range(max_bins):
+
+    for b in range(max_bins):
+        for o in offsets:
             bin_source_offset[(b, o)] = solver.BoolVar(f"bin_source_offset_{b}_{o}")
             bin_dest_offset[(b, o)] = solver.BoolVar(f"bin_dest_offset_{b}_{o}")
+
+        # baseline solution offset is whatever happens from that op with tip 1
+        # solver.SetHint([bin_source_offset[(b, ops[b].source_pos[0])]], [1])
+        # solver.SetHint([bin_dest_offset[(b, ops[b].dest_pos[0])]], [1])
 
     # Each bin can only have one offset
     for b in range(max_bins):
@@ -89,12 +101,18 @@ def ortools_grouping(
     # At worst, 1 group per bin
     for g in range(max_groups):
         groups[g] = solver.BoolVar(f"group_{g}")
+        # Baseline solution has all groups
+        # solver.SetHint([groups[g]], [1])
 
     # Track which bin is in which group
     bin_in_group = {}
     for b in range(max_bins):
         for g in range(max_groups):
             bin_in_group[(b, g)] = solver.BoolVar(f"bin_in_group_{b}_{g}")
+
+            if b == g:
+                # solver.SetHint([bin_in_group[(b, g)]], [1])
+                pass
 
     # If bin is in group, group must be 1
     for g in range(max_groups):
@@ -107,22 +125,33 @@ def ortools_grouping(
         solver.Add(solver.Sum(bin_in_group[b, g] for g in range(max_groups)) == 1)
 
     # track sources and dests present in each group
-    group_source = {}
-    group_dest = {}
+    group_source_offset = {}
+    group_dest_offset = {}
     for l in possible_locations:
         for g in range(max_groups):
-            group_source[(g, l)] = solver.BoolVar(f"group_source_{g}_{l}")
-            group_dest[(g, l)] = solver.BoolVar(f"group_dest_{g}_{l}")
+            for o in range(min_offset, max_offset):
+                group_source_offset[(g, l, o)] = solver.BoolVar(
+                    f"group_source_{g}_{l}_{o}"
+                )
+                group_dest_offset[(g, l, o)] = solver.BoolVar(f"group_dest_{g}_{l}_{o}")
 
-            # If a bin has a source or dest, and bin is in a group, that group must have that source or dest
-            for b in range(max_bins):
-                solver.Add(
-                    group_source[(g, l)]
-                    >= bin_source[(b, l)] + bin_in_group[(b, g)] - 1
-                )
-                solver.Add(
-                    group_dest[(g, l)] >= bin_dest[(b, l)] + bin_in_group[(b, g)] - 1
-                )
+                # If a bin has a source or dest with offset, and bin is in a group, that group must have that source dest and offset
+
+                for b in range(max_bins):
+                    solver.Add(
+                        group_source_offset[(g, l, o)]
+                        >= bin_source[(b, l)]
+                        + bin_in_group[(b, g)]
+                        + bin_source_offset[b, o]
+                        - 2
+                    )
+                    solver.Add(
+                        group_dest_offset[(g, l, o)]
+                        >= bin_dest[(b, l)]
+                        + bin_in_group[(b, g)]
+                        + bin_dest_offset[b, o]
+                        - 2
+                    )
 
     # Track tips for each op
     op_tip = {}
@@ -181,9 +210,17 @@ def ortools_grouping(
                 if 0 <= tip_index < n_tips:
 
                     if source_constrained:
+
+                        # If the op is in this bin with this offset, it must have the matching tip
                         solver.Add(
                             op_tip[i, tip_index]
                             >= x[(i, b)] + bin_source_offset[(b, o)] - 1
+                        )
+
+                        # If the op is in this bin and has this tip, the source offset must match
+                        solver.Add(
+                            bin_source_offset[(b, o)]
+                            >= x[(i, b)] + op_tip[(i, tip_index)] - 1
                         )
 
                         # Also, if this op is in this bin with this offset, the bin must have the matching tip enabled
@@ -284,13 +321,23 @@ def ortools_grouping(
                     solver.Add(x[i, b] + x[j, b] <= 1)
 
     solver.Minimize(
-        solver.Sum(
-            group_source[g, l] for g in range(max_groups) for l in possible_locations
+        solver.Sum(groups[g] for g in range(max_groups))
+        + solver.Sum(y[b] for b in range(max_bins))
+        + solver.Sum(
+            group_source_offset[g, l, o]
+            for g in range(max_groups)
+            for l in possible_locations
+            for o in range(min_offset, max_offset)
         )
         + solver.Sum(
-            group_dest[g, l] for g in range(max_groups) for l in possible_locations
+            group_dest_offset[g, l, o]
+            for g in range(max_groups)
+            for l in possible_locations
+            for o in range(min_offset, max_offset)
         )
     )
+
+    solver.SetNumThreads(4)
 
     print(f"Model set-up: {time.time()-start_time:.4f} seconds")
 
@@ -313,6 +360,14 @@ def ortools_grouping(
                 continue
 
             group_items = []
+
+            sum_sources = 0
+            sum_dests = 0
+
+            for l in possible_locations:
+                for o in range(min_offset, max_offset):
+                    sum_sources += group_source_offset[(g, l, o)].solution_value()
+                    sum_dests += group_dest_offset[(g, l, o)].solution_value()
 
             for b in range(max_bins):
                 if bin_in_group[(b, g)].solution_value() == 1:
@@ -356,7 +411,10 @@ def ortools_grouping(
 
             result_groups.append(group_items)
             num_groups += 1
-            print(f"Group {num_groups} {group_items}")
+            group_items.sort(key=lambda x: x[1])
+            print(
+                f"Group {num_groups} {group_items}. {sum_sources} sources, {sum_dests} dests"
+            )
 
         print()
         print("Time = ", solver.WallTime(), " milliseconds")
