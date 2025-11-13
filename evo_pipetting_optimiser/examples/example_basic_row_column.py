@@ -116,14 +116,14 @@ def basic_row_column(worklist):
 
         # Same situation but transferring row to column
         # Will do several aspirates, but group to one dispense
-        wl.auto_transfer(
-            sample_plate,
-            sample_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
-            dilution_plate,
-            dilution_plate.wells[[0, 1, 2, 3, 5, 6, 7], 0],
-            600,
-            liquid_class="Water free dispense",
-        )
+        # wl.auto_transfer(
+        #     sample_plate,
+        #     sample_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
+        #     dilution_plate,
+        #     dilution_plate.wells[[0, 1, 2, 3, 5, 6, 7], 0],
+        #     600,
+        #     liquid_class="Water free dispense",
+        # )
 
         # Print the operations we have registered, so we can sanity check
         print(wl.report)

@@ -15,8 +15,7 @@ def ortools_grouping(
     start_time = time.time()
     ops = list(ops)
     n_tips = 8
-    max_bins = len(ops)
-    max_groups = int(len(ops) // 2) + 1
+    max_groups = 5  # len(ops)  # int(len(ops) // 2) + 1
 
     min_offset = -7
     max_offset = 15
@@ -32,69 +31,12 @@ def ortools_grouping(
     possible_locations = range(ops[0].loc_counter)
     complexity = len(ops) * len(possible_locations)
 
-    # solver.SetTimeLimit(int((complexity / 20) * 1000))
-    solver.SetTimeLimit(100000)
+    solver.SetTimeLimit(int((complexity / 20) * 1000))
+    # solver.SetTimeLimit(100000)
     solver.EnableOutput()
 
     if not solver:
         raise Exception("Error creating solver")
-
-    # Track which op is in which bin
-    x = {}
-    x_hints = {}
-    for i in range(len(ops)):
-        for b in range(max_bins):
-            x[(i, b)] = solver.BoolVar(f"x_{i}_{b}")
-        # solver.SetHint([x[(i, i)]], [1])
-
-    # Track bins used
-    y = {}
-    for b in range(max_bins):
-        y[b] = solver.BoolVar(f"y_{b}")
-        # solver.SetHint([y[b]], [1])
-
-    # track source and dest location of each bin
-    bin_source = {}
-    bin_dest = {}
-
-    for l in possible_locations:
-        for b in range(max_bins):
-            bin_source[(b, l)] = solver.BoolVar(f"bin_source_{b}_{l}")
-            bin_dest[(b, l)] = solver.BoolVar(f"bin_dest_{b}_{l}")
-            # solver.SetHint([bin_source[(b, l)]], [ops[i].source_loc == l])
-            # solver.SetHint([bin_dest[(b, l)]], [ops[i].dest_loc == l])
-
-    # Each bin can only have one loc
-    for b in range(max_bins):
-        solver.Add(solver.Sum(bin_source[(b, l)] for l in possible_locations) == 1)
-        solver.Add(solver.Sum(bin_dest[(b, l)] for l in possible_locations) == 1)
-
-    # All ops in bin must have matching source and dest loc
-    for i in range(len(ops)):
-        source = ops[i].source_loc
-        dest = ops[i].dest_loc
-        for b in range(max_bins):
-            # Want to add that x[i, b] => bin_source[b, l]
-            solver.Add(x[(i, b)] <= bin_source[(b, source)])
-            solver.Add(x[(i, b)] <= bin_dest[(b, dest)])
-
-    # # track offset of each bin
-    bin_source_offset = {}
-    bin_dest_offset = {}
-
-    for b in range(max_bins):
-        for o in offsets:
-            bin_source_offset[(b, o)] = solver.BoolVar(f"bin_source_offset_{b}_{o}")
-            bin_dest_offset[(b, o)] = solver.BoolVar(f"bin_dest_offset_{b}_{o}")
-
-        # baseline solution offset is whatever happens from that op with tip 1
-        # solver.SetHint([bin_source_offset[(b, ops[b].source_pos[0])]], [1])
-        # solver.SetHint([bin_dest_offset[(b, ops[b].dest_pos[0])]], [1])
-
-    # Each bin can only have one offset
-    for b in range(max_bins):
-        solver.Add(solver.Sum(bin_source_offset[(b, o)] for o in offsets) == 1)
-        solver.Add(solver.Sum(bin_dest_offset[(b, o)] for o in offsets) == 1)
 
     # Track groups, which may contain more than one bin, as long as the bins have non-overlapping tips (can be pipetted without wash)
     groups = {}
@@ -104,54 +46,21 @@ def ortools_grouping(
         # Baseline solution has all groups
         # solver.SetHint([groups[g]], [1])
 
-    # Track which bin is in which group
-    bin_in_group = {}
-    for b in range(max_bins):
+    # Track which op is in which group
+    op_in_group = {}
+    for i in range(len(ops)):
         for g in range(max_groups):
-            bin_in_group[(b, g)] = solver.BoolVar(f"bin_in_group_{b}_{g}")
+            op_in_group[(i, g)] = solver.BoolVar(f"op_in_group_{i}_{g}")
 
-            if b == g:
-                # solver.SetHint([bin_in_group[(b, g)]], [1])
-                pass
-
-    # If bin is in group, group must be 1
+    # If op is in group, group must be 1. Max capacity 8 ops
     for g in range(max_groups):
         solver.Add(
-            groups[g] * 8 >= solver.Sum(bin_in_group[(b, g)] for b in range(max_bins))
+            groups[g] * 8 >= solver.Sum(op_in_group[(i, g)] for i in range(len(ops)))
         )
 
-    # Each bin must be in exactly one group
-    for b in range(max_bins):
-        solver.Add(solver.Sum(bin_in_group[b, g] for g in range(max_groups)) == 1)
-
-    # track sources and dests present in each group
-    group_source_offset = {}
-    group_dest_offset = {}
-    for l in possible_locations:
-        for g in range(max_groups):
-            for o in range(min_offset, max_offset):
-                group_source_offset[(g, l, o)] = solver.BoolVar(
-                    f"group_source_{g}_{l}_{o}"
-                )
-                group_dest_offset[(g, l, o)] = solver.BoolVar(f"group_dest_{g}_{l}_{o}")
-
-                # If a bin has a source or dest with offset, and bin is in a group, that group must have that source dest and offset
-
-                for b in range(max_bins):
-                    solver.Add(
-                        group_source_offset[(g, l, o)]
-                        >= bin_source[(b, l)]
-                        + bin_in_group[(b, g)]
-                        + bin_source_offset[b, o]
-                        - 2
-                    )
-                    solver.Add(
-                        group_dest_offset[(g, l, o)]
-                        >= bin_dest[(b, l)]
-                        + bin_in_group[(b, g)]
-                        + bin_dest_offset[b, o]
-                        - 2
-                    )
+    # Each op must be in exactly one group
+    for g in range(max_groups):
+        solver.Add(solver.Sum(op_in_group[i, g] for i in range(len(ops))) == 1)
 
     # Track tips for each op
     op_tip = {}
@@ -161,140 +70,118 @@ def ortools_grouping(
         # Each op must have a tip assigned
         solver.Add(solver.Sum(op_tip[i, t] for t in range(n_tips)) == 1)
 
-    # Track tips for each bin
-    bin_tip = {}
-    for b in range(max_bins):
-        for t in range(n_tips):
-            bin_tip[b, t] = solver.BoolVar(f"bin_tip_{b}_{t}")
-
-    # If op is in bin, op_tip set equal to op.source_pos[0] - bin_source_offset
+    # Track offset for each op
+    op_source_offset = {}
+    op_dest_offset = {}
     for i in range(len(ops)):
-        for b in range(max_bins):
+        for o in range(min_offset, max_offset):
+            op_source_offset[i, o] = solver.BoolVar(f"op_source_offset_{i}_{o}")
+            op_dest_offset[i, o] = solver.BoolVar(f"op_dest_offset_{i}_{o}")
 
-            source_constrained = True
+    # track sources and dests present in each group
+    group_source_offset = {}
+    group_dest_offset = {}
 
-            # Require that the dest offset matches the tip, if dest is not a trough
-            if not (
-                getattr(ops[i].destination, "virtual_rows", 0) or 0 > ops[i].dest_pos[0]
-            ):
-                for t in range(n_tips):
-                    # The offset that matches the given dest row and this tip
-                    dest_offset = ops[i].dest_pos[0] - t
+    for g in range(max_groups):
+        for i in range(len(ops)):
+            for o in range(min_offset, max_offset):
 
-                    # If op i is in bin b AND op i has tip t, the dest offset must be set according to the dest row and that tip
-                    solver.Add(
-                        bin_dest_offset[b, dest_offset] >= x[i, b] + op_tip[i, t] - 1
-                    )
-            else:
-                # Otherwise, just set the dest offset to 0 as it's irrelevant
-                solver.Add(bin_source_offset[(b, 0)] >= x[i, b])
+                source = ops[i].source_loc
+                dest = ops[i].dest_loc
 
-            # if source has virtual rows, the only constraint on tips is labware limits
+                group_source_offset[(g, source, o)] = solver.BoolVar(
+                    f"group_source_{g}_{source}_{o}"
+                )
+
+                group_dest_offset[(g, dest, o)] = solver.BoolVar(
+                    f"group_dest_{g}_{dest}_{o}"
+                )
+
+                # If a op has a source or dest with offset, and op is in a group, that group must have that source dest and offset
+
+                solver.Add(
+                    group_source_offset[(g, source, o)]
+                    >= op_in_group[(i, g)] + op_source_offset[i, o] - 1
+                )
+                solver.Add(
+                    group_dest_offset[(g, dest, o)]
+                    >= op_in_group[(i, g)] + op_dest_offset[i, o] - 1
+                )
+
+    # If op_tip set equal to op.source_pos[0] - op_source_offset
+    for i in range(len(ops)):
+
+        for t in range(n_tips):
+
             if getattr(ops[i].source, "virtual_rows", 0) or 0 > ops[i].source_pos[0]:
-                # Set offset 0, as it's irrelevant
-                source_constrained = False
-                solver.Add(bin_dest_offset[(b, 0)] >= x[i, b])
+                solver.Add(op_source_offset[i, 0] == 1)
+            else:
+                source_offset = ops[i].source_pos[0] - t
 
-            # Now link tip assignment to offset
-            # For each offset o, if bin b has offset o and op i is in bin b,
-            # then op_tip[i, t] must correspond to the correct offset
-            for o in offsets:
+                # If op i is in bin b AND op i has tip t, the dest offset must be set according to the dest row and that tip
+                solver.Add(op_source_offset[i, source_offset] == op_tip[i, t])
 
-                if source_constrained:
-                    tip_index = ops[i].source_pos[0] - o
-                else:
-                    tip_index = ops[i].dest_pos[0] - o
+            if getattr(ops[i].destination, "virtual_rows", 0) or 0 > ops[i].dest_pos[0]:
+                solver.Add(op_dest_offset[i, 0] == 1)
+            else:
+                dest_offset = ops[i].dest_pos[0] - t
 
-                # If bin b has offset o and op i is in bin b, then enforce tip mapping
-                # We use implication: x[i,b] AND bin_source_offset[b,o] => op_tip[i, t] when t = op_row - o
-                if 0 <= tip_index < n_tips:
-
-                    if source_constrained:
-
-                        # If the op is in this bin with this offset, it must have the matching tip
-                        solver.Add(
-                            op_tip[i, tip_index]
-                            >= x[(i, b)] + bin_source_offset[(b, o)] - 1
-                        )
-
-                        # If the op is in this bin and has this tip, the source offset must match
-                        solver.Add(
-                            bin_source_offset[(b, o)]
-                            >= x[(i, b)] + op_tip[(i, tip_index)] - 1
-                        )
-
-                        # Also, if this op is in this bin with this offset, the bin must have the matching tip enabled
-                        solver.Add(
-                            bin_tip[(b, tip_index)]
-                            >= x[(i, b)] + bin_source_offset[(b, o)] - 1
-                        )
-                    else:
-                        solver.Add(
-                            bin_tip[(b, tip_index)]
-                            >= x[(i, b)] + bin_dest_offset[(b, o)] - 1
-                        )
-
-                else:
-                    # Otherwise, this op in this bin with this offset is not feasible
-                    # Cannot have both x[i,b] and bin_source_offset[b,o]
-                    solver.Add(x[i, b] + bin_source_offset[b, o] <= 1)
+                # If op i is in bin b AND op i has tip t, the dest offset must be set according to the dest row and that tip
+                solver.Add(op_dest_offset[i, dest_offset] == op_tip[i, t])
 
     # Each group must have only one of each tip
     for g in range(max_groups):
         for t in range(n_tips):
             tip_group_link_vars = []
-            for b in range(max_bins):
-                link = solver.BoolVar(f"link_{i}_{t}_{b}")
+            for i in range(len(ops)):
+                link = solver.BoolVar(f"link_{i}_{t}")
 
                 tip_group_link_vars.append(link)
 
-                # Link var can only be true if bin b is in group g
-                solver.Add(link <= bin_in_group[(b, g)])
+                # Link var can only be true if op i is in group g
+                solver.Add(link <= op_in_group[(i, g)])
 
-                # Link var can only be true if bin b has tip t
-                solver.Add(link <= bin_tip[(b, t)])
+                # Link var can only be true if op i has tip t
+                solver.Add(link <= op_tip[(i, t)])
 
                 # Link var is true if both are true
-                solver.Add(link >= bin_in_group[b, g] + bin_tip[b, t] - 1)
+                solver.Add(link >= op_in_group[i, g] + op_tip[i, t] - 1)
 
             solver.Add(solver.Sum(tip_group_link_vars) <= 1)
 
-    # Track bin liquid classes
-    liquid_classes = range(ops[0].lc_counter)
+    # # Track group liquid classes
+    # liquid_classes = range(ops[0].lc_counter)
 
-    # bin_lc[b, lc] if ops in bin 1 are liquid class lc
-    bin_lc = {}
-    for lc in liquid_classes:
-        for b in range(max_bins):
-            bin_lc[(b, lc)] = solver.BoolVar(f"bin_lc_{b}_{lc}")
+    # # bin_lc[b, lc] if ops in bin 1 are liquid class lc
+    # bin_lc = {}
+    # for lc in liquid_classes:
+    #     for b in range(max_bins):
+    #         bin_lc[(b, lc)] = solver.BoolVar(f"bin_lc_{b}_{lc}")
 
-    # Each bin can only have one LC
-    for b in range(max_bins):
-        solver.Add(solver.Sum(bin_lc[(b, lc)] for lc in liquid_classes) == 1)
+    # # Each bin can only have one LC
+    # for b in range(max_bins):
+    #     solver.Add(solver.Sum(bin_lc[(b, lc)] for lc in liquid_classes) == 1)
 
-    # All ops in bin must have matching lc
+    # # All ops in bin must have matching lc
+    # for i in range(len(ops)):
+    #     lc = ops[i].lc_id
+    #     for b in range(max_bins):
+    #         # Want to add that x[i, b] => bin_lc[b, lc]
+    #         solver.Add(x[(i, b)] <= bin_lc[(b, lc)])
+
+    # Each item must be in exactly one group.
     for i in range(len(ops)):
-        lc = ops[i].lc_id
-        for b in range(max_bins):
-            # Want to add that x[i, b] => bin_lc[b, lc]
-            solver.Add(x[(i, b)] <= bin_lc[(b, lc)])
-
-    # Each item must be in exactly one bin.
-    for i in range(len(ops)):
-        solver.Add(solver.Sum(x[i, b] for b in range(max_bins)) == 1)
-
-    # Bin capacity 8 items
-    for b in range(max_bins):
-        solver.Add(solver.Sum(x[(i, b)] for i in range(len(ops))) <= y[b] * 8)
+        solver.Add(solver.Sum(op_in_group[i, b] for b in range(max_groups)) == 1)
 
     # Enforce op dependency
 
     def add_op_dep(child, dep):
-        for b in range(max_bins):
+        for g in range(max_groups):
             # Enforce that dep is in an earlier bin than child
             # If child is in bin b, then dep must be in one of the bins for dep_bin < b
             solver.Add(
-                x[child.id, b] <= solver.Sum(x[dep.id, dep_bin] for dep_bin in range(b))
+                op_in_group[child.id, g]
+                <= solver.Sum(op_in_group[dep.id, dep_group] for dep_group in range(g))
             )
 
     for op in ops:
@@ -305,35 +192,13 @@ def ortools_grouping(
             add_op_dep(op, op.dest_dep)
             # print(f"Dest dep {op.id} -> {op.dest_dep}")
 
-    # Don't let ops with row conflicts be in same bin
-    for i in range(len(ops)):
-        for j in range(i + 1, len(ops)):
-            if (
-                ops[i].source_pos[0] == ops[j].source_pos[0]
-                and (getattr(ops[i].source, "virtual_rows", 0) or 0)
-                <= ops[i].source_pos[0]
-            ) or (
-                ops[i].dest_pos[0] == ops[j].dest_pos[0]
-                and (getattr(ops[i].destination, "virtual_rows", 0) or 0)
-                <= ops[i].source_pos[0]
-            ):
-                for b in range(max_bins):
-                    solver.Add(x[i, b] + x[j, b] <= 1)
-
     solver.Minimize(
         solver.Sum(groups[g] for g in range(max_groups))
-        + solver.Sum(y[b] for b in range(max_bins))
         + solver.Sum(
-            group_source_offset[g, l, o]
-            for g in range(max_groups)
-            for l in possible_locations
-            for o in range(min_offset, max_offset)
+            group_source_offset[g, l, o] for (g, l, o) in group_source_offset.keys()
         )
         + solver.Sum(
-            group_dest_offset[g, l, o]
-            for g in range(max_groups)
-            for l in possible_locations
-            for o in range(min_offset, max_offset)
+            group_dest_offset[g, l, o] for (g, l, o) in group_dest_offset.keys()
         )
     )
 
@@ -366,55 +231,43 @@ def ortools_grouping(
 
             for l in possible_locations:
                 for o in range(min_offset, max_offset):
-                    sum_sources += group_source_offset[(g, l, o)].solution_value()
-                    sum_dests += group_dest_offset[(g, l, o)].solution_value()
 
-            for b in range(max_bins):
-                if bin_in_group[(b, g)].solution_value() == 1:
-                    bin_items = []
-                    bin_tips = []
-                    bin_tips_2 = []
-                    source = 0
-                    dest = 0
-                    source_offset = 0
-                    dest_offset = 0
+                    if (g, l, o) in group_source_offset:
+                        sum_sources += group_source_offset[(g, l, o)].solution_value()
+                    if (g, l, o) in group_dest_offset:
+                        sum_dests += group_dest_offset[(g, l, o)].solution_value()
 
-                    for l in possible_locations:
-                        if bin_source[b, l].solution_value():
-                            source = l
-                        if bin_dest[b, l].solution_value():
-                            dest = l
+            for i in range(len(ops)):
+                if op_in_group[(i, g)].solution_value() != 1:
+                    continue
 
-                    for o in offsets:
-                        if bin_source_offset[b, o].solution_value():
-                            source_offset = o
-                        if bin_dest_offset[b, o].solution_value():
-                            dest_offset = o
-                    for t in range(n_tips):
-                        if bin_tip[(b, t)].solution_value():
-                            bin_tips_2.append(t)
-                    for i in range(len(ops)):
-                        if x[i, b].solution_value() > 0:
-                            tip = 0
-                            for t in range(n_tips):
-                                if op_tip[i, t].solution_value():
-                                    tip = t
-                            bin_tips.append(tip)
-                            bin_items.append(ops[i])
+                tip = 0
+                for t in range(n_tips):
+                    if op_tip[i, t].solution_value():
+                        tip = t
 
-                    if bin_items:
-                        group_items.append((bin_items, bin_tips))
-                        num_bins += 1
-                        print(
-                            f"Bin {num_bins} {bin_items} {bin_tips} {bin_tips_2} {source}-{source_offset} {dest}-{dest_offset}"
-                        )
+                source_offset = 0
+                for o in range(min_offset, max_offset):
+                    if op_source_offset[i, o].solution_value():
+                        source_offset = o
+                    if op_dest_offset[i, o].solution_value():
+                        dest_offset = o
+                group_items.append((ops[i], tip, source_offset, dest_offset))
 
-            result_groups.append(group_items)
-            num_groups += 1
-            group_items.sort(key=lambda x: x[1])
-            print(
-                f"Group {num_groups} {group_items}. {sum_sources} sources, {sum_dests} dests"
-            )
+            if group_items:
+                group_items.sort(key=lambda x: x[1])
+                result_groups.append(group_items)
+                num_groups += 1
+
+                print(
+                    f"Group {num_groups} {group_items} . {sum_sources} sources, {sum_dests} dests"
+                )
+
+        for key in group_source_offset.keys():
+            print(f"{key} = {group_source_offset[key].solution_value()}")
+
+        for key in group_dest_offset.keys():
+            print(f"{key} = {group_dest_offset[key].solution_value()}")
 
         print()
         print("Time = ", solver.WallTime(), " milliseconds")
