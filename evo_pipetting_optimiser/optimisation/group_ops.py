@@ -15,7 +15,7 @@ def ortools_grouping(
     start_time = time.time()
     ops = list(ops)
     n_tips = 8
-    max_groups = 5  # len(ops)  # int(len(ops) // 2) + 1
+    max_groups = len(ops)  # int(len(ops) // 2) + 1
 
     min_offset = -7
     max_offset = 15
@@ -31,8 +31,8 @@ def ortools_grouping(
     possible_locations = range(ops[0].loc_counter)
     complexity = len(ops) * len(possible_locations)
 
-    solver.SetTimeLimit(int((complexity / 20) * 1000))
-    # solver.SetTimeLimit(100000)
+    # solver.SetTimeLimit(int((complexity / 20) * 1000))
+    solver.SetTimeLimit(100000)
     solver.EnableOutput()
 
     if not solver:
@@ -59,8 +59,8 @@ def ortools_grouping(
         )
 
     # Each op must be in exactly one group
-    for g in range(max_groups):
-        solver.Add(solver.Sum(op_in_group[i, g] for i in range(len(ops))) == 1)
+    for i in range(len(ops)):
+        solver.Add(solver.Sum(op_in_group[i, g] for g in range(max_groups)) == 1)
 
     # Track tips for each op
     op_tip = {}
@@ -89,13 +89,15 @@ def ortools_grouping(
                 source = ops[i].source_loc
                 dest = ops[i].dest_loc
 
-                group_source_offset[(g, source, o)] = solver.BoolVar(
-                    f"group_source_{g}_{source}_{o}"
-                )
+                if (g, source, o) not in group_source_offset:
+                    group_source_offset[(g, source, o)] = solver.BoolVar(
+                        f"group_source_{g}_{source}_{o}"
+                    )
 
-                group_dest_offset[(g, dest, o)] = solver.BoolVar(
-                    f"group_dest_{g}_{dest}_{o}"
-                )
+                if (g, dest, o) not in group_dest_offset:
+                    group_dest_offset[(g, dest, o)] = solver.BoolVar(
+                        f"group_dest_{g}_{dest}_{o}"
+                    )
 
                 # If a op has a source or dest with offset, and op is in a group, that group must have that source dest and offset
 
@@ -263,11 +265,21 @@ def ortools_grouping(
                     f"Group {num_groups} {group_items} . {sum_sources} sources, {sum_dests} dests"
                 )
 
-        for key in group_source_offset.keys():
-            print(f"{key} = {group_source_offset[key].solution_value()}")
+        # print("Source offsets")
+        # for key in op_source_offset.keys():
+        #     print(f"{key} = {op_source_offset[key].solution_value()}")
 
-        for key in group_dest_offset.keys():
-            print(f"{key} = {group_dest_offset[key].solution_value()}")
+        # print("Dest offsets")
+        # for key in op_dest_offset.keys():
+        #     print(f"{key} = {op_dest_offset[key].solution_value()}")
+
+        # print("Sources")
+        # for key in group_source_offset.keys():
+        #     print(f"{key} = {group_source_offset[key].solution_value()}")
+
+        # print("\nDests")
+        # for key in group_dest_offset.keys():
+        #     print(f"{key} = {group_dest_offset[key].solution_value()}")
 
         print()
         print("Time = ", solver.WallTime(), " milliseconds")
