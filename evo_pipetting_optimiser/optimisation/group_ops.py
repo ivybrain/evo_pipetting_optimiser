@@ -15,7 +15,7 @@ def ortools_grouping(
     start_time = time.time()
     ops = list(ops)
     n_tips = 8
-    max_groups = len(ops)  # int(len(ops) // 2) + 1
+    max_groups = int(len(ops) // 4) + 1
 
     min_offset = -7
     max_offset = 15
@@ -32,7 +32,7 @@ def ortools_grouping(
     complexity = len(ops) * len(possible_locations)
 
     # solver.SetTimeLimit(int((complexity / 20) * 1000))
-    solver.SetTimeLimit(20000)
+    solver.SetTimeLimit(100000)
     solver.EnableOutput()
 
     if not solver:
@@ -86,29 +86,20 @@ def ortools_grouping(
     group_source_offset = {}
     group_dest_offset = {}
 
-    source_offset_by_group = {}
-    dest_offset_by_group = {}
-
     for g in range(max_groups):
-        source_offset_by_group[g] = {}
-        dest_offset_by_group[g] = {}
+
+        for l in possible_locations:
+            for o in offsets:
+                group_source_offset[(g, l, o)] = solver.BoolVar(
+                    f"group_source_{g}_{l}_{o}"
+                )
+                group_dest_offset[(g, l, o)] = solver.BoolVar(f"group_dest_{g}_{l}_{o}")
+
         for i in range(len(ops)):
             for o in range(min_offset, max_offset):
 
                 source = ops[i].source_loc
                 dest = ops[i].dest_loc
-
-                if (g, source, o) not in group_source_offset:
-                    source_offset_by_group[g][source, o] = group_source_offset[
-                        (g, source, o)
-                    ] = solver.BoolVar(f"group_source_{g}_{source}_{o}")
-                    # solver.SetHint([group_source_offset[(g, source, o)]], [0])
-
-                if (g, dest, o) not in group_dest_offset:
-                    dest_offset_by_group[g][dest, o] = group_dest_offset[
-                        (g, dest, o)
-                    ] = solver.BoolVar(f"group_dest_{g}_{dest}_{o}")
-                    # solver.SetHint([group_dest_offset[(g, dest, o)]], [0])
 
                 # If a op has a source or dest with offset, and op is in a group, that group must have that source dest and offset
 
@@ -124,7 +115,8 @@ def ortools_grouping(
         solver.Add(
             solver.Sum(
                 group_source_offset[(g, l, o)]
-                for l, o in source_offset_by_group[g].keys()
+                for l in possible_locations
+                for o in offsets
             )
             <= solver.Sum(op_in_group[(i, g)] for i in range(len(ops)))
         )
@@ -132,7 +124,9 @@ def ortools_grouping(
         # Each group can have at most 8 dest-offsets
         solver.Add(
             solver.Sum(
-                group_dest_offset[(g, l, o)] for l, o in dest_offset_by_group[g].keys()
+                group_dest_offset[(g, l, o)]
+                for l in possible_locations
+                for o in offsets
             )
             <= solver.Sum(op_in_group[(i, g)] for i in range(len(ops)))
         )
@@ -224,10 +218,10 @@ def ortools_grouping(
     solver.Minimize(
         solver.Sum(groups[g] for g in range(max_groups))
         + solver.Sum(
-            group_source_offset[g, l, o] for (g, l, o) in group_source_offset.keys()
-        )
-        + solver.Sum(
-            group_dest_offset[g, l, o] for (g, l, o) in group_dest_offset.keys()
+            group_source_offset[g, l, o] + group_dest_offset[g, l, o]
+            for g in range(max_groups)
+            for l in possible_locations
+            for o in offsets
         )
     )
 
@@ -281,7 +275,7 @@ def ortools_grouping(
                         source_offset = o
                     if op_dest_offset[i, o].solution_value():
                         dest_offset = o
-                group_items.append((ops[i], tip, source_offset, dest_offset))
+                group_items.append((ops[i], tip))  # , source_offset, dest_offset))
 
             if group_items:
                 group_items.sort(key=lambda x: x[1])
