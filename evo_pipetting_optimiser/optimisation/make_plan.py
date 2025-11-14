@@ -51,16 +51,29 @@ def make_plan(pending_ops):
 
     for group in best_groupings:
 
-        (ops, tips_selected) = group[0]
-
         # Process the groups into a list of sources to aspirate and a list of destinations to dispense
-        source_list = [ops]
-        dest_list = [ops]
-        op_tip = {op: tip + 1 for op, tip in zip(ops, tips_selected)}
+        ops = []
+        tips = []
+        source_list = {}
+        dest_list = {}
+        op_tip = {}
+
+        for op, tip, source, dest in group:
+            ops.append(op)
+            tips.append(tip + 1)
+            op_tip[op] = tip + 1
+
+            if source not in source_list:
+                source_list[source] = []
+            source_list[source].append(op)
+
+            if dest not in dest_list:
+                dest_list[dest] = []
+            dest_list[dest].append(op)
 
         # Check if we need to wash any tips
         wash_needed = False
-        for tip, op in zip(tips_selected, ops):
+        for op, tip, _, _ in group:
             # Standard or decontamination mean we require a wash
             if op.wash_scheme in [1, "D"] and tip in prev_tip_op:
                 wash_needed = True
@@ -125,14 +138,8 @@ def make_plan(pending_ops):
         # Sort the source list and dest list by the tips used
         # This just makes sure the pipetting occurs in an order that's less confusing visually,
         # starting from tip 1 to tip 8
-        group_sort_key = lambda ops: min([op_tip[op] for op in ops])
-        source_list.sort(key=group_sort_key)
-        dest_list.sort(key=group_sort_key)
 
-        for source_group in source_list:
-
-            # Sort the group by assigned tip
-            source_group.sort(key=lambda op: op_tip[op])
+        for source_group in source_list.values():
 
             actions.append(
                 ("Aspirate", source_group, [op_tip[op] for op in source_group])
@@ -148,10 +155,7 @@ def make_plan(pending_ops):
 
             asp_count += 1
 
-        for dest_group in dest_list:
-
-            # Sort the group by assigned tip
-            dest_group.sort(key=lambda op: op_tip[op])
+        for dest_group in dest_list.values():
 
             actions.append(("Dispense", dest_group, [op_tip[op] for op in dest_group]))
 

@@ -275,7 +275,15 @@ def ortools_grouping(
                         source_offset = o
                     if op_dest_offset[i, o].solution_value():
                         dest_offset = o
-                group_items.append((ops[i], tip))  # , source_offset, dest_offset))
+
+                group_items.append(
+                    (
+                        ops[i],
+                        tip,
+                        (ops[i].source_loc, source_offset),
+                        (ops[i].dest_loc, dest_offset),
+                    )
+                )
 
             if group_items:
                 group_items.sort(key=lambda x: x[1])
