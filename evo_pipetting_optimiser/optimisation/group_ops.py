@@ -32,7 +32,7 @@ def ortools_grouping(
     complexity = len(ops) * len(possible_locations)
 
     # solver.SetTimeLimit(int((complexity / 20) * 1000))
-    solver.SetTimeLimit(100000)
+    solver.SetTimeLimit(20000)
     solver.EnableOutput()
 
     if not solver:
@@ -77,12 +77,21 @@ def ortools_grouping(
         for o in range(min_offset, max_offset):
             op_source_offset[i, o] = solver.BoolVar(f"op_source_offset_{i}_{o}")
             op_dest_offset[i, o] = solver.BoolVar(f"op_dest_offset_{i}_{o}")
+            # solver.SetHint([op_source_offset[i, o], op_dest_offset[i, o]], [0, 0])
+
+        solver.Add(solver.Sum(op_source_offset[i, o] for o in offsets) == 1)
+        solver.Add(solver.Sum(op_dest_offset[i, o] for o in offsets) == 1)
 
     # track sources and dests present in each group
     group_source_offset = {}
     group_dest_offset = {}
 
+    source_offset_by_group = {}
+    dest_offset_by_group = {}
+
     for g in range(max_groups):
+        source_offset_by_group[g] = {}
+        dest_offset_by_group[g] = {}
         for i in range(len(ops)):
             for o in range(min_offset, max_offset):
 
@@ -90,14 +99,16 @@ def ortools_grouping(
                 dest = ops[i].dest_loc
 
                 if (g, source, o) not in group_source_offset:
-                    group_source_offset[(g, source, o)] = solver.BoolVar(
-                        f"group_source_{g}_{source}_{o}"
-                    )
+                    source_offset_by_group[g][source, o] = group_source_offset[
+                        (g, source, o)
+                    ] = solver.BoolVar(f"group_source_{g}_{source}_{o}")
+                    # solver.SetHint([group_source_offset[(g, source, o)]], [0])
 
                 if (g, dest, o) not in group_dest_offset:
-                    group_dest_offset[(g, dest, o)] = solver.BoolVar(
-                        f"group_dest_{g}_{dest}_{o}"
-                    )
+                    dest_offset_by_group[g][dest, o] = group_dest_offset[
+                        (g, dest, o)
+                    ] = solver.BoolVar(f"group_dest_{g}_{dest}_{o}")
+                    # solver.SetHint([group_dest_offset[(g, dest, o)]], [0])
 
                 # If a op has a source or dest with offset, and op is in a group, that group must have that source dest and offset
 
@@ -109,6 +120,22 @@ def ortools_grouping(
                     group_dest_offset[(g, dest, o)]
                     >= op_in_group[(i, g)] + op_dest_offset[i, o] - 1
                 )
+
+        solver.Add(
+            solver.Sum(
+                group_source_offset[(g, l, o)]
+                for l, o in source_offset_by_group[g].keys()
+            )
+            <= solver.Sum(op_in_group[(i, g)] for i in range(len(ops)))
+        )
+
+        # Each group can have at most 8 dest-offsets
+        solver.Add(
+            solver.Sum(
+                group_dest_offset[(g, l, o)] for l, o in dest_offset_by_group[g].keys()
+            )
+            <= solver.Sum(op_in_group[(i, g)] for i in range(len(ops)))
+        )
 
     # If op_tip set equal to op.source_pos[0] - op_source_offset
     for i in range(len(ops)):
@@ -151,25 +178,25 @@ def ortools_grouping(
 
             solver.Add(solver.Sum(tip_group_link_vars) <= 1)
 
-    # # Track group liquid classes
-    # liquid_classes = range(ops[0].lc_counter)
+    # Track group liquid classes
+    liquid_classes = range(ops[0].lc_counter)
 
-    # # bin_lc[b, lc] if ops in bin 1 are liquid class lc
-    # bin_lc = {}
-    # for lc in liquid_classes:
-    #     for b in range(max_bins):
-    #         bin_lc[(b, lc)] = solver.BoolVar(f"bin_lc_{b}_{lc}")
+    # group_lc[g, lc] if ops in group g are liquid class lc
+    group_lc = {}
+    for lc in liquid_classes:
+        for g in range(max_groups):
+            group_lc[(g, lc)] = solver.BoolVar(f"group_lc_{g}_{lc}")
 
-    # # Each bin can only have one LC
-    # for b in range(max_bins):
-    #     solver.Add(solver.Sum(bin_lc[(b, lc)] for lc in liquid_classes) == 1)
+    # Each bin can only have one LC
+    for g in range(max_groups):
+        solver.Add(solver.Sum(group_lc[(g, lc)] for lc in liquid_classes) == 1)
 
-    # # All ops in bin must have matching lc
-    # for i in range(len(ops)):
-    #     lc = ops[i].lc_id
-    #     for b in range(max_bins):
-    #         # Want to add that x[i, b] => bin_lc[b, lc]
-    #         solver.Add(x[(i, b)] <= bin_lc[(b, lc)])
+    # All ops in bin must have matching lc
+    for i in range(len(ops)):
+        lc = ops[i].lc_id
+        for g in range(max_groups):
+            # Want to add that x[i, b] => bin_lc[b, lc]
+            solver.Add(op_in_group[(i, g)] <= group_lc[(g, lc)])
 
     # Each item must be in exactly one group.
     for i in range(len(ops)):
@@ -287,7 +314,6 @@ def ortools_grouping(
     else:
         print("The problem does not have an optimal solution.")
         raise Exception("Solver error")
-
     return result_groups
 
 
