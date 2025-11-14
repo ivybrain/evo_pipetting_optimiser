@@ -43,137 +43,146 @@ def make_plan(pending_ops):
 
     # Group the operations. See group_ops method for details
 
-    best_groupings = ortools_grouping(pending_ops)
+    while len(pending_ops) > 0:
 
-    # In the simple case, we can just take the single best group. However, if the best group doesn't use all 8 tips,
-    # We can select other groups to use the remaining tips
-    # Before washing them all together
+        best_groupings = ortools_grouping(pending_ops)
 
-    for group in best_groupings:
+        # In the simple case, we can just take the single best group. However, if the best group doesn't use all 8 tips,
+        # We can select other groups to use the remaining tips
+        # Before washing them all together
 
-        # Process the groups into a list of sources to aspirate and a list of destinations to dispense
-        ops = []
-        tips = []
-        source_list = {}
-        dest_list = {}
-        op_tip = {}
+        for group in best_groupings:
 
-        for op, tip, source, dest in group:
-            ops.append(op)
-            tips.append(tip + 1)
-            op_tip[op] = tip + 1
+            # Process the groups into a list of sources to aspirate and a list of destinations to dispense
+            ops = []
+            tips = []
+            source_list = {}
+            dest_list = {}
+            op_tip = {}
 
-            if source not in source_list:
-                source_list[source] = []
-            source_list[source].append(op)
+            for op, tip, source, dest in group:
+                ops.append(op)
+                tips.append(tip + 1)
+                op_tip[op] = tip + 1
 
-            if dest not in dest_list:
-                dest_list[dest] = []
-            dest_list[dest].append(op)
+                if source not in source_list:
+                    source_list[source] = []
+                source_list[source].append(op)
 
-        # Check if we need to wash any tips
-        wash_needed = False
-        for op, tip, _, _ in group:
-            # Standard or decontamination mean we require a wash
-            if op.wash_scheme in [1, "D"] and tip in prev_tip_op:
-                wash_needed = True
+                if dest not in dest_list:
+                    dest_list[dest] = []
+                dest_list[dest].append(op)
 
-            if op.wash_scheme == "smart" and tip in prev_tip_op:
-                past_op = prev_tip_op[tip]
+            # Check if we need to wash any tips
+            wash_needed = False
+            for op, tip, _, _ in group:
+                # Standard or decontamination mean we require a wash
+                if op.wash_scheme in [1, "D"] and tip in prev_tip_op:
+                    wash_needed = True
 
-                past_source = labware_copy(past_op.source)
-                past_dest = labware_copy(past_op.destination)
-                source = labware_copy(op.source)
-                dest = labware_copy(op.destination)
+                if op.wash_scheme == "smart" and tip in prev_tip_op:
+                    past_op = prev_tip_op[tip]
 
-                past_source_comp = past_source.get_well_composition(
-                    past_source.wells[past_op.source_pos]
-                )
+                    past_source = labware_copy(past_op.source)
+                    past_dest = labware_copy(past_op.destination)
+                    source = labware_copy(op.source)
+                    dest = labware_copy(op.destination)
 
-                past_dest_comp = past_dest.get_well_composition(
-                    past_dest.wells[past_op.dest_pos]
-                )
+                    past_source_comp = past_source.get_well_composition(
+                        past_source.wells[past_op.source_pos]
+                    )
 
-                source_comp = source.get_well_composition(source.wells[op.source_pos])
+                    past_dest_comp = past_dest.get_well_composition(
+                        past_dest.wells[past_op.dest_pos]
+                    )
 
-                past_touched = list(past_source_comp.items()) + list(
-                    past_dest_comp.items()
-                )
+                    source_comp = source.get_well_composition(
+                        source.wells[op.source_pos]
+                    )
 
-                for prev_key, prev_conc in past_touched:
-                    # If the previous op touched a liquid that is not present in our source, we need to wash to not contaminate it
-                    if prev_key not in source_comp:
-                        wash_needed = True
+                    past_touched = list(past_source_comp.items()) + list(
+                        past_dest_comp.items()
+                    )
+
+                    for prev_key, prev_conc in past_touched:
+                        # If the previous op touched a liquid that is not present in our source, we need to wash to not contaminate it
+                        if prev_key not in source_comp:
+                            wash_needed = True
+                            break
+
+                        # If last op touched a well with more than twice the conc of the source, wash to not contaminate with the higher conc
+                        if prev_conc > 2 * source_comp[prev_key]:
+                            wash_needed = True
+                            break
+
+                    # If we've already determined we need a wash, no point checking the other tips
+                    if wash_needed:
                         break
 
-                    # If last op touched a well with more than twice the conc of the source, wash to not contaminate with the higher conc
-                    if prev_conc > 2 * source_comp[prev_key]:
-                        wash_needed = True
-                        break
+                prev_tip_op[tip] = op
 
-                # If we've already determined we need a wash, no point checking the other tips
-                if wash_needed:
-                    break
+            if wash_needed:
+                actions.append(("Wash", ops, list(op_tip.values())))
+                wash_count += 1
 
-            prev_tip_op[tip] = op
+            # for group_type, ops, target_groups, tips_selected in selected_groups:
 
-        if wash_needed:
-            actions.append(("Wash", ops, list(op_tip.values())))
-            wash_count += 1
+            #     if group_type == "source":
+            #         # If we've grouped by source, we can aspirate all ops in the group at once
+            #         source_list += [ops]
+            #         # Destinations will depend on the subgroups selected, one for each subgroup
+            #         dest_list += [group[0] for group in target_groups]
 
-        # for group_type, ops, target_groups, tips_selected in selected_groups:
+            #     else:
+            #         # If we've grouped by destination, we can dispense all ops in the group at once
+            #         dest_list += [ops]
+            #         # Sources will depend on the subgroups selected, one for each subgroup
+            #         source_list += [group[0] for group in target_groups]
 
-        #     if group_type == "source":
-        #         # If we've grouped by source, we can aspirate all ops in the group at once
-        #         source_list += [ops]
-        #         # Destinations will depend on the subgroups selected, one for each subgroup
-        #         dest_list += [group[0] for group in target_groups]
+            # Sort the source list and dest list by the tips used
+            # This just makes sure the pipetting occurs in an order that's less confusing visually,
+            # starting from tip 1 to tip 8
 
-        #     else:
-        #         # If we've grouped by destination, we can dispense all ops in the group at once
-        #         dest_list += [ops]
-        #         # Sources will depend on the subgroups selected, one for each subgroup
-        #         source_list += [group[0] for group in target_groups]
+            for source_group in source_list.values():
 
-        # Sort the source list and dest list by the tips used
-        # This just makes sure the pipetting occurs in an order that's less confusing visually,
-        # starting from tip 1 to tip 8
+                actions.append(
+                    ("Aspirate", source_group, [op_tip[op] for op in source_group])
+                )
 
-        for source_group in source_list.values():
+                # # Remove liquid from our virtual copy of the plates so we can track composition
 
-            actions.append(
-                ("Aspirate", source_group, [op_tip[op] for op in source_group])
-            )
+                # virtual_source = labware_copy(source_group[0].source)
+                # virtual_source.remove(
+                #     [virtual_source.wells[op.source_pos] for op in source_group],
+                #     [op.volume for op in source_group],
+                # )
 
-            # # Remove liquid from our virtual copy of the plates so we can track composition
+                asp_count += 1
 
-            # virtual_source = labware_copy(source_group[0].source)
-            # virtual_source.remove(
-            #     [virtual_source.wells[op.source_pos] for op in source_group],
-            #     [op.volume for op in source_group],
-            # )
+            for dest_group in dest_list.values():
 
-            asp_count += 1
+                actions.append(
+                    ("Dispense", dest_group, [op_tip[op] for op in dest_group])
+                )
 
-        for dest_group in dest_list.values():
+                # Add liquid to our virtual copy of the plates so we can track composition
+                # virtual_dest = labware_copy(dest_group[0].destination)
+                # compositions = [
+                #     labware_copy(op.source).get_well_composition(
+                #         op.source.wells[op.source_pos]
+                #     )
+                #     for op in dest_group
+                # ]
+                # virtual_dest.add(
+                #     [virtual_dest.wells[op.dest_pos] for op in dest_group],
+                #     [op.volume for op in dest_group],
+                #     compositions=compositions,
+                # )
 
-            actions.append(("Dispense", dest_group, [op_tip[op] for op in dest_group]))
+                disp_count += 1
 
-            # Add liquid to our virtual copy of the plates so we can track composition
-            # virtual_dest = labware_copy(dest_group[0].destination)
-            # compositions = [
-            #     labware_copy(op.source).get_well_composition(
-            #         op.source.wells[op.source_pos]
-            #     )
-            #     for op in dest_group
-            # ]
-            # virtual_dest.add(
-            #     [virtual_dest.wells[op.dest_pos] for op in dest_group],
-            #     [op.volume for op in dest_group],
-            #     compositions=compositions,
-            # )
-
-            disp_count += 1
+            print(len(pending_ops))
+            pending_ops.difference_update(ops)
 
     # profiler.disable()
     # stats = pstats.Stats(profiler)

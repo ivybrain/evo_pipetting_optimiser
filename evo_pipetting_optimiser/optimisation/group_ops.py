@@ -15,15 +15,18 @@ def ortools_grouping(
     start_time = time.time()
     ops = list(ops)
     n_tips = 8
-    max_groups = int(len(ops) // 4) + 1
+    max_groups = int(len(ops) // 8) + 1
 
     min_offset = -7
     max_offset = 15
     offsets = range(min_offset, max_offset)
 
+    index_to_op = {}
+    id_to_index = {}
+
     for i, op in enumerate(ops):
-        if i != op.id:
-            raise Exception("Please provide ops with id increasing from 0")
+        index_to_op[i] = op
+        id_to_index[op.id] = i
 
     solver = pywraplp.Solver("", pywraplp.Solver.BOP_INTEGER_PROGRAMMING)
     # solver.EnableOutput()
@@ -52,15 +55,28 @@ def ortools_grouping(
         for g in range(max_groups):
             op_in_group[(i, g)] = solver.BoolVar(f"op_in_group_{i}_{g}")
 
+    # Penalise unselected ops
+    op_unselected = {}
+    for i in range(len(ops)):
+        op_unselected[i] = solver.BoolVar(f"op_unselected_{i}")
+        solver.Add(
+            solver.Sum(op_in_group[(i, g)] for g in range(max_groups))
+            + op_unselected[i]
+            == 1
+        )
+
     # If op is in group, group must be 1. Max capacity 8 ops
     for g in range(max_groups):
         solver.Add(
             groups[g] * 8 >= solver.Sum(op_in_group[(i, g)] for i in range(len(ops)))
         )
 
-    # Each op must be in exactly one group
+    # Must have at least one group
+    solver.Add(solver.Sum(groups[g] for g in range(max_groups)) >= 1)
+
+    # Each op must be no more than one group
     for i in range(len(ops)):
-        solver.Add(solver.Sum(op_in_group[i, g] for g in range(max_groups)) == 1)
+        solver.Add(solver.Sum(op_in_group[i, g] for g in range(max_groups)) <= 1)
 
     # Track tips for each op
     op_tip = {}
@@ -192,19 +208,22 @@ def ortools_grouping(
             # Want to add that x[i, b] => bin_lc[b, lc]
             solver.Add(op_in_group[(i, g)] <= group_lc[(g, lc)])
 
-    # Each item must be in exactly one group.
-    for i in range(len(ops)):
-        solver.Add(solver.Sum(op_in_group[i, b] for b in range(max_groups)) == 1)
-
     # Enforce op dependency
 
     def add_op_dep(child, dep):
+        if child.id not in id_to_index:
+            return
+        if dep.id not in id_to_index:
+            return
         for g in range(max_groups):
             # Enforce that dep is in an earlier bin than child
             # If child is in bin b, then dep must be in one of the bins for dep_bin < b
             solver.Add(
-                op_in_group[child.id, g]
-                <= solver.Sum(op_in_group[dep.id, dep_group] for dep_group in range(g))
+                op_in_group[id_to_index[child.id], g]
+                <= solver.Sum(
+                    op_in_group[id_to_index[dep.id], dep_group]
+                    for dep_group in range(g)
+                )
             )
 
     for op in ops:
@@ -217,6 +236,7 @@ def ortools_grouping(
 
     solver.Minimize(
         solver.Sum(groups[g] for g in range(max_groups))
+        + solver.Sum(3.1 * op_unselected[i] for i in range(len(ops)))
         + solver.Sum(
             group_source_offset[g, l, o] + group_dest_offset[g, l, o]
             for g in range(max_groups)
@@ -346,8 +366,6 @@ def group_ops(pending_ops):
         pass
 
     print(f"Total {total_asps} {total_disp}")
-
-    # np.savetxt("conflicts.csv", conflicts, delimiter=",", fmt="%d")
 
     # Get the best groups of ops when grouping by source,
     # and grouping by destination
