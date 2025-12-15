@@ -1,3 +1,31 @@
+from collections import deque
+import itertools
+from ..utils import check_sublist, check_offset_limits
+import numpy as np
+from robotools import Trough
+
+
+def group_movements_needed(op_set, field):
+    """
+    Group operations by the specified field (source or destination),
+    The column, and the liquid class. We group like this because these are the constraints
+    To aspirating (or dispensing) something in one step
+    """
+    group_dict = {}
+    for op in op_set:
+
+        if field == "source":
+            key = (op.source.name, op.source_pos[1], op.liquid_class)
+        else:
+            key = (op.destination.name, op.dest_pos[1], op.liquid_class)
+        if key not in group_dict:
+            group_dict[key] = []
+
+        group_dict[key].append(op)
+
+    return group_dict
+
+
 def group_by(open_ops, primary="source", available_tips=list(range(8))):
     """
     Group open operations into efficient possibilities with an associated cost
@@ -84,11 +112,11 @@ def group_by(open_ops, primary="source", available_tips=list(range(8))):
                 if (
                     primary_row in primary_rows_group
                     and not getattr(primary_labware(op), "virtual_rows", 0)
-                    >= primary_row
+                    or 0 > primary_row
                 ) or (
                     secondary_row in secondary_rows_group
                     and not getattr(secondary_labware(op), "virtual_rows", 0)
-                    >= secondary_row
+                    or 0 > secondary_row
                 ):
                     # if primary_row in primary_rows_group:
                     row_conflict = True
