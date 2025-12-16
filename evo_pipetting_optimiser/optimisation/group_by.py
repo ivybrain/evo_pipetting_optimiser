@@ -3,7 +3,9 @@ import itertools
 from ..utils import check_sublist, check_offset_limits
 import numpy as np
 from robotools import Trough
-from sortedcontainers import SortedKeyList
+import networkx as nx
+from networkx.algorithms.approximation import maxcut
+import matplotlib.pyplot as plt
 
 
 def group_movements_needed(op_set, field):
@@ -16,115 +18,77 @@ def group_movements_needed(op_set, field):
     for op in op_set:
 
         if field == "source":
-            key = (op.source.name, op.source_pos[1], op.liquid_class)
+            key = source_key(op)
         else:
-            key = (op.destination.name, op.dest_pos[1], op.liquid_class)
+            key = dest_key(op)
         if key not in group_dict:
-            group_dict[key] = PrimaryGroup(*key, [], field)
+            group_dict[key] = []
 
-        group_dict[key].add_op(op)
+        group_dict[key].append(op)
 
-    return list(group_dict.values())
-
-
-class Node:
-    def __init__(self):
-        pass
+    return group_dict
 
 
-class PrimaryGroup:
-    def __init__(self, labware, column, liquid_class, ops, field="source"):
-        self.labware = labware
-        self.column = column
-        self.liquid_class = liquid_class
-        self.ops = ops
-        self.field = field
+def source_key(op):
+    return (op.source.name, op.source_pos[1], op.liquid_class)
 
-        self._score = None
 
-        self.has_secondary = False
-
-        self.key = (self.labware, self.column, self.liquid_class, field)
-
-        if field == "source":
-            self.row = lambda op: op.source_pos[0]
-        else:
-            self.row = lambda op: op.dest_pos[0]
-
-    def score(self):
-
-        if self._score is not None:
-            return self._score
-
-        row_conflicts = 0
-
-        group_rows = {}
-        for op in self.ops:
-            row = self.row(op)
-            if (
-                row in group_rows
-                and not getattr(self.labware, "virtual_rows", 0)
-                or 0 > row
-            ):
-                # if primary_row in primary_rows_group:
-                row_conflicts += 1
-            group_rows[row] = op
-
-        size_penalty = max(0, 8 - len(self.ops))
-
-        self._score = row_conflicts + size_penalty
-        return self._score
-
-    def add_op(self, op):
-        self.ops.append(op)
-
-        # If we have a score stored, update it
-        if self._score is not None:
-            self.score()
-
-    def __hash__(self):
-        return hash(self.key)
-
-    def __eq__(self, other):
-        return self.key == other.key
-
-    def __repr__(self):
-        return str(
-            (
-                self._score,
-                self.labware,
-                self.column,
-                self.liquid_class,
-                self.field,
-                self.ops,
-            )
-        )
+def dest_key(op):
+    return (op.destination.name, op.dest_pos[1], op.liquid_class)
 
 
 def init_search(pending_ops):
 
-    source_groupings = group_movements_needed(pending_ops, "source")
-    dest_groupings = group_movements_needed(pending_ops, "dest")
+    open_ops = [
+        op
+        for op in pending_ops
+        if op.source_dep not in pending_ops and op.dest_dep not in pending_ops
+    ]
 
-    group_list = SortedKeyList(
-        source_groupings + dest_groupings, key=lambda g: g.score()
-    )
+    labwareGraph = nx.Graph()
+
+    for op in pending_ops:
+        edge_key = source_key(op), dest_key(op)
+        if edge_key in labwareGraph.edges:
+            labwareGraph.edges[edge_key]["ops"].append(op)
+            continue
+
+        labwareGraph.add_edge(source_key(op), dest_key(op), ops=[op])
+
+    components = nx.connected_components(labwareGraph)
+
+    subgraphs = [labwareGraph.subgraph(c).copy() for c in components]
+
+    subgraphs = [subgraphs[2]]
+    while len(subgraphs) > 0:
+        G = subgraphs.pop(0)
+
+        min_cut_edges = nx.minimum_edge_cut(G)
+        min_cut_value = len(min_cut_edges)
+
+        G_cut = G.copy()
+        G_cut.remove_edges_from(min_cut_edges)
+
+        print(f"Minimum cut value (number of edges): {min_cut_value}")
+        print(f"Minimum cut edges: {list(min_cut_edges)}")
+
+        nx.draw(G_cut, with_labels=True)
+        plt.show()
+
+        sub1 = G.subgraph(partition[0]).copy()
+        sub2 = G.subgraph(partition[1]).copy()
+
+        nx.draw(sub1, with_labels=True)
+        plt.show()
+
+        nx.draw(sub2, with_labels=True)
+        plt.show()
 
     """
     When the other side has been generated for a group, re-score it based on this
     
     oo graph from primary to secondary, edges where a group
     """
-
-    while len(group_list) > 0:
-
-        best = group_list.pop(0)
-
-        # If we have the best cost with all costs fully accounted for, confirm this group
-        if best.has_secondary:
-            continue
-
-        # Otherwise, recalc score
 
     pass
 

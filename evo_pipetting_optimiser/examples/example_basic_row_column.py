@@ -86,10 +86,6 @@ def basic_row_column(worklist):
             liquid_class="Water free dispense",
         )
 
-        print(wl.report)
-        wl.commit()
-        exit(0)
-
         # Now transfer back to trough
         wl.auto_transfer(
             dilution_plate,
