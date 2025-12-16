@@ -1,4 +1,5 @@
 from .group_ops import group_ops
+from .group_by import init_search
 from copy import copy, deepcopy
 import cProfile, pstats
 import time
@@ -40,14 +41,14 @@ def make_plan(pending_ops):
     start_time = time.time()
 
     prev_tip_op = {}
-    profiler = cProfile.Profile()
-    profiler.enable()
+    # profiler = cProfile.Profile()
+    # profiler.enable()
 
     # Repeat until we have no more operations pending
     while len(pending_ops) > 0:
         # Group the operations. See group_ops method for details
 
-        best_groupings = group_ops(pending_ops)
+        best_groupings = init_search(pending_ops)
 
         # TO implement: All groups that do not contain newly completed ops are still valid
         # keep in memory and skip calculation for next
@@ -202,9 +203,9 @@ def make_plan(pending_ops):
         pending_ops.difference_update(selected_ops)
         completed_ops.update(selected_ops)
 
-    profiler.disable()
-    stats = pstats.Stats(profiler)
-    stats.dump_stats("program.cprof")
+    # profiler.disable()
+    # stats = pstats.Stats(profiler)
+    # stats.dump_stats("program.cprof")
 
     cost = asp_count + disp_count + (wash_count * 2)
 

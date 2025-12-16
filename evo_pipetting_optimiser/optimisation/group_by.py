@@ -3,6 +3,7 @@ import itertools
 from ..utils import check_sublist, check_offset_limits
 import numpy as np
 from robotools import Trough
+from sortedcontainers import SortedKeyList
 
 
 def group_movements_needed(op_set, field):
@@ -19,11 +20,113 @@ def group_movements_needed(op_set, field):
         else:
             key = (op.destination.name, op.dest_pos[1], op.liquid_class)
         if key not in group_dict:
-            group_dict[key] = []
+            group_dict[key] = PrimaryGroup(*key, [], field)
 
-        group_dict[key].append(op)
+        group_dict[key].add_op(op)
 
-    return group_dict
+    return list(group_dict.values())
+
+
+class Node:
+    def __init__(self):
+        pass
+
+
+class PrimaryGroup:
+    def __init__(self, labware, column, liquid_class, ops, field="source"):
+        self.labware = labware
+        self.column = column
+        self.liquid_class = liquid_class
+        self.ops = ops
+        self.field = field
+
+        self._score = None
+
+        self.has_secondary = False
+
+        self.key = (self.labware, self.column, self.liquid_class, field)
+
+        if field == "source":
+            self.row = lambda op: op.source_pos[0]
+        else:
+            self.row = lambda op: op.dest_pos[0]
+
+    def score(self):
+
+        if self._score is not None:
+            return self._score
+
+        row_conflicts = 0
+
+        group_rows = {}
+        for op in self.ops:
+            row = self.row(op)
+            if (
+                row in group_rows
+                and not getattr(self.labware, "virtual_rows", 0)
+                or 0 > row
+            ):
+                # if primary_row in primary_rows_group:
+                row_conflicts += 1
+            group_rows[row] = op
+
+        size_penalty = max(0, 8 - len(self.ops))
+
+        self._score = row_conflicts + size_penalty
+        return self._score
+
+    def add_op(self, op):
+        self.ops.append(op)
+
+        # If we have a score stored, update it
+        if self._score is not None:
+            self.score()
+
+    def __hash__(self):
+        return hash(self.key)
+
+    def __eq__(self, other):
+        return self.key == other.key
+
+    def __repr__(self):
+        return str(
+            (
+                self._score,
+                self.labware,
+                self.column,
+                self.liquid_class,
+                self.field,
+                self.ops,
+            )
+        )
+
+
+def init_search(pending_ops):
+
+    source_groupings = group_movements_needed(pending_ops, "source")
+    dest_groupings = group_movements_needed(pending_ops, "dest")
+
+    group_list = SortedKeyList(
+        source_groupings + dest_groupings, key=lambda g: g.score()
+    )
+
+    """
+    When the other side has been generated for a group, re-score it based on this
+    
+    oo graph from primary to secondary, edges where a group
+    """
+
+    while len(group_list) > 0:
+
+        best = group_list.pop(0)
+
+        # If we have the best cost with all costs fully accounted for, confirm this group
+        if best.has_secondary:
+            continue
+
+        # Otherwise, recalc score
+
+    pass
 
 
 def group_by(open_ops, primary="source", available_tips=list(range(8))):
