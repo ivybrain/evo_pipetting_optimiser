@@ -22,11 +22,19 @@ def group_ops(pending_ops):
     )
     """
 
+    open_ops = [
+        op
+        for op in pending_ops
+        if op.source_dep not in pending_ops and op.dest_dep not in pending_ops
+    ]
+
+    open_ops.sort()
+
     # Get the best groups of ops when grouping by source,
     # and grouping by destination
     # See group_by method for more details
-    best_groupings = group_by(pending_ops, "source")
-    best_groupings += group_by(pending_ops, "destination")
+    best_groupings = group_by(open_ops, "source")
+    best_groupings += group_by(open_ops, "destination")
 
     # Sort the groups by best cost, then earliest op, then the most ops achieved
     def group_sort_key(group):
