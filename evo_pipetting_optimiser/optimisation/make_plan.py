@@ -5,7 +5,7 @@ import cProfile, pstats
 import time
 import networkx as nx
 from collections import deque
-from sortedcontainers import SortedKeyList
+from sortedcontainers import SortedSet, SortedKeyList
 from matplotlib import pyplot as plt
 
 
@@ -48,6 +48,7 @@ class Node:
             self.pending_graph = pending_graph
             self.open_graph = open_graph
             self.pending_ops = pending_ops
+            self.depth = parent.depth + 1
 
             self.cost = cost
             self.move = move
@@ -62,7 +63,9 @@ class Node:
         self.pending_graph = nx.Graph()
         self.open_graph = nx.Graph()
 
+        self.move = None
         self.cost = 0
+        self.depth = 0
 
         self.open_ops = set(
             [
@@ -148,8 +151,30 @@ class Node:
 
         return score
 
+    def key(self):
+        # If pending_ops is the same, the graph must have the same nodes
+        return (
+            self.fscore,
+            tuple(self.pending_ops),
+            tuple(sorted(self.pending_graph.edges)),
+        )
+
+    def __hash__(self):
+        return hash(self.key())
+
+    # Hashes will collide whenever edges and vertices are the same - we then use isomorphic to check equality
+    def __eq__(self, other):
+        if not isinstance(other, Node):
+            return False
+
+        if self.key() != other.key():
+            return False
+
+        iso = nx.is_isomorphic(self.pending_graph, other.pending_graph)
+        return iso
+
     def __repr__(self):
-        return f"Node score{self.fscore}"
+        return f"Node score {self.fscore}"
 
 
 def source_key(op):
@@ -163,15 +188,21 @@ def dest_key(op):
 def init_search(pending_ops):
 
     initial_node = Node(None, pending_ops)
-    open_nodes = SortedKeyList([initial_node], key=lambda node: node.fscore)
+    open_nodes = SortedSet([initial_node], key=lambda node: (node.fscore, -node.depth))
     node = None
+    max_len = 0
     while len(open_nodes) > 0:
+        max_len = max(max_len, len(open_nodes))
+
         node = open_nodes.pop(0)
 
         if len(node.pending_graph) == 0:
             break
 
         children = node.get_neighbours()
+        print(
+            f"Depth {node.depth}, score {node.fscore}, queue {len(open_nodes)}, new_children {len(children)}"
+        )
 
         for child in children:
             open_nodes.add(child)
@@ -182,8 +213,13 @@ def init_search(pending_ops):
         node = node.parent
 
     path.reverse()
-
+    moves = []
     for node in path:
+
+        if node.move:
+            moves.append(node.move)
+            print((node, source_key(node.move[0]), dest_key(node.move[0])))
+
         # nx.draw(node.open_graph, with_labels=True)
         # plt.show()
         continue
