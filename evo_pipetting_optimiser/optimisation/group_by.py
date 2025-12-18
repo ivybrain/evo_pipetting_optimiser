@@ -57,32 +57,39 @@ def init_search(pending_ops):
 
     components = nx.connected_components(labwareGraph)
 
-    subgraphs = [labwareGraph.subgraph(c).copy() for c in components]
+    subgraphs = deque([labwareGraph.subgraph(c).copy() for c in components])
 
-    subgraphs = [subgraphs[2]]
     while len(subgraphs) > 0:
-        G = subgraphs.pop(0)
+        G = subgraphs.popleft()
+        # print(f"Initial {G}")
 
         min_cut_edges = nx.minimum_edge_cut(G)
         min_cut_value = len(min_cut_edges)
 
+        if min_cut_value == 0:
+            continue
+
         G_cut = G.copy()
         G_cut.remove_edges_from(min_cut_edges)
 
-        print(f"Minimum cut value (number of edges): {min_cut_value}")
-        print(f"Minimum cut edges: {list(min_cut_edges)}")
+        # print(f"Minimum cut value (number of edges): {min_cut_value}")
+        # print(f"Minimum cut edges: {list(min_cut_edges)}")
 
-        nx.draw(G_cut, with_labels=True)
-        plt.show()
+        ops_this_cut = []
+        for edge in min_cut_edges:
+            ops = G.edges[edge]["ops"]
+            ops_this_cut += ops
+        print(f"Pipetting {ops_this_cut}")
 
-        sub1 = G.subgraph(partition[0]).copy()
-        sub2 = G.subgraph(partition[1]).copy()
+        # print(f"Cut {G_cut}")
+        # nx.draw(G_cut, with_labels=True)
+        # plt.show()
 
-        nx.draw(sub1, with_labels=True)
-        plt.show()
-
-        nx.draw(sub2, with_labels=True)
-        plt.show()
+        components = nx.connected_components(G_cut)
+        # print(components)
+        for c in components:
+            # print(f"Subgraph {G_cut.subgraph(c)}")
+            subgraphs.append(G_cut.subgraph(c))
 
     """
     When the other side has been generated for a group, re-score it based on this

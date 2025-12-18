@@ -12,53 +12,6 @@ class TransferOperation:
     # Track ids of each op
     _op_id_counter = 0
 
-    _loc_id = {}
-    _id_loc = []
-    _loc_counter = 0
-
-    _lc_counter = 0
-    _lc_id = {}
-    _id_lc = []
-
-    @property
-    def loc_counter(self):
-        return TransferOperation._loc_counter
-
-    @property
-    def lc_counter(self):
-        return TransferOperation._lc_counter
-
-    def get_loc_code(labware, column):
-        if (labware.name, column) in TransferOperation._loc_id:
-            return TransferOperation._loc_id[(labware.name, column)]
-
-        TransferOperation._id_loc.append((labware, column))
-        TransferOperation._loc_id[(labware.name, column)] = (
-            TransferOperation._loc_counter
-        )
-        TransferOperation._loc_counter += 1
-
-        return TransferOperation._loc_counter - 1
-
-    def get_lc_code(liquid_class):
-        if liquid_class in TransferOperation._lc_id:
-            return TransferOperation._lc_id[liquid_class]
-
-        TransferOperation._id_lc.append(liquid_class)
-        TransferOperation._lc_id[liquid_class] = TransferOperation._lc_counter
-        TransferOperation._lc_counter += 1
-
-        return TransferOperation._lc_counter - 1
-
-    def reset_counters():
-        TransferOperation._op_id_counter = 0
-        TransferOperation._loc_counter = 0
-        TransferOperation._loc_id = {}
-        TransferOperation._id_loc = []
-        TransferOperation._lc_counter = 0
-        TransferOperation._lc_id = {}
-        TransferOperation._id_lc = []
-
     def __init__(
         self,
         source: liquidhandling.Labware,
@@ -94,10 +47,7 @@ class TransferOperation:
 
         self.liquid_class = liquid_class
 
-        self.source_loc = TransferOperation.get_loc_code(source, source_pos[1])
-        self.dest_loc = TransferOperation.get_loc_code(destination, dest_pos[1])
-
-        self.lc_id = TransferOperation.get_lc_code(liquid_class)
+        self.dep_children = []
 
     def __str__(self):
         source_label = f"{self.source.name}-{'any' if isinstance(self.source, Trough) else self.source.wells[self.source_pos]}"

@@ -3,9 +3,197 @@ from .group_by import init_search
 from copy import copy, deepcopy
 import cProfile, pstats
 import time
+import networkx as nx
+from collections import deque
+from sortedcontainers import SortedKeyList
+from matplotlib import pyplot as plt
 
 
 class OffsetLimitException(Exception):
+    pass
+
+
+def add_op(graph, op):
+    edge_key = source_key(op), dest_key(op)
+
+    if edge_key in graph.edges:
+        graph.edges[edge_key]["ops"].append(op)
+        return
+
+    graph.add_edge(source_key(op), dest_key(op), ops=[op])
+
+
+class Node:
+    """
+    Node in the problem graph
+    """
+
+    def __init__(self, parent, *args):
+
+        self.parent = parent
+
+        if not parent:
+            (pending_ops,) = args
+            self.init_root(pending_ops)
+
+            # nx.draw(self.pending_graph, with_labels=True)
+            # plt.show()
+
+            # nx.draw(self.open_graph, with_labels=True)
+            # plt.show()
+
+        else:
+            (pending_graph, open_graph, pending_ops, move, cost) = args
+
+            self.pending_graph = pending_graph
+            self.open_graph = open_graph
+            self.pending_ops = pending_ops
+
+            self.cost = cost
+            self.move = move
+
+        self.fscore = self.cost + self.heuristic_cost_estimate()
+
+        return
+
+    def init_root(self, pending_ops):
+        self.pending_ops = pending_ops
+
+        self.pending_graph = nx.Graph()
+        self.open_graph = nx.Graph()
+
+        self.cost = 0
+
+        self.open_ops = set(
+            [
+                op
+                for op in pending_ops
+                if op.source_dep not in pending_ops and op.dest_dep not in pending_ops
+            ]
+        )
+
+        for op in pending_ops:
+
+            add_op(self.pending_graph, op)
+
+            if op.source_dep not in pending_ops and op.dest_dep not in pending_ops:
+                add_op(self.open_graph, op)
+                self.open_ops.add(op)
+
+    def get_neighbours(self):
+
+        components = nx.connected_components(self.open_graph)
+
+        children = []
+
+        for c in components:
+
+            subgraph = self.open_graph.subgraph(c)
+
+            min_cut_edges = []
+
+            min_cut_edges = nx.minimum_edge_cut(subgraph)
+            min_cut_value = len(min_cut_edges)
+
+            if min_cut_value == 0:
+                return []
+
+            G_cut = self.open_graph.copy()
+            G_cut.remove_edges_from(min_cut_edges)
+            isolates = list(nx.isolates(G_cut))
+            G_cut.remove_nodes_from(isolates)
+
+            components = nx.connected_components(G_cut)
+
+            cost = self.cost + 1
+
+            child_pending = self.pending_graph.copy()
+
+            # Adjust the graph with the old ops removed and new added
+            child_pending.remove_edges_from(min_cut_edges)
+            isolates = list(nx.isolates(child_pending))
+            child_pending.remove_nodes_from(isolates)
+
+            child_open = G_cut
+
+            ops_this_cut = []
+            if min_cut_edges:
+                for edge in min_cut_edges:
+                    ops = self.open_graph.edges[edge]["ops"]
+                    ops_this_cut += ops
+
+            new_pending = self.pending_ops.difference(set(ops_this_cut))
+            new_open = set()
+
+            # Add to the new ops any newly opened ops after completing these ones
+            # ops_to_add =
+            for op in ops_this_cut:
+                new_open.update(op.dep_children)
+                for n_op in op.dep_children:
+                    add_op(child_open, n_op)
+
+            child = Node(
+                self, child_pending, child_open, new_pending, ops_this_cut, cost
+            )
+
+            children.append(child)
+
+        return children
+
+    def heuristic_cost_estimate(self):
+        score = 0
+
+        for edge in self.pending_graph.edges:
+            score += (len(self.pending_graph.edges[edge]["ops"]) // 8) + 1
+
+        return score
+
+    def __repr__(self):
+        return f"Node score{self.fscore}"
+
+
+def source_key(op):
+    return (op.source.name, op.source_pos[1], op.liquid_class)
+
+
+def dest_key(op):
+    return (op.destination.name, op.dest_pos[1], op.liquid_class)
+
+
+def init_search(pending_ops):
+
+    initial_node = Node(None, pending_ops)
+    open_nodes = SortedKeyList([initial_node], key=lambda node: node.fscore)
+    node = None
+    while len(open_nodes) > 0:
+        node = open_nodes.pop(0)
+
+        if len(node.pending_graph) == 0:
+            break
+
+        children = node.get_neighbours()
+
+        for child in children:
+            open_nodes.add(child)
+
+    path = [node]
+    while node.parent:
+        path.append(node.parent)
+        node = node.parent
+
+    path.reverse()
+
+    for node in path:
+        # nx.draw(node.open_graph, with_labels=True)
+        # plt.show()
+        continue
+
+    """
+    When the other side has been generated for a group, re-score it based on this
+    
+    oo graph from primary to secondary, edges where a group
+    """
+
     pass
 
 

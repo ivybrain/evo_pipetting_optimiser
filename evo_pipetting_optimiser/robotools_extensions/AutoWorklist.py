@@ -288,6 +288,11 @@ class AutoWorklist(EvoWorklist):
                     liquid_class=liquid_class,
                 )
 
+                if source_dep:
+                    source_dep.dep_children.append(op)
+                if dest_dep:
+                    dest_dep.dep_children.append(op)
+
                 # Set the source and dest dependencies of the next LVH repeat op to this op
                 source_dep = op
                 dest_dep = op
