@@ -121,10 +121,23 @@ class Node:
         for u, v in G.edges():
             G[u][v]["flow"] = flow_dict[u][v]
 
+        print(
+            sum(
+                [G.edges[e]["weight"] if G.edges[e]["flow"] > 0 else 0 for e in G.edges]
+            )
+        )
+
         pos = nx.bfs_layout(G, start="s")
 
-        # Draw the base graph
-        nx.draw(G, pos, with_labels=True, node_color="lightblue", node_size=700)
+        # Identify edges with positive flow
+        active_edges = [(u, v) for u, v in G.edges() if G[u][v]["flow"] > 0]
+
+        # Draw nodes and all edges faintly
+        nx.draw_networkx_nodes(G, pos)
+        nx.draw_networkx_edges(G, pos, alpha=0.1)  # faint background edges
+
+        # Draw active flow edges prominently
+        nx.draw_networkx_edges(G, pos, edgelist=active_edges, edge_color="r", width=2)
 
         # Extract the flow values for labeling
         flow_labels = nx.get_edge_attributes(G, "flow")
@@ -133,6 +146,7 @@ class Node:
         edge_labels = {
             key: f"{flow_labels[key]}/{capacity_labels[key]}"
             for key in flow_labels.keys()
+            if key in active_edges
         }
 
         # Draw the labels on the edges
