@@ -85,32 +85,39 @@ class Node:
         #         self.open_ops.add(op)
 
         G = self.pending_graph
-        G.add_node("s", demand=-8)
-        G.add_node("t", demand=8)
+        demand = min(8, len(self.pending_ops))
+        G.add_node("s0", demand=-2 * demand)
+        G.add_node("t0", demand=2 * demand)
+        G.add_node("s")
+        G.add_node("t")
+        G.add_node("s_op")
+        G.add_node("t_op")
+        G.add_edge("s0", "s", capacity=2 * demand, weight=0)
+        G.add_edge("s0", "s_op", capacity=demand, weight=0)
+        G.add_edge("t_op", "t0", capacity=demand, weight=0)
+        G.add_edge("t", "t0", capacity=demand, weight=0)
         for op in pending_ops:
+            G.add_edge("s_op", f"op{op.id}", capacity=1, weight=0)
+            G.add_edge(f"op{op.id}", "t_op", capacity=1, weight=0)
 
-            G.add_node(source_key(op), demand=0)
-            G.add_node(dest_key(op), demand=0)
+            for offset in range(-7, 8):
+                s_k_o = (*source_key(op), offset)
+                d_k_o = (*dest_key(op), offset)
+                if ("s", s_k_o) in G.edges:
+                    G.edges[("s", s_k_o)]["capacity"] += 1
+                else:
+                    G.add_edge("s", s_k_o, capacity=1, weight=1)
+                if (d_k_o, "t") in G.edges:
+                    G.edges[(d_k_o, "t")]["capacity"] += 1
+                else:
+                    G.add_edge(d_k_o, "t", capacity=1, weight=1)
 
-            s_key = "s", source_key(op)
-            t_key = dest_key(op), "t"
-
-            edge_key = source_key(op), dest_key(op)
-
-            if s_key in G.edges:
-                G.edges[s_key]["capacity"] += 1
-            else:
-                G.add_edge(*s_key, capacity=1, weight=1)
-
-            if t_key in G.edges:
-                G.edges[t_key]["capacity"] += 1
-            else:
-                G.add_edge(*t_key, capacity=1, weight=1)
-
-            if edge_key in G.edges:
-                G.edges[edge_key]["capacity"] += 1
-            else:
-                G.add_edge(*edge_key, capacity=1, weight=0)
+            for source_offset in range(-7, 8):
+                s_k_o = (*source_key(op), source_offset)
+                for dest_offset in range(-7, 8):
+                    d_k_o = (*dest_key(op), dest_offset)
+                    if dest_offset - source_offset == op.dest_pos[0] - op.source_pos[0]:
+                        G.add_edge(s_k_o, d_k_o, capacity=1, weight=0)
 
         flow_cost, flow_dict = nx.network_simplex(G)
 
@@ -127,7 +134,7 @@ class Node:
             )
         )
 
-        pos = nx.bfs_layout(G, start="s")
+        pos = nx.bfs_layout(G, start="s0")
 
         # Identify edges with positive flow
         active_edges = [(u, v) for u, v in G.edges() if G[u][v]["flow"] > 0]
@@ -151,6 +158,11 @@ class Node:
 
         # Draw the labels on the edges
         nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+
+        nx.draw_networkx_labels(
+            G,
+            pos,
+        )
 
         plt.show()
 
