@@ -131,9 +131,14 @@ class Node:
             # Add to the new ops any newly opened ops after completing these ones
             # ops_to_add =
             for op in ops_this_cut:
-                new_open.update(op.dep_children)
                 for n_op in op.dep_children:
-                    add_op(child_open, n_op)
+                    # Check both the source and dest deps are satisfied
+                    if (
+                        n_op.source_dep not in new_pending
+                        and n_op.dest_dep not in new_pending
+                    ):
+                        add_op(child_open, n_op)
+                        new_open.add(n_op)
 
             child = Node(
                 self, child_pending, child_open, new_pending, ops_this_cut, cost
@@ -176,6 +181,35 @@ class Node:
     def __repr__(self):
         return f"Node score {self.fscore}"
 
+    def create_row_graph(self):
+        self.row_graph = nx.DiGraph()
+        G = self.row_graph
+
+        for op in self.move:
+
+            key = f"s{op.source_pos[0]}", f"d{op.dest_pos[0]}"
+
+            if key in self.row_graph.edges:
+                self.row_graph.edges[key]["ops"].append(op)
+                self.row_graph.edges[key]["weight"] += 1
+                continue
+
+            self.row_graph.add_edge(*key, ops=[op], weight=1)
+
+        edge_flag = False
+        for edge in self.row_graph.edges:
+            print(
+                edge,
+                self.row_graph.edges[edge]["ops"],
+                self.row_graph.edges[edge]["weight"],
+            )
+            if self.row_graph.edges[edge]["weight"] > 1:
+                edge_flag = True
+
+        if edge_flag:
+            nx.draw(self.row_graph, with_labels=True)
+            plt.show()
+
 
 def source_key(op):
     return (op.source.name, op.source_pos[1], op.liquid_class)
@@ -189,8 +223,10 @@ def init_search(pending_ops):
 
     initial_node = Node(None, pending_ops)
     open_nodes = SortedSet([initial_node], key=lambda node: (node.fscore, -node.depth))
+    generated_nodes = set([initial_node])
     node = None
     max_len = 0
+    prune_count = 0
     while len(open_nodes) > 0:
         max_len = max(max_len, len(open_nodes))
 
@@ -201,11 +237,16 @@ def init_search(pending_ops):
 
         children = node.get_neighbours()
         print(
-            f"Depth {node.depth}, score {node.fscore}, queue {len(open_nodes)}, new_children {len(children)}"
+            f"Depth {node.depth}, score {node.fscore}, queue {len(open_nodes)}, new_children {len(children)}, pruned {prune_count}"
         )
 
         for child in children:
-            open_nodes.add(child)
+            if child in generated_nodes:
+                prune_count += 1
+                continue
+            else:
+                generated_nodes.add(child)
+                open_nodes.add(child)
 
     path = [node]
     while node.parent:
@@ -218,17 +259,14 @@ def init_search(pending_ops):
 
         if node.move:
             moves.append(node.move)
-            print((node, source_key(node.move[0]), dest_key(node.move[0])))
+            print((node, source_key(node.move[0]), dest_key(node.move[0]), node.move))
 
         # nx.draw(node.open_graph, with_labels=True)
         # plt.show()
         continue
 
-    """
-    When the other side has been generated for a group, re-score it based on this
-    
-    oo graph from primary to secondary, edges where a group
-    """
+    for node in path[1:]:
+        node.create_row_graph()
 
     pass
 
