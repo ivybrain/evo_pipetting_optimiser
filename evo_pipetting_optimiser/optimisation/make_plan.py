@@ -7,6 +7,7 @@ import networkx as nx
 from collections import deque
 from sortedcontainers import SortedSet, SortedKeyList
 from matplotlib import pyplot as plt
+from networkx.algorithms.approximation import maxcut
 
 
 class OffsetLimitException(Exception):
@@ -60,28 +61,86 @@ class Node:
     def init_root(self, pending_ops):
         self.pending_ops = pending_ops
 
-        self.pending_graph = nx.Graph()
+        self.pending_graph = nx.DiGraph()
         self.open_graph = nx.Graph()
 
         self.move = None
         self.cost = 0
         self.depth = 0
 
-        self.open_ops = set(
-            [
-                op
-                for op in pending_ops
-                if op.source_dep not in pending_ops and op.dest_dep not in pending_ops
-            ]
-        )
+        # self.open_ops = set(
+        #     [
+        #         op
+        #         for op in pending_ops
+        #         if op.source_dep not in pending_ops and op.dest_dep not in pending_ops
+        #     ]
+        # )
 
+        # for op in pending_ops:
+
+        #     add_op(self.pending_graph, op)
+
+        #     if op.source_dep not in pending_ops and op.dest_dep not in pending_ops:
+        #         add_op(self.open_graph, op)
+        #         self.open_ops.add(op)
+
+        G = self.pending_graph
+        G.add_node("s", demand=-8)
+        G.add_node("t", demand=8)
         for op in pending_ops:
 
-            add_op(self.pending_graph, op)
+            G.add_node(source_key(op), demand=0)
+            G.add_node(dest_key(op), demand=0)
 
-            if op.source_dep not in pending_ops and op.dest_dep not in pending_ops:
-                add_op(self.open_graph, op)
-                self.open_ops.add(op)
+            s_key = "s", source_key(op)
+            t_key = dest_key(op), "t"
+
+            edge_key = source_key(op), dest_key(op)
+
+            if s_key in G.edges:
+                G.edges[s_key]["capacity"] += 1
+            else:
+                G.add_edge(*s_key, capacity=1, weight=1)
+
+            if t_key in G.edges:
+                G.edges[t_key]["capacity"] += 1
+            else:
+                G.add_edge(*t_key, capacity=1, weight=1)
+
+            if edge_key in G.edges:
+                G.edges[edge_key]["capacity"] += 1
+            else:
+                G.add_edge(*edge_key, capacity=1, weight=0)
+
+        flow_cost, flow_dict = nx.network_simplex(G)
+
+        print(flow_cost)
+        print(flow_dict)
+
+        # 2. Add the results back to the graph as edge attributes
+        for u, v in G.edges():
+            G[u][v]["flow"] = flow_dict[u][v]
+
+        pos = nx.bfs_layout(G, start="s")
+
+        # Draw the base graph
+        nx.draw(G, pos, with_labels=True, node_color="lightblue", node_size=700)
+
+        # Extract the flow values for labeling
+        flow_labels = nx.get_edge_attributes(G, "flow")
+        capacity_labels = nx.get_edge_attributes(G, "capacity")
+
+        edge_labels = {
+            key: f"{flow_labels[key]}/{capacity_labels[key]}"
+            for key in flow_labels.keys()
+        }
+
+        # Draw the labels on the edges
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+
+        plt.show()
+
+        return
 
     def get_neighbours(self):
 
@@ -92,6 +151,15 @@ class Node:
         for c in components:
 
             subgraph = self.open_graph.subgraph(c)
+
+            cut_value, partition = maxcut.one_exchange(subgraph)
+            print(cut_value)
+            print(partition[0])
+            print()
+            print(partition[1])
+
+            nx.draw(subgraph, with_labels=True)
+            plt.show()
 
             min_cut_edges = []
 
@@ -187,28 +255,32 @@ class Node:
 
         for op in self.move:
 
+            G.add_edge("s", f"s{op.source_pos[0]}", capacity=1)
+            G.add_edge(f"d{op.dest_pos[0]}", "t", capacity=1)
+
             key = f"s{op.source_pos[0]}", f"d{op.dest_pos[0]}"
 
             if key in self.row_graph.edges:
                 self.row_graph.edges[key]["ops"].append(op)
-                self.row_graph.edges[key]["weight"] += 1
                 continue
 
-            self.row_graph.add_edge(*key, ops=[op], weight=1)
+            self.row_graph.add_edge(*key, ops=[op], capacity=1)
 
-        edge_flag = False
         for edge in self.row_graph.edges:
-            print(
-                edge,
-                self.row_graph.edges[edge]["ops"],
-                self.row_graph.edges[edge]["weight"],
-            )
-            if self.row_graph.edges[edge]["weight"] > 1:
-                edge_flag = True
+            if "ops" in self.row_graph.edges[edge]:
+                print(
+                    edge,
+                    self.row_graph.edges[edge]["ops"],
+                )
 
-        if edge_flag:
-            nx.draw(self.row_graph, with_labels=True)
-            plt.show()
+        flow_value, flow_dict = nx.maximum_flow(G, "s", "t")
+        print(flow_value)
+        print(flow_dict)
+
+        nx.draw(self.row_graph, with_labels=True)
+        plt.show()
+
+        return
 
 
 def source_key(op):
