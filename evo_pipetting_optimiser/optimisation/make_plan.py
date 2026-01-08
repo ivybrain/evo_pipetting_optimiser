@@ -107,8 +107,6 @@ class Node:
             else:
                 G.add_edge(dest_row_key, "t", capacity=scaling, weight=0)
 
-            # G.add_edge(source_row_key, dest_row_key, capacity=1, weight=0)
-
             for source_offset in OFFSET_EXPLORE_ORDER:
 
                 # Add edges from rows to possible offsets
@@ -126,8 +124,8 @@ class Node:
                 if dest_offset > op.dest_pos[0] or dest_offset < op.dest_pos[0] - 7:
                     continue
 
-                source_offset_key = ("ofst", *source_key(op), source_offset)
-                dest_offset_key = ("ofst", *dest_key(op), dest_offset)
+                source_offset_key = ("s_ofst", *source_key(op), source_offset)
+                dest_offset_key = ("d_ofst", *dest_key(op), dest_offset)
                 G.add_edge(
                     source_row_key,
                     source_offset_key,
