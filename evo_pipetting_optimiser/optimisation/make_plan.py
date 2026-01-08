@@ -8,6 +8,7 @@ from collections import deque
 from sortedcontainers import SortedSet, SortedKeyList
 from matplotlib import pyplot as plt
 from networkx.algorithms.approximation import maxcut
+from networkx.algorithms.flow import shortest_augmenting_path
 
 
 class OffsetLimitException(Exception):
@@ -85,7 +86,7 @@ class Node:
         #         self.open_ops.add(op)
 
         G = self.pending_graph
-        scaling = 840  # least common multiple of 1..8
+        scaling = 1  # least common multiple of 1..8
         demand = scaling * min(8, len(self.pending_ops))
         G.add_node("s", demand=-demand)
         G.add_node("t", demand=demand)
@@ -121,10 +122,7 @@ class Node:
 
                 if (source_offset_key, dest_offset_key) in G.edges:
                     G.edges[(source_offset_key, dest_offset_key)]["capacity"] += scaling
-                    G.edges[(source_offset_key, dest_offset_key)]["weight"] = (
-                        scaling**2
-                        / G.edges[(source_offset_key, dest_offset_key)]["capacity"]
-                    )
+                    G.edges[(source_offset_key, dest_offset_key)]["weight"] = 1
                 else:
                     G.add_edge(
                         source_offset_key,
@@ -140,24 +138,29 @@ class Node:
                     weight=0,
                 )
 
-        flow_cost, flow_dict = nx.network_simplex(G)
+        flow_value = nx.maximum_flow_value(G, "s", "t")
+        print(flow_value)
 
-        print(flow_cost / (scaling**2))
-        print(flow_dict)
+        G = shortest_augmenting_path(G, "s", "t")
 
-        # 2. Add the results back to the graph as edge attributes
-        for u, v in G.edges():
-            G[u][v]["flow"] = flow_dict[u][v]
+        # print(flow_dict)
 
-        print(
-            sum(
-                [
-                    G.edges[e]["weight"] / scaling if G.edges[e]["flow"] > 0 else 0
-                    for e in G.edges
-                ]
-            )
-        )
-        print(nx.cost_of_flow(G, flow_dict))
+        # # 2. Add the results back to the graph as edge attributes
+        # for u, v in G.edges():
+        #     try:
+        #         G[u][v]["flow"] = flow_dict[u][v]
+        #     except KeyError:
+        #         G[u][v]["flow"] = 0
+
+        # print(
+        #     sum(
+        #         [
+        #             G.edges[e]["weight"] / scaling if G.edges[e]["flow"] > 0 else 0
+        #             for e in G.edges
+        #         ]
+        #     )
+        # )
+        # print(nx.cost_of_flow(G, flow_dict))
 
         pos = nx.bfs_layout(G, start="s")
 
@@ -174,10 +177,9 @@ class Node:
         # Extract the flow values for labeling
         flow_labels = nx.get_edge_attributes(G, "flow")
         capacity_labels = nx.get_edge_attributes(G, "capacity")
-        weight_labels = nx.get_edge_attributes(G, "weight")
 
         edge_labels = {
-            key: f"{flow_labels[key]/scaling}/{capacity_labels[key]/scaling}, {weight_labels[key]/scaling}"
+            key: f"{flow_labels[key]/scaling}/{capacity_labels[key]/scaling}"
             for key in flow_labels.keys()
             if key in active_edges
         }
