@@ -10,6 +10,8 @@ from matplotlib import pyplot as plt
 from networkx.algorithms.approximation import maxcut
 from networkx.algorithms.flow import shortest_augmenting_path
 
+OFFSET_EXPLORE_ORDER = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6, 7, -7]
+
 
 class OffsetLimitException(Exception):
     pass
@@ -107,11 +109,24 @@ class Node:
 
             # G.add_edge(source_row_key, dest_row_key, capacity=1, weight=0)
 
-            for source_offset in range(-7, 8):
+            for source_offset in OFFSET_EXPLORE_ORDER:
 
                 # Add edges from rows to possible offsets
-                source_offset_key = ("ofst", *source_key(op), source_offset)
+
+                # Check if this offset is feasible for the source row
+                if (
+                    source_offset > op.source_pos[0]
+                    or source_offset < op.source_pos[0] - 7
+                ):
+                    continue
+
                 dest_offset = source_offset + (op.dest_pos[0] - op.source_pos[0])
+
+                # Check if this offset is feasible for the dest row
+                if dest_offset > op.dest_pos[0] or dest_offset < op.dest_pos[0] - 7:
+                    continue
+
+                source_offset_key = ("ofst", *source_key(op), source_offset)
                 dest_offset_key = ("ofst", *dest_key(op), dest_offset)
                 G.add_edge(
                     source_row_key,

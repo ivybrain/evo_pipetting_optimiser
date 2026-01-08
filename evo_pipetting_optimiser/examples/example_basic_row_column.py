@@ -47,32 +47,32 @@ def basic_row_column(worklist):
 
     with AutoWorklist(worklist, waste_location=(1, 2), cleaner_location=(1, 3)) as wl:
 
+        wl.auto_transfer(
+            sample_plate,
+            [sample_plate.wells[i // 2, 0] for i in range(8)],
+            dilution_plate,
+            dilution_plate.wells[:, 0],
+            50,
+            liquid_class="Water free dispense",
+        )
+
         # wl.auto_transfer(
         #     sample_plate,
-        #     [sample_plate.wells[i // 2, 0] for i in range(8)],
+        #     sample_plate.wells[:3, 0],
         #     dilution_plate,
-        #     dilution_plate.wells[:, 0],
+        #     dilution_plate.wells[:3, 0],
         #     50,
         #     liquid_class="Water free dispense",
         # )
 
-        wl.auto_transfer(
-            sample_plate,
-            sample_plate.wells[:3, 0],
-            dilution_plate,
-            dilution_plate.wells[:3, 0],
-            50,
-            liquid_class="Water free dispense",
-        )
-
-        wl.auto_transfer(
-            sample_plate,
-            sample_plate.wells[3:6, 0],
-            dilution_plate,
-            dilution_plate.wells[5:, 0],
-            50,
-            liquid_class="Water free dispense",
-        )
+        # wl.auto_transfer(
+        #     sample_plate,
+        #     sample_plate.wells[3:6, 0],
+        #     dilution_plate,
+        #     dilution_plate.wells[5:, 0],
+        #     50,
+        #     liquid_class="Water free dispense",
+        # )
 
         # print(wl.report)
         # wl.commit()
