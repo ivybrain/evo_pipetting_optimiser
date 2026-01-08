@@ -7,14 +7,57 @@ import networkx as nx
 from collections import deque
 from sortedcontainers import SortedSet, SortedKeyList
 from matplotlib import pyplot as plt
-from networkx.algorithms.approximation import maxcut
-from networkx.algorithms.flow import shortest_augmenting_path
-
-OFFSET_EXPLORE_ORDER = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6, 7, -7]
 
 
 class OffsetLimitException(Exception):
     pass
+
+
+def show_graph(G):
+    G = G.copy()
+
+    reachable_dict = nx.shortest_path_length(G, source="s")
+    reachable_nodes = set(reachable_dict.keys())
+
+    all_nodes = set(G.nodes)
+    unreachable_nodes = all_nodes - reachable_nodes
+
+    # Step 3: Remove unreachable nodes
+    # We must convert the iterator to a list to avoid RuntimeError during iteration
+    G.remove_nodes_from(list(unreachable_nodes))
+
+    pos = nx.bfs_layout(G, start="s")
+
+    # Identify edges with positive flow
+    active_edges = [
+        (u, v) for u, v in G.edges() if "flow" in G[u][v] and G[u][v]["flow"] > 0
+    ]
+
+    # Draw nodes and all edges faintly
+    nx.draw_networkx_nodes(G, pos)
+    nx.draw_networkx_edges(G, pos, alpha=0.1)  # faint background edges
+
+    # Draw active flow edges prominently
+    nx.draw_networkx_edges(G, pos, edgelist=active_edges, edge_color="r", width=2)
+
+    # Extract the flow values for labeling
+    flow_labels = nx.get_edge_attributes(G, "flow")
+    capacity_labels = nx.get_edge_attributes(G, "capacity")
+
+    edge_labels = {
+        key: f"{flow_labels[key]}/{capacity_labels[key]}"
+        for key in flow_labels.keys()
+        if key in active_edges
+    }
+
+    node_labels = {node: (node[-1]) for node in G.nodes}
+
+    # Draw the labels on the edges
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+
+    nx.draw_networkx_labels(G, pos, labels=node_labels)
+
+    plt.show()
 
 
 def add_op(graph, op):
@@ -92,6 +135,9 @@ class Node:
         demand = scaling * min(8, len(self.pending_ops))
         G.add_node("s", demand=-demand)
         G.add_node("t", demand=demand)
+
+        offset_edges = {}
+
         for op in pending_ops:
 
             source_row_key = (*source_key(op), op.source_pos[0])
@@ -107,16 +153,9 @@ class Node:
             else:
                 G.add_edge(dest_row_key, "t", capacity=scaling, weight=0)
 
-            for source_offset in OFFSET_EXPLORE_ORDER:
+            for source_offset in range(op.source_pos[0] - 7, op.source_pos[0] + 1):
 
                 # Add edges from rows to possible offsets
-
-                # Check if this offset is feasible for the source row
-                if (
-                    source_offset > op.source_pos[0]
-                    or source_offset < op.source_pos[0] - 7
-                ):
-                    continue
 
                 dest_offset = source_offset + (op.dest_pos[0] - op.source_pos[0])
 
@@ -133,16 +172,16 @@ class Node:
                     weight=0,
                 )
 
-                if (source_offset_key, dest_offset_key) in G.edges:
-                    G.edges[(source_offset_key, dest_offset_key)]["capacity"] += scaling
-                    G.edges[(source_offset_key, dest_offset_key)]["weight"] = 1
+                if (source_offset_key, dest_offset_key) in offset_edges:
+                    offset_edges[(source_offset_key, dest_offset_key)][
+                        "capacity"
+                    ] += scaling
+                    offset_edges[(source_offset_key, dest_offset_key)]["weight"] = 1
                 else:
-                    G.add_edge(
-                        source_offset_key,
-                        dest_offset_key,
-                        capacity=scaling,
-                        weight=1,
-                    )
+                    offset_edges[(source_offset_key, dest_offset_key)] = {
+                        "capacity": scaling,
+                        "weight": 1,
+                    }
 
                 G.add_edge(
                     dest_offset_key,
@@ -151,60 +190,42 @@ class Node:
                     weight=0,
                 )
 
-        flow_value = nx.maximum_flow_value(G, "s", "t")
-        print(flow_value)
+        # sort the collected offset edges by capacity
+        offset_edges = list(offset_edges.items())
+        offset_edges.sort(key=lambda x: x[1]["capacity"])
 
-        G = shortest_augmenting_path(G, "s", "t")
+        # iterate until desired flow value reached
+        max_flow_value = 0
+        while max_flow_value < 8:
+            edge = offset_edges.pop()
+            key, args = edge
+
+            G.add_edge(*key, **args)
+            max_flow_value = nx.maximum_flow_value(G, "s", "t")
+
+            print(max_flow_value)
+            show_graph(G)
+
+        # print(flow_value)
 
         # print(flow_dict)
 
-        # # 2. Add the results back to the graph as edge attributes
-        # for u, v in G.edges():
-        #     try:
-        #         G[u][v]["flow"] = flow_dict[u][v]
-        #     except KeyError:
-        #         G[u][v]["flow"] = 0
+        # 2. Add the results back to the graph as edge attributes
+        for u, v in G.edges():
+            try:
+                G[u][v]["flow"] = flow_dict[u][v]
+            except KeyError:
+                G[u][v]["flow"] = 0
 
-        # print(
-        #     sum(
-        #         [
-        #             G.edges[e]["weight"] / scaling if G.edges[e]["flow"] > 0 else 0
-        #             for e in G.edges
-        #         ]
-        #     )
-        # )
-        # print(nx.cost_of_flow(G, flow_dict))
-
-        pos = nx.bfs_layout(G, start="s")
-
-        # Identify edges with positive flow
-        active_edges = [(u, v) for u, v in G.edges() if G[u][v]["flow"] > 0]
-
-        # Draw nodes and all edges faintly
-        nx.draw_networkx_nodes(G, pos)
-        nx.draw_networkx_edges(G, pos, alpha=0.1)  # faint background edges
-
-        # Draw active flow edges prominently
-        nx.draw_networkx_edges(G, pos, edgelist=active_edges, edge_color="r", width=2)
-
-        # Extract the flow values for labeling
-        flow_labels = nx.get_edge_attributes(G, "flow")
-        capacity_labels = nx.get_edge_attributes(G, "capacity")
-
-        edge_labels = {
-            key: f"{flow_labels[key]/scaling}/{capacity_labels[key]/scaling}"
-            for key in flow_labels.keys()
-            if key in active_edges
-        }
-
-        node_labels = {node: (node[-1]) for node in G.nodes}
-
-        # Draw the labels on the edges
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
-
-        nx.draw_networkx_labels(G, pos, labels=node_labels)
-
-        plt.show()
+        print(
+            sum(
+                [
+                    G.edges[e]["weight"] / scaling if G.edges[e]["flow"] > 0 else 0
+                    for e in G.edges
+                ]
+            )
+        )
+        print(nx.cost_of_flow(G, flow_dict))
 
         return
 
