@@ -13,61 +13,73 @@ class OffsetLimitException(Exception):
     pass
 
 
-def show_graph(G):
-    G = G.copy()
+class PipettingGraph(nx.DiGraph):
 
-    reachable_dict = nx.shortest_path_length(G, source="s")
-    reachable_nodes = set(reachable_dict.keys())
+    def show(self):
+        G = self.copy()
 
-    all_nodes = set(G.nodes)
-    unreachable_nodes = all_nodes - reachable_nodes
+        reachable_dict = nx.shortest_path_length(G, source="s")
+        reachable_nodes = set(reachable_dict.keys())
 
-    # Step 3: Remove unreachable nodes
-    # We must convert the iterator to a list to avoid RuntimeError during iteration
-    G.remove_nodes_from(list(unreachable_nodes))
+        all_nodes = set(G.nodes)
+        unreachable_nodes = all_nodes - reachable_nodes
 
-    pos = nx.bfs_layout(G, start="s")
+        # Step 3: Remove unreachable nodes
+        # We must convert the iterator to a list to avoid RuntimeError during iteration
+        G.remove_nodes_from(list(unreachable_nodes))
 
-    # Identify edges with positive flow
-    active_edges = [
-        (u, v) for u, v in G.edges() if "flow" in G[u][v] and G[u][v]["flow"] > 0
-    ]
+        pos = nx.bfs_layout(G, start="s")
 
-    # Draw nodes and all edges faintly
-    nx.draw_networkx_nodes(G, pos)
-    nx.draw_networkx_edges(G, pos, alpha=0.1)  # faint background edges
+        # Identify edges with positive flow
+        active_edges = [
+            (u, v) for u, v in G.edges() if "flow" in G[u][v] and G[u][v]["flow"] > 0
+        ]
 
-    # Draw active flow edges prominently
-    nx.draw_networkx_edges(G, pos, edgelist=active_edges, edge_color="r", width=2)
+        # Draw nodes and all edges faintly
+        nx.draw_networkx_nodes(G, pos)
+        nx.draw_networkx_edges(G, pos, alpha=0.1)  # faint background edges
 
-    # Extract the flow values for labeling
-    flow_labels = nx.get_edge_attributes(G, "flow")
-    capacity_labels = nx.get_edge_attributes(G, "capacity")
+        # Draw active flow edges prominently
+        nx.draw_networkx_edges(G, pos, edgelist=active_edges, edge_color="r", width=2)
 
-    edge_labels = {
-        key: f"{flow_labels[key]}/{capacity_labels[key]}"
-        for key in flow_labels.keys()
-        if key in active_edges
-    }
+        # Extract the flow values for labeling
+        flow_labels = nx.get_edge_attributes(G, "flow")
+        capacity_labels = nx.get_edge_attributes(G, "capacity")
 
-    node_labels = {node: (node[-1]) for node in G.nodes}
+        edge_labels = {
+            key: f"{flow_labels[key]}/{capacity_labels[key]}"
+            for key in flow_labels.keys()
+            if key in active_edges
+        }
 
-    # Draw the labels on the edges
-    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+        node_labels = {node: (node[-1]) for node in G.nodes}
 
-    nx.draw_networkx_labels(G, pos, labels=node_labels)
+        # Draw the labels on the edges
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
 
-    plt.show()
+        nx.draw_networkx_labels(G, pos, labels=node_labels)
+
+        plt.show()
+
+    def add_op(self, op):
+        edge_key = source_key(op), dest_key(op)
+
+        if edge_key in self.edges:
+            self.edges[edge_key]["ops"].append(op)
+            return
+
+        self.add_edge(source_key(op), dest_key(op), ops=[op])
+
+    def gen_empty(self):
+        pass
 
 
-def add_op(graph, op):
-    edge_key = source_key(op), dest_key(op)
-
-    if edge_key in graph.edges:
-        graph.edges[edge_key]["ops"].append(op)
-        return
-
-    graph.add_edge(source_key(op), dest_key(op), ops=[op])
+def binary_cost(G, flow_dict):
+    cost = 0
+    for u, v in G.edges:
+        if G.edges[u, v]["weight"] > 0 and flow_dict[u][v] > 0:
+            cost += 1
+    return cost
 
 
 class Node:
@@ -107,8 +119,8 @@ class Node:
     def init_root(self, pending_ops):
         self.pending_ops = pending_ops
 
-        self.pending_graph = nx.DiGraph()
-        self.open_graph = nx.Graph()
+        self.pending_graph = PipettingGraph()
+        self.open_graph = PipettingGraph()
 
         self.move = None
         self.cost = 0
@@ -136,8 +148,8 @@ class Node:
         G.add_node("s", demand=-demand)
         G.add_node("t", demand=demand)
 
-        offset_edges = {}
-
+        source_offset_nodes = {}
+        dest_offset_nodes = {}
         for op in pending_ops:
 
             source_row_key = (*source_key(op), op.source_pos[0])
@@ -165,6 +177,13 @@ class Node:
 
                 source_offset_key = ("s_ofst", *source_key(op), source_offset)
                 dest_offset_key = ("d_ofst", *dest_key(op), dest_offset)
+                if source_offset_key not in source_offset_nodes:
+                    source_offset_nodes[source_offset_key] = 0
+                if dest_offset_key not in dest_offset_nodes:
+                    dest_offset_nodes[dest_offset_key] = 0
+
+                source_offset_nodes[source_offset_key] += 1
+                dest_offset_nodes[dest_offset_key] += 1
                 G.add_edge(
                     source_row_key,
                     source_offset_key,
@@ -172,16 +191,15 @@ class Node:
                     weight=0,
                 )
 
-                if (source_offset_key, dest_offset_key) in offset_edges:
-                    offset_edges[(source_offset_key, dest_offset_key)][
-                        "capacity"
-                    ] += scaling
-                    offset_edges[(source_offset_key, dest_offset_key)]["weight"] = 1
+                if (source_offset_key, dest_offset_key) in G.edges:
+                    G.edges[(source_offset_key, dest_offset_key)]["capacity"] += scaling
                 else:
-                    offset_edges[(source_offset_key, dest_offset_key)] = {
-                        "capacity": scaling,
-                        "weight": 1,
-                    }
+                    G.add_edge(
+                        source_offset_key,
+                        dest_offset_key,
+                        capacity=scaling,
+                        weight=1,
+                    )
 
                 G.add_edge(
                     dest_offset_key,
@@ -190,21 +208,49 @@ class Node:
                     weight=0,
                 )
 
-        # sort the collected offset edges by capacity
-        offset_edges = list(offset_edges.items())
-        offset_edges.sort(key=lambda x: x[1]["capacity"])
+        source_by_incident = sorted(
+            source_offset_nodes.items(), key=lambda x: x[1], reverse=True
+        )
+        dest_by_incident = sorted(
+            dest_offset_nodes.items(), key=lambda x: x[1], reverse=True
+        )
 
-        # iterate until desired flow value reached
-        max_flow_value = 0
-        while max_flow_value < 8:
-            edge = offset_edges.pop()
-            key, args = edge
+        # Add highest incident node from each
+        for i in range(1, max(len(source_by_incident), len(dest_by_incident))):
 
-            G.add_edge(*key, **args)
-            max_flow_value = nx.maximum_flow_value(G, "s", "t")
+            Gp = G.copy()
+            source_remove = [x[0] for x in source_by_incident[i:]]
+            dest_remove = [x[0] for x in dest_by_incident[i:]]
 
-            print(max_flow_value)
-            show_graph(G)
+            Gp.remove_nodes_from(source_remove)
+            Gp.remove_nodes_from(dest_remove)
+
+            flow_value, flow_dict = nx.maximum_flow(Gp, "s", "t")
+            print("Flow", flow_value)
+
+            for u, v in Gp.edges():
+                try:
+                    Gp[u][v]["flow"] = flow_dict[u][v]
+                except KeyError:
+                    Gp[u][v]["flow"] = 0
+
+            print("cost", binary_cost(Gp, flow_dict))
+            Gp.show()
+
+            continue
+
+        pass
+
+        flow_cost, flow_dict = nx.network_simplex(G)
+
+        for u, v in G.edges():
+            try:
+                G[u][v]["flow"] = flow_dict[u][v]
+            except KeyError:
+                G[u][v]["flow"] = 0
+
+        print(binary_cost(G, flow_dict))
+        G.show()
 
         # print(flow_value)
 
