@@ -215,12 +215,27 @@ class Node:
             dest_offset_nodes.items(), key=lambda x: x[1], reverse=True
         )
 
+        flow_value, flow_dict = nx.maximum_flow(G, "s", "t")
+        print("Flow", flow_value)
+
+        for u, v in G.edges():
+            try:
+                G[u][v]["flow"] = flow_dict[u][v]
+            except KeyError:
+                G[u][v]["flow"] = 0
+
+        print("cost", binary_cost(G, flow_dict))
+        G.show()
+
         # Add highest incident node from each
-        for i in range(1, max(len(source_by_incident), len(dest_by_incident))):
+        source_counter = 1
+        dest_counter = 1
+        counter_increment = "source"
+        for i in range(2, len(source_by_incident) + len(dest_by_incident) + 1):
 
             Gp = G.copy()
-            source_remove = [x[0] for x in source_by_incident[i:]]
-            dest_remove = [x[0] for x in dest_by_incident[i:]]
+            source_remove = [x[0] for x in source_by_incident[source_counter:]]
+            dest_remove = [x[0] for x in dest_by_incident[dest_counter:]]
 
             Gp.remove_nodes_from(source_remove)
             Gp.remove_nodes_from(dest_remove)
@@ -236,6 +251,16 @@ class Node:
 
             print("cost", binary_cost(Gp, flow_dict))
             Gp.show()
+
+            if (
+                counter_increment == "source"
+                and source_counter < len(source_by_incident) - 1
+            ):
+                source_counter += 1
+                counter_increment = "dest"
+            else:
+                dest_counter += 1
+                counter_increment = "source"
 
             continue
 
