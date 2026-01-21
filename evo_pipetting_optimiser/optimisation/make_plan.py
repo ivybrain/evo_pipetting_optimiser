@@ -145,16 +145,19 @@ class Node:
         #         self.open_ops.add(op)
 
         G = self.pending_graph
-        scaling = 1  # least common multiple of 1..8
+        scaling = 1
         demand = scaling * min(8, len(self.pending_ops))
         G.add_node("s", demand=-demand)
         G.add_node("t", demand=demand)
 
-        source_offset_nodes = {}
-        dest_offset_nodes = {}
+        asp_nodes = {}
+        disp_nodes = {}
+        source_row_nodes = {}
+        dest_row_nodes = {}
         for op in pending_ops:
 
             source_row_key = (*source_key(op), op.source_pos[0])
+            source_row_nodes[source_row_key] = True
 
             if ("s", source_row_key) in G.edges:
                 G.edges[("s", source_row_key)]["capacity"] += scaling
@@ -162,6 +165,7 @@ class Node:
                 G.add_edge("s", source_row_key, capacity=scaling, weight=0)
 
             dest_row_key = (*dest_key(op), op.dest_pos[0])
+            dest_row_nodes[dest_row_key] = True
             if (dest_row_key, "t") in G.edges:
                 G.edges[(dest_row_key, "t")]["capacity"] += scaling
             else:
@@ -179,13 +183,15 @@ class Node:
 
                 source_offset_key = ("s_ofst", *source_key(op), source_offset)
                 dest_offset_key = ("d_ofst", *dest_key(op), dest_offset)
-                if source_offset_key not in source_offset_nodes:
-                    source_offset_nodes[source_offset_key] = 0
-                if dest_offset_key not in dest_offset_nodes:
-                    dest_offset_nodes[dest_offset_key] = 0
+                if source_offset_key not in asp_nodes:
+                    asp_nodes[source_offset_key] = 0
+                if dest_offset_key not in disp_nodes:
+                    disp_nodes[dest_offset_key] = 0
 
-                source_offset_nodes[source_offset_key] += 1
-                dest_offset_nodes[dest_offset_key] += 1
+                if (source_row_key, source_offset_key) not in G.edges:
+                    asp_nodes[source_offset_key] += 1
+                if (dest_row_key, dest_offset_key) not in G.edges:
+                    disp_nodes[dest_offset_key] += 1
                 G.add_edge(
                     source_row_key,
                     source_offset_key,
@@ -196,13 +202,15 @@ class Node:
                 # Set weight based on how many incident edges the nodes at each end have
                 if (source_offset_key, dest_offset_key) in G.edges:
                     G.edges[(source_offset_key, dest_offset_key)]["capacity"] += scaling
+                    G.edges[(source_offset_key, dest_offset_key)]["ops"].append(op)
 
                 else:
                     G.add_edge(
                         source_offset_key,
                         dest_offset_key,
                         capacity=scaling,
-                        weight=16,
+                        weight=0,
+                        ops=[op],
                     )
 
                 G.add_edge(
@@ -212,24 +220,49 @@ class Node:
                     weight=0,
                 )
 
-        for source_node, source_count in source_offset_nodes.items():
-            for dest_node, dest_count in dest_offset_nodes.items():
-                if (source_node, dest_node) in G.edges:
-                    G.edges[source_node, dest_node]["weight"] = (
-                        16 - source_count - dest_count
+        for source_node in source_row_nodes.keys():
+            for source_node_offset, source_count in asp_nodes.items():
+                if (source_node, source_node_offset) in G.edges:
+                    G.edges[source_node, source_node_offset]["weight"] = (
+                        9 - source_count
                     )
-        # source_by_incident = sorted(
-        #     source_offset_nodes.items(), key=lambda x: x[1], reverse=True
-        # )
-        # dest_by_incident = sorted(
-        #     dest_offset_nodes.items(), key=lambda x: x[1], reverse=True
-        # )
+
+        for dest_node in dest_row_nodes.keys():
+            for dest_node_offset, dest_count in disp_nodes.items():
+                if (dest_node_offset, dest_node) in G.edges:
+                    G.edges[dest_node_offset, dest_node]["weight"] = 9 - dest_count
+
+        # Add weight for central edges that's 16 - the number of out edges from offset - number of in edges to dest offset
+        # for source_node, source_count in asp_nodes.items():
+        #     for dest_node, dest_count in disp_nodes.items():
+        #         if (source_node, dest_node) in G.edges:
+        #             G.edges[source_node, dest_node]["weight"] = (
+        #                 17 - source_count - dest_count
+        #             )
 
         flow_cost, flow_dict = nx.network_simplex(G)
 
+        # Dict of (source, row, offset): [ops]
+        aspirates = {}
+        # Dict of (dest, row, offset): ops
+        dispenses = {}
         for u, v in G.edges():
             try:
                 G[u][v]["flow"] = flow_dict[u][v]
+                if flow_dict[u][v] > 0 and u in asp_nodes:
+                    (_, source, row, _, offset) = u
+                    if (source, row, offset) in aspirates:
+                        aspirates[source, row, offset] += G[u][v]["ops"]
+                    else:
+                        aspirates[source, row, offset] = copy(G[u][v]["ops"])
+
+                if flow_dict[u][v] > 0 and v in disp_nodes:
+                    (_, dest, row, _, offset) = v
+                    if (dest, row, offset) in dispenses:
+                        dispenses[dest, row, offset] += G[u][v]["ops"]
+                    else:
+                        dispenses[dest, row, offset] = copy(G[u][v]["ops"])
+
             except KeyError:
                 G[u][v]["flow"] = 0
 
@@ -247,14 +280,6 @@ class Node:
             except KeyError:
                 G[u][v]["flow"] = 0
 
-        print(
-            sum(
-                [
-                    G.edges[e]["weight"] / scaling if G.edges[e]["flow"] > 0 else 0
-                    for e in G.edges
-                ]
-            )
-        )
         print(nx.cost_of_flow(G, flow_dict))
 
         return
