@@ -7,6 +7,7 @@ import networkx as nx
 from collections import deque
 from sortedcontainers import SortedSet, SortedKeyList
 from matplotlib import pyplot as plt
+import itertools
 
 
 class OffsetLimitException(Exception):
@@ -45,9 +46,10 @@ class PipettingGraph(nx.DiGraph):
         # Extract the flow values for labeling
         flow_labels = nx.get_edge_attributes(G, "flow")
         capacity_labels = nx.get_edge_attributes(G, "capacity")
+        weight_labels = nx.get_edge_attributes(G, "weight")
 
         edge_labels = {
-            key: f"{flow_labels[key]}/{capacity_labels[key]}"
+            key: f"{flow_labels[key]}/{capacity_labels[key]}/{weight_labels[key]}"
             for key in flow_labels.keys()
             if key in active_edges
         }
@@ -191,14 +193,16 @@ class Node:
                     weight=0,
                 )
 
+                # Set weight based on how many incident edges the nodes at each end have
                 if (source_offset_key, dest_offset_key) in G.edges:
                     G.edges[(source_offset_key, dest_offset_key)]["capacity"] += scaling
+
                 else:
                     G.add_edge(
                         source_offset_key,
                         dest_offset_key,
                         capacity=scaling,
-                        weight=1,
+                        weight=16,
                     )
 
                 G.add_edge(
@@ -208,63 +212,18 @@ class Node:
                     weight=0,
                 )
 
-        source_by_incident = sorted(
-            source_offset_nodes.items(), key=lambda x: x[1], reverse=True
-        )
-        dest_by_incident = sorted(
-            dest_offset_nodes.items(), key=lambda x: x[1], reverse=True
-        )
-
-        flow_value, flow_dict = nx.maximum_flow(G, "s", "t")
-        print("Flow", flow_value)
-
-        for u, v in G.edges():
-            try:
-                G[u][v]["flow"] = flow_dict[u][v]
-            except KeyError:
-                G[u][v]["flow"] = 0
-
-        print("cost", binary_cost(G, flow_dict))
-        G.show()
-
-        # Add highest incident node from each
-        source_counter = 1
-        dest_counter = 1
-        counter_increment = "source"
-        for i in range(2, len(source_by_incident) + len(dest_by_incident) + 1):
-
-            Gp = G.copy()
-            source_remove = [x[0] for x in source_by_incident[source_counter:]]
-            dest_remove = [x[0] for x in dest_by_incident[dest_counter:]]
-
-            Gp.remove_nodes_from(source_remove)
-            Gp.remove_nodes_from(dest_remove)
-
-            flow_value, flow_dict = nx.maximum_flow(Gp, "s", "t")
-            print("Flow", flow_value)
-
-            for u, v in Gp.edges():
-                try:
-                    Gp[u][v]["flow"] = flow_dict[u][v]
-                except KeyError:
-                    Gp[u][v]["flow"] = 0
-
-            print("cost", binary_cost(Gp, flow_dict))
-            Gp.show()
-
-            if (
-                counter_increment == "source"
-                and source_counter < len(source_by_incident) - 1
-            ):
-                source_counter += 1
-                counter_increment = "dest"
-            else:
-                dest_counter += 1
-                counter_increment = "source"
-
-            continue
-
-        pass
+        for source_node, source_count in source_offset_nodes.items():
+            for dest_node, dest_count in dest_offset_nodes.items():
+                if (source_node, dest_node) in G.edges:
+                    G.edges[source_node, dest_node]["weight"] = (
+                        16 - source_count - dest_count
+                    )
+        # source_by_incident = sorted(
+        #     source_offset_nodes.items(), key=lambda x: x[1], reverse=True
+        # )
+        # dest_by_incident = sorted(
+        #     dest_offset_nodes.items(), key=lambda x: x[1], reverse=True
+        # )
 
         flow_cost, flow_dict = nx.network_simplex(G)
 
