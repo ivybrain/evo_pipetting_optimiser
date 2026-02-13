@@ -96,7 +96,10 @@ def group_by(open_ops, primary="source"):
         # i.e. when primary=source, find all the destination (labware, column) pairs we need to dispense to
         secondary_labware_col = group_movements_needed(selected_ops, secondary)
         secondary_labware_col_queue = deque(
-            [set(x) for x in secondary_labware_col.values()]
+            [
+                sorted(list(set(x)), key=lambda op: (op.source_pos[0], op.dest_pos[0]))
+                for x in secondary_labware_col.values()
+            ]
         )
 
         # Track operation sets that are confirmed to be reachable in one dispense
