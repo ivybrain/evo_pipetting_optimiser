@@ -282,7 +282,7 @@ def group_by(open_ops, primary="source"):
                 break
 
         # Sort by the number of tips used by this combo
-        valid_combinations.sort(reverse=True)
+        valid_combinations.sort(reverse=True, key=lambda x: (x[0], -len(x[1])))
 
         # Extract the list of groups from this combo
         selected_groups = [
