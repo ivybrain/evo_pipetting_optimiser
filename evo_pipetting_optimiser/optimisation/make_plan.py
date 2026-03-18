@@ -51,10 +51,10 @@ class PipettingGraph(nx.DiGraph):
         edge_labels = {
             key: f"{flow_labels[key]}/{capacity_labels[key]}/{weight_labels[key]}"
             for key in flow_labels.keys()
-            if key in active_edges
+            # if key in active_edges
         }
 
-        node_labels = {node: (node[:2]) for node in G.nodes}
+        node_labels = {node: (node[1:3]) for node in G.nodes}
 
         # Draw the labels on the edges
         nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
@@ -238,6 +238,7 @@ class ColGraph(PipettingGraph):
             G = self
             scaling = 1
             demand = scaling * min(8, len(ops))
+            # demand = len(ops)
             G.add_node("s", demand=-demand)
             G.add_node("t", demand=demand)
 
@@ -245,6 +246,9 @@ class ColGraph(PipettingGraph):
             self.disp_nodes = {}
             source_nodes = {}
             dest_nodes = {}
+            self.op_edges = []
+            self.op_to_edge = {}
+
             for op in ops:
 
                 source_nodes[source_key(op)] = True
@@ -277,14 +281,16 @@ class ColGraph(PipettingGraph):
                     G.add_edge(
                         source_key(op), dest_key(op), capacity=1, weight=0, ops=[op]
                     )
+                    self.op_edges.append((source_key(op), dest_key(op)))
+
+                self.op_to_edge[op] = (source_key(op), dest_key(op))
 
             max_capacity = 0
-            for u, v in G.edges():
+            for u, v in self.op_edges:
                 max_capacity = max(max_capacity, G[u][v]["capacity"])
 
-            for u, v in G.edges():
-                if u in self.asp_nodes and v in self.disp_nodes:
-                    G[u][v]["weight"] = max_capacity - G[u][v]["capacity"]
+            for u, v in self.op_edges:
+                G[u][v]["weight"] = 1 + (max_capacity - G[u][v]["capacity"])
 
             return
 
@@ -308,16 +314,20 @@ class ColGraph(PipettingGraph):
             #                 17 - source_count - dest_count
             #             )
 
+    # def remove_ops(self, ops):
+    #     for op in ops:
+    #         self.remove_edge(self.op_to_edge[op])
+
     def get_move(self):
         G = self
 
         flow_cost, flow_dict = nx.network_simplex(G)
-        edge_count = 0
 
         # Dict of (source, col, lc): [ops]
         aspirates = {}
         # Dict of (dest, col): [ops]
         dispenses = {}
+        ops = []
         for u, v in G.edges():
             # try:
             G[u][v]["flow"] = flow_dict[u][v]
@@ -325,9 +335,8 @@ class ColGraph(PipettingGraph):
             if flow_dict[u][v] <= 0:
                 continue
 
-            edge_count += 1
-
             if u in self.asp_nodes and v in self.disp_nodes:
+                ops += G[u][v]["ops"]
                 if u in aspirates:
                     aspirates[u] += G[u][v]["ops"]
                 else:
@@ -341,9 +350,8 @@ class ColGraph(PipettingGraph):
         # except KeyError:
         #     G[u][v]["flow"] = 0
 
-        print(f"Selecting cols. {edge_count} edges")
-        #  print(flow_cost, binary_cost(G, flow_dict))
-        return aspirates, dispenses
+        print(f"Selecting cols. Moves {binary_cost(G, flow_dict)}, cost {flow_cost}")
+        return aspirates, dispenses, ops
 
 
 def binary_cost(G, flow_dict):
@@ -374,11 +382,11 @@ class Node:
             # plt.show()
 
         else:
-            (pending_graph, open_graph, pending_ops, move, cost) = args
+            (pending_ops, open_ops, open_graph, move, cost) = args
 
-            self.pending_graph = pending_graph
             self.open_graph = open_graph
             self.pending_ops = pending_ops
+            self.open_ops = open_ops
             self.depth = parent.depth + 1
 
             self.cost = cost
@@ -391,120 +399,59 @@ class Node:
     def init_root(self, pending_ops):
         self.pending_ops = pending_ops
 
-        open_ops = [
-            op
-            for op in pending_ops
-            if op.source_dep not in pending_ops and op.dest_dep not in pending_ops
-        ]
+        self.open_ops = set(
+            [
+                op
+                for op in pending_ops
+                if op.source_dep not in pending_ops and op.dest_dep not in pending_ops
+            ]
+        )
 
         # self.pending_graph = TipGraph(pending_ops)
-        self.pending_graph = ColGraph(open_ops)
+        self.open_graph = ColGraph(self.open_ops)
         # self.open_graph = TipGraph()
 
         self.move = None
         self.cost = 0
         self.depth = 0
 
-        # self.open_ops = set(
-        #     [
-        #         op
-        #         for op in pending_ops
-        #         if op.source_dep not in pending_ops and op.dest_dep not in pending_ops
-        #     ]
-        # )
-
-        # for op in pending_ops:
-
-        #     add_op(self.pending_graph, op)
-
-        #     if op.source_dep not in pending_ops and op.dest_dep not in pending_ops:
-        #         add_op(self.open_graph, op)
-        #         self.open_ops.add(op)
-
-        aspirates, dispenses = self.pending_graph.get_move()
-        self.pending_graph.show()
-
         return
 
     def get_neighbours(self):
 
-        components = nx.connected_components(self.open_graph)
-
         children = []
 
-        for c in components:
+        aspirates, dispenses, ops = self.open_graph.get_move()
 
-            subgraph = self.open_graph.subgraph(c)
+        # self.open_graph.show()
 
-            cut_value, partition = maxcut.one_exchange(subgraph)
-            print(cut_value)
-            print(partition[0])
-            print()
-            print(partition[1])
+        new_pending = copy(self.pending_ops)
 
-            nx.draw(subgraph, with_labels=True)
-            plt.show()
+        new_pending.difference_update(set(ops))
+        all_open_ops = set(
+            [
+                op
+                for op in new_pending
+                if op.source_dep not in new_pending and op.dest_dep not in new_pending
+            ]
+        )
 
-            min_cut_edges = []
+        # Optimisation: do by copy and modification of old graph rather than rebuild
+        new_graph = ColGraph(all_open_ops)
 
-            min_cut_edges = nx.minimum_edge_cut(subgraph)
-            min_cut_value = len(min_cut_edges)
-
-            if min_cut_value == 0:
-                return []
-
-            G_cut = self.open_graph.copy()
-            G_cut.remove_edges_from(min_cut_edges)
-            isolates = list(nx.isolates(G_cut))
-            G_cut.remove_nodes_from(isolates)
-
-            components = nx.connected_components(G_cut)
-
-            cost = self.cost + 1
-
-            child_pending = self.pending_graph.copy()
-
-            # Adjust the graph with the old ops removed and new added
-            child_pending.remove_edges_from(min_cut_edges)
-            isolates = list(nx.isolates(child_pending))
-            child_pending.remove_nodes_from(isolates)
-
-            child_open = G_cut
-
-            ops_this_cut = []
-            if min_cut_edges:
-                for edge in min_cut_edges:
-                    ops = self.open_graph.edges[edge]["ops"]
-                    ops_this_cut += ops
-
-            new_pending = self.pending_ops.difference(set(ops_this_cut))
-            new_open = set()
-
-            # Add to the new ops any newly opened ops after completing these ones
-            # ops_to_add =
-            for op in ops_this_cut:
-                for n_op in op.dep_children:
-                    # Check both the source and dest deps are satisfied
-                    if (
-                        n_op.source_dep not in new_pending
-                        and n_op.dest_dep not in new_pending
-                    ):
-                        add_op(child_open, n_op)
-                        new_open.add(n_op)
-
-            child = Node(
-                self, child_pending, child_open, new_pending, ops_this_cut, cost
-            )
-
-            children.append(child)
-
+        new_node = Node(
+            self,
+            new_pending,
+            all_open_ops,
+            new_graph,
+            (aspirates, dispenses),
+            len(aspirates) + len(dispenses),
+        )
+        children.append(new_node)
         return children
 
     def heuristic_cost_estimate(self):
         score = 0
-
-        for edge in self.pending_graph.edges:
-            score += (len(self.pending_graph.edges[edge]["ops"]) // 8) + 1
 
         return score
 
@@ -513,7 +460,7 @@ class Node:
         return (
             self.fscore,
             tuple(self.pending_ops),
-            tuple(sorted(self.pending_graph.edges)),
+            tuple(self.open_graph.edges),
         )
 
     def __hash__(self):
@@ -527,52 +474,19 @@ class Node:
         if self.key() != other.key():
             return False
 
-        iso = nx.is_isomorphic(self.pending_graph, other.pending_graph)
+        iso = nx.is_isomorphic(self.open_graph, other.open_graph)
         return iso
 
     def __repr__(self):
         return f"Node score {self.fscore}"
 
-    def create_row_graph(self):
-        self.row_graph = nx.DiGraph()
-        G = self.row_graph
-
-        for op in self.move:
-
-            G.add_edge("s", f"s{op.source_pos[0]}", capacity=1)
-            G.add_edge(f"d{op.dest_pos[0]}", "t", capacity=1)
-
-            key = f"s{op.source_pos[0]}", f"d{op.dest_pos[0]}"
-
-            if key in self.row_graph.edges:
-                self.row_graph.edges[key]["ops"].append(op)
-                continue
-
-            self.row_graph.add_edge(*key, ops=[op], capacity=1)
-
-        for edge in self.row_graph.edges:
-            if "ops" in self.row_graph.edges[edge]:
-                print(
-                    edge,
-                    self.row_graph.edges[edge]["ops"],
-                )
-
-        flow_value, flow_dict = nx.maximum_flow(G, "s", "t")
-        print(flow_value)
-        print(flow_dict)
-
-        nx.draw(self.row_graph, with_labels=True)
-        plt.show()
-
-        return
-
 
 def source_key(op):
-    return (op.source.name, op.source_pos[1], op.liquid_class)
+    return ("s", op.source.name, op.source_pos[1], op.liquid_class)
 
 
 def dest_key(op):
-    return (op.destination.name, op.dest_pos[1], op.liquid_class)
+    return ("t", op.destination.name, op.dest_pos[1], op.liquid_class)
 
 
 def init_search(pending_ops):
@@ -588,13 +502,13 @@ def init_search(pending_ops):
 
         node = open_nodes.pop(0)
 
-        if len(node.pending_graph) == 0:
+        if len(node.open_graph) == 0:
             break
 
         children = node.get_neighbours()
-        print(
-            f"Depth {node.depth}, score {node.fscore}, queue {len(open_nodes)}, new_children {len(children)}, pruned {prune_count}"
-        )
+        # print(
+        #     f"Depth {node.depth}, score {node.fscore}, queue {len(open_nodes)}, new_children {len(children)}, pruned {prune_count}"
+        # )
 
         for child in children:
             if child in generated_nodes:
@@ -615,14 +529,11 @@ def init_search(pending_ops):
 
         if node.move:
             moves.append(node.move)
-            print((node, source_key(node.move[0]), dest_key(node.move[0]), node.move))
+            # print(node.move)
 
         # nx.draw(node.open_graph, with_labels=True)
         # plt.show()
         continue
-
-    for node in path[1:]:
-        node.create_row_graph()
 
     pass
 
