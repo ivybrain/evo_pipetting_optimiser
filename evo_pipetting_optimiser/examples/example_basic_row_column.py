@@ -56,102 +56,102 @@ def basic_row_column(worklist):
             liquid_class="Water free dispense",
         )
 
-        # wl.auto_transfer(
-        #     sample_plate,
-        #     sample_plate.wells[:3, 0],
-        #     dilution_plate,
-        #     dilution_plate.wells[:3, 0],
-        #     50,
-        #     liquid_class="Water free dispense",
-        # )
+        wl.auto_transfer(
+            sample_plate,
+            sample_plate.wells[:3, 0],
+            dilution_plate,
+            dilution_plate.wells[:3, 0],
+            50,
+            liquid_class="Water free dispense",
+        )
 
-        # wl.auto_transfer(
-        #     sample_plate,
-        #     sample_plate.wells[3:6, 0],
-        #     dilution_plate,
-        #     dilution_plate.wells[5:, 0],
-        #     50,
-        #     liquid_class="Water free dispense",
-        # )
+        wl.auto_transfer(
+            sample_plate,
+            sample_plate.wells[3:6, 0],
+            dilution_plate,
+            dilution_plate.wells[5:, 0],
+            50,
+            liquid_class="Water free dispense",
+        )
 
         # print(wl.report)
         # wl.commit()
 
         # exit(0)
 
-        # # transfer sampel to dilution plate
-        # wl.auto_transfer(
-        #     sample_plate,
-        #     sample_plate.wells[1:7, 0],
-        #     dilution_plate,
-        #     dilution_plate.wells[2:, 0],
-        #     volumes=50,
-        #     liquid_class="Water free dispense",
-        # )
+        # transfer sampel to dilution plate
+        wl.auto_transfer(
+            sample_plate,
+            sample_plate.wells[1:7, 0],
+            dilution_plate,
+            dilution_plate.wells[2:, 0],
+            volumes=50,
+            liquid_class="Water free dispense",
+        )
 
-        # # Transfer diluent to dilution plate
-        # wl.auto_transfer(
-        #     test_trough,
-        #     test_trough.wells,
-        #     dilution_plate,
-        #     dilution_plate.wells[:8, 0],
-        #     50,
-        #     liquid_class="Water free dispense",
-        # )
+        # Transfer diluent to dilution plate
+        wl.auto_transfer(
+            test_trough,
+            test_trough.wells,
+            dilution_plate,
+            dilution_plate.wells[:8, 0],
+            50,
+            liquid_class="Water free dispense",
+        )
 
         # Basic: Transfer col 0 to row 0
-        # wl.auto_transfer(
-        #     sample_plate,
-        #     sample_plate.wells[:, 0],
-        #     dilution_plate,
-        #     dilution_plate.wells[0, :8],
-        #     50,
-        #     liquid_class="Water free dispense",
-        # )
+        wl.auto_transfer(
+            sample_plate,
+            sample_plate.wells[:, 0],
+            dilution_plate,
+            dilution_plate.wells[0, :8],
+            50,
+            liquid_class="Water free dispense",
+        )
 
-        # wl.auto_transfer(
-        #     sample_plate,
-        #     sample_plate.wells[0, :8],
-        #     dilution_plate,
-        #     dilution_plate.wells[:, 0],
-        #     50,
-        #     liquid_class="Water free dispense",
-        # )
+        wl.auto_transfer(
+            sample_plate,
+            sample_plate.wells[0, :8],
+            dilution_plate,
+            dilution_plate.wells[:, 0],
+            50,
+            liquid_class="Water free dispense",
+        )
 
-        # # Now transfer back to trough
-        # wl.auto_transfer(
-        #     dilution_plate,
-        #     dilution_plate.wells[:, 0],
-        #     test_trough,
-        #     test_trough.wells,
-        #     50,
-        #     liquid_class="Water free dispense",
-        # )
+        # Now transfer back to trough
+        wl.auto_transfer(
+            dilution_plate,
+            dilution_plate.wells[:, 0],
+            test_trough,
+            test_trough.wells,
+            50,
+            liquid_class="Water free dispense",
+        )
 
-        # # Situation where we transfer a column to a row, with a range across 8 wells but excluding a middle well
-        # # Will aspirate in one op, leaving tip 5 empty
-        # # Unlike default Evoware, which would aspirate rows A-D with tips 1-4 then rows F-H with tips 5-7
-        # # Large volume (>950) means we repeat each op twoce
+        # Situation where we transfer a column to a row, with a range across 8 wells but excluding a middle well
+        # Will aspirate in one op, leaving tip 5 empty
+        # Unlike default Evoware, which would aspirate rows A-D with tips 1-4 then rows F-H with tips 5-7
+        # Large volume (>950) means we repeat each op twoce
 
-        # wl.auto_transfer(
-        #     sample_plate,
-        #     sample_plate.wells[[0, 1, 2, 3, 5, 6, 7], 0],
-        #     dilution_plate,
-        #     dilution_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
-        #     600,
-        #     liquid_class="Water free dispense",
-        # )
+        wl.auto_transfer(
+            sample_plate,
+            sample_plate.wells[[0, 1, 2, 3, 5, 6, 7], 0],
+            dilution_plate,
+            dilution_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
+            600,
+            liquid_class="Water free dispense",
+        )
 
-        # # Same situation but transferring row to column
-        # # Will do several aspirates, but group to one dispense
-        # wl.auto_transfer(
-        #     sample_plate,
-        #     sample_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
-        #     dilution_plate,
-        #     dilution_plate.wells[[0, 1, 2, 3, 5, 6, 7], 0],
-        #     600,
-        #     liquid_class="Water free dispense",
-        # )
+        # Same situation but transferring row to column
+        # Will do several aspirates, but group to one dispense
+        wl.auto_transfer(
+            sample_plate,
+            sample_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
+            dilution_plate,
+            dilution_plate.wells[[0, 1, 2, 3, 5, 6, 7], 0],
+            600,
+            liquid_class="Water free dispense",
+        )
 
         # Print the operations we have registered, so we can sanity check
         print(wl.report)

@@ -14,11 +14,63 @@ class OffsetLimitException(Exception):
     pass
 
 
-class TipGraph(nx.DiGraph):
+# Abstract
+class PipettingGraph(nx.DiGraph):
+    def show(self):
+        G = self.copy()
+
+        reachable_dict = nx.shortest_path_length(G, source="s")
+        reachable_nodes = set(reachable_dict.keys())
+
+        all_nodes = set(G.nodes)
+        unreachable_nodes = all_nodes - reachable_nodes
+
+        # Step 3: Remove unreachable nodes
+        # We must convert the iterator to a list to avoid RuntimeError during iteration
+        G.remove_nodes_from(list(unreachable_nodes))
+
+        pos = nx.bfs_layout(G, start="s")
+
+        # Identify edges with positive flow
+        active_edges = [
+            (u, v) for u, v in G.edges() if "flow" in G[u][v] and G[u][v]["flow"] > 0
+        ]
+
+        # Draw nodes and all edges faintly
+        nx.draw_networkx_nodes(G, pos)
+        nx.draw_networkx_edges(G, pos, alpha=0.1)  # faint background edges
+
+        # Draw active flow edges prominently
+        nx.draw_networkx_edges(G, pos, edgelist=active_edges, edge_color="r", width=2)
+
+        # Extract the flow values for labeling
+        flow_labels = nx.get_edge_attributes(G, "flow")
+        capacity_labels = nx.get_edge_attributes(G, "capacity")
+        weight_labels = nx.get_edge_attributes(G, "weight")
+
+        edge_labels = {
+            key: f"{flow_labels[key]}/{capacity_labels[key]}/{weight_labels[key]}"
+            for key in flow_labels.keys()
+            if key in active_edges
+        }
+
+        node_labels = {node: (node[:2]) for node in G.nodes}
+
+        # Draw the labels on the edges
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+
+        nx.draw_networkx_labels(G, pos, labels=node_labels)
+
+        plt.show()
+
+
+class TipGraph(PipettingGraph):
 
     def __init__(self, ops=None):
         """
         Init a graph from a set of ops
+        Graph used to decide which rows to pipette and which tips to use
+        Between a single col source and single col dest
         Graph has 6 'columns'
         source node
         source labware rows
@@ -108,6 +160,8 @@ class TipGraph(nx.DiGraph):
                         weight=0,
                     )
 
+            # Re-weight source row to source offset edges based on how many sources have edges going to the same offset
+            # This incentivises choosing edges to offsets that have as many compatible rows as possible
             for source_node in source_row_nodes.keys():
                 for source_node_offset, source_count in self.asp_nodes.items():
                     if (source_node, source_node_offset) in G.edges:
@@ -115,6 +169,7 @@ class TipGraph(nx.DiGraph):
                             9 - source_count
                         )
 
+            # Same for dest
             for dest_node in dest_row_nodes.keys():
                 for dest_node_offset, dest_count in self.disp_nodes.items():
                     if (dest_node_offset, dest_node) in G.edges:
@@ -160,64 +215,135 @@ class TipGraph(nx.DiGraph):
         print(flow_cost, binary_cost(G, flow_dict))
         return aspirates, dispenses
 
-    def show(self):
-        G = self.copy()
-
-        reachable_dict = nx.shortest_path_length(G, source="s")
-        reachable_nodes = set(reachable_dict.keys())
-
-        all_nodes = set(G.nodes)
-        unreachable_nodes = all_nodes - reachable_nodes
-
-        # Step 3: Remove unreachable nodes
-        # We must convert the iterator to a list to avoid RuntimeError during iteration
-        G.remove_nodes_from(list(unreachable_nodes))
-
-        pos = nx.bfs_layout(G, start="s")
-
-        # Identify edges with positive flow
-        active_edges = [
-            (u, v) for u, v in G.edges() if "flow" in G[u][v] and G[u][v]["flow"] > 0
-        ]
-
-        # Draw nodes and all edges faintly
-        nx.draw_networkx_nodes(G, pos)
-        nx.draw_networkx_edges(G, pos, alpha=0.1)  # faint background edges
-
-        # Draw active flow edges prominently
-        nx.draw_networkx_edges(G, pos, edgelist=active_edges, edge_color="r", width=2)
-
-        # Extract the flow values for labeling
-        flow_labels = nx.get_edge_attributes(G, "flow")
-        capacity_labels = nx.get_edge_attributes(G, "capacity")
-        weight_labels = nx.get_edge_attributes(G, "weight")
-
-        edge_labels = {
-            key: f"{flow_labels[key]}/{capacity_labels[key]}/{weight_labels[key]}"
-            for key in flow_labels.keys()
-            if key in active_edges
-        }
-
-        node_labels = {node: (node[-1]) for node in G.nodes}
-
-        # Draw the labels on the edges
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
-
-        nx.draw_networkx_labels(G, pos, labels=node_labels)
-
-        plt.show()
-
-    def add_op(self, op):
-        edge_key = source_key(op), dest_key(op)
-
-        if edge_key in self.edges:
-            self.edges[edge_key]["ops"].append(op)
-            return
-
-        self.add_edge(source_key(op), dest_key(op), ops=[op])
-
     def gen_empty(self):
         pass
+
+
+class ColGraph(PipettingGraph):
+    def __init__(self, ops=None):
+        """
+        Init a graph from a set of ops
+        Graph used to decide which col in which source and dest to pipette
+        Graph has 6 'columns'
+        source node
+        source labware rows
+        all possible offsets for source labware
+        all possible offsets for dest labware
+        dest labware rows
+        sink node
+        """
+        super().__init__()
+
+        if ops:
+            G = self
+            scaling = 1
+            demand = scaling * min(8, len(ops))
+            G.add_node("s", demand=-demand)
+            G.add_node("t", demand=demand)
+
+            self.asp_nodes = {}
+            self.disp_nodes = {}
+            source_nodes = {}
+            dest_nodes = {}
+            for op in ops:
+
+                source_nodes[source_key(op)] = True
+
+                if ("s", source_key(op)) in G.edges:
+                    G.edges[("s", source_key(op))]["capacity"] += scaling
+                else:
+                    G.add_edge("s", source_key(op), capacity=scaling, weight=0)
+
+                dest_nodes[dest_key(op)] = True
+                if (dest_key(op), "t") in G.edges:
+                    G.edges[(dest_key(op), "t")]["capacity"] += scaling
+                else:
+                    G.add_edge(dest_key(op), "t", capacity=scaling, weight=0)
+
+                if source_key(op) not in self.asp_nodes:
+                    self.asp_nodes[source_key(op)] = 0
+                if dest_key(op) not in self.disp_nodes:
+                    self.disp_nodes[dest_key(op)] = 0
+
+                if (source_key(op), dest_key(op)) not in G.edges:
+                    self.asp_nodes[source_key(op)] += 1
+                    self.disp_nodes[dest_key(op)] += 1
+
+                # Add edges from source to dest
+                if (source_key(op), dest_key(op)) in G.edges:
+                    G.edges[(source_key(op), dest_key(op))]["capacity"] += 1
+                    G.edges[(source_key(op), dest_key(op))]["ops"].append(op)
+                else:
+                    G.add_edge(
+                        source_key(op), dest_key(op), capacity=1, weight=0, ops=[op]
+                    )
+
+            max_capacity = 0
+            for u, v in G.edges():
+                max_capacity = max(max_capacity, G[u][v]["capacity"])
+
+            for u, v in G.edges():
+                if u in self.asp_nodes and v in self.disp_nodes:
+                    G[u][v]["weight"] = max_capacity - G[u][v]["capacity"]
+
+            return
+
+            for source_node in source_nodes.keys():
+                for source_node_offset, source_count in self.asp_nodes.items():
+                    if (source_node, source_node_offset) in G.edges:
+                        G.edges[source_node, source_node_offset]["weight"] = (
+                            9 - source_count
+                        )
+
+            for dest_node in dest_nodes.keys():
+                for dest_node_offset, dest_count in self.disp_nodes.items():
+                    if (dest_node_offset, dest_node) in G.edges:
+                        G.edges[dest_node_offset, dest_node]["weight"] = 9 - dest_count
+
+            # Add weight for central edges that's 16 - the number of out edges from offset - number of in edges to dest offset
+            # for source_node, source_count in asp_nodes.items():
+            #     for dest_node, dest_count in disp_nodes.items():
+            #         if (source_node, dest_node) in G.edges:
+            #             G.edges[source_node, dest_node]["weight"] = (
+            #                 17 - source_count - dest_count
+            #             )
+
+    def get_move(self):
+        G = self
+
+        flow_cost, flow_dict = nx.network_simplex(G)
+        edge_count = 0
+
+        # Dict of (source, col, lc): [ops]
+        aspirates = {}
+        # Dict of (dest, col): [ops]
+        dispenses = {}
+        for u, v in G.edges():
+            # try:
+            G[u][v]["flow"] = flow_dict[u][v]
+
+            if flow_dict[u][v] <= 0:
+                continue
+
+            edge_count += 1
+
+            if u in self.asp_nodes and v in self.disp_nodes:
+                if u in aspirates:
+                    aspirates[u] += G[u][v]["ops"]
+                else:
+                    aspirates[u] = copy(G[u][v]["ops"])
+
+                if v in dispenses:
+                    dispenses[v] += G[u][v]["ops"]
+                else:
+                    dispenses[v] = copy(G[u][v]["ops"])
+
+        # except KeyError:
+        #     G[u][v]["flow"] = 0
+
+        print(f"Selecting cols. {edge_count} edges")
+        #  print(flow_cost, binary_cost(G, flow_dict))
+        return aspirates, dispenses
 
 
 def binary_cost(G, flow_dict):
@@ -265,7 +391,14 @@ class Node:
     def init_root(self, pending_ops):
         self.pending_ops = pending_ops
 
-        self.pending_graph = TipGraph(pending_ops)
+        open_ops = [
+            op
+            for op in pending_ops
+            if op.source_dep not in pending_ops and op.dest_dep not in pending_ops
+        ]
+
+        # self.pending_graph = TipGraph(pending_ops)
+        self.pending_graph = ColGraph(open_ops)
         # self.open_graph = TipGraph()
 
         self.move = None
