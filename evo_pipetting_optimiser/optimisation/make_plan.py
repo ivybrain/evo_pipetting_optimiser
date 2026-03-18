@@ -284,6 +284,9 @@ class ColGraph(PipettingGraph):
                 self.op_to_group[op] = (source_key(op), dest_key(op))
 
             # Populate each group with the subgraph
+            self.group_asp_nodes = {}
+            self.group_disp_nodes = {}
+            self.group_edges = {}
             for (source_col, dest_col), ops in self.op_groups.items():
                 self.create_subgraph(source_col, dest_col, ops)
 
@@ -307,8 +310,12 @@ class ColGraph(PipettingGraph):
         scaling = 1
         demand = scaling * min(8, len(ops))
 
-        asp_nodes = {}
-        disp_nodes = {}
+        self.group_asp_nodes[(source_col, dest_col)] = {}
+        asp_nodes = self.group_asp_nodes[(source_col, dest_col)]
+        self.group_disp_nodes[(source_col, dest_col)] = {}
+        disp_nodes = self.group_disp_nodes[(source_col, dest_col)]
+        self.group_edges[(source_col, dest_col)] = []
+        group_edges = self.group_edges[(source_col, dest_col)]
         source_row_nodes = {}
         dest_row_nodes = {}
         for op in ops:
@@ -362,6 +369,7 @@ class ColGraph(PipettingGraph):
                     G.edges[(source_offset_key, dest_offset_key)]["ops"].append(op)
 
                 else:
+                    group_edges.append((source_offset_key, dest_offset_key))
                     G.add_edge(
                         source_offset_key,
                         dest_offset_key,
@@ -406,25 +414,34 @@ class ColGraph(PipettingGraph):
             # try:
             G[u][v]["flow"] = flow_dict[u][v]
 
-            if flow_dict[u][v] <= 0:
+        for (source_key, dest_key), group_ops in self.op_groups.items():
+            flow_this_col = sum(flow_dict[source_key].values())
+            if flow_this_col <= 0:
                 continue
 
-            if u in self.asp_nodes and v in self.disp_nodes:
-                ops += G[u][v]["ops"]
-                if u in aspirates:
-                    aspirates[u] += G[u][v]["ops"]
-                else:
-                    aspirates[u] = copy(G[u][v]["ops"])
+            asp_nodes = self.group_asp_nodes[(source_key, dest_key)]
+            disp_nodes = self.group_disp_nodes[(source_key, dest_key)]
 
-                if v in dispenses:
-                    dispenses[v] += G[u][v]["ops"]
-                else:
-                    dispenses[v] = copy(G[u][v]["ops"])
+            for u, v in self.group_edges[(source_key, dest_key)]:
+                if flow_dict[u][v] > 0 and u in asp_nodes:
+                    (_, _, source, col, _, offset) = u
+                    ops += G[u][v]["ops"]
+                    if (source, col, offset) in aspirates:
+                        aspirates[source, col, offset] += G[u][v]["ops"]
+                    else:
+                        aspirates[source, col, offset] = copy(G[u][v]["ops"])
 
-        # except KeyError:
-        #     G[u][v]["flow"] = 0
+                if flow_dict[u][v] > 0 and v in disp_nodes:
+                    ops += G[u][v]["ops"]
+                    (_, _, dest, col, _, offset) = v
+                    if (dest, col, offset) in dispenses:
+                        dispenses[dest, col, offset] += G[u][v]["ops"]
+                    else:
+                        dispenses[dest, col, offset] = copy(G[u][v]["ops"])
 
-        print(f"Selecting cols. Moves {binary_cost(G, flow_dict)}, cost {flow_cost}")
+        print(
+            f"Selecting ops. Moves {len(aspirates) + len(dispenses)}, cost {flow_cost}"
+        )
         return aspirates, dispenses, ops
 
 
@@ -497,7 +514,7 @@ class Node:
 
         aspirates, dispenses, ops = self.open_graph.get_move()
 
-        self.open_graph.show()
+        # self.open_graph.show()
 
         new_pending = copy(self.pending_ops)
 
@@ -609,7 +626,7 @@ def init_search(pending_ops):
         # plt.show()
         continue
 
-    pass
+    return moves
 
 
 def make_plan(pending_ops):
