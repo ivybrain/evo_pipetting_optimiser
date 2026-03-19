@@ -237,10 +237,9 @@ class ColGraph(PipettingGraph):
         if ops:
             G = self
             scaling = 1
-            demand = scaling * min(8, len(ops))
             # demand = len(ops)
-            G.add_node("s", demand=-demand)
-            G.add_node("t", demand=demand)
+            G.add_node("s")
+            G.add_node("t")
 
             self.asp_nodes = {}
             self.disp_nodes = {}
@@ -308,7 +307,6 @@ class ColGraph(PipettingGraph):
     def create_subgraph(self, source_col, dest_col, ops):
         G = self
         scaling = 1
-        demand = scaling * min(8, len(ops))
 
         self.group_asp_nodes[(source_col, dest_col)] = {}
         asp_nodes = self.group_asp_nodes[(source_col, dest_col)]
@@ -337,7 +335,9 @@ class ColGraph(PipettingGraph):
 
             # TODO: Add trough handling
 
-            def add_offset_edge(source_offset, dest_offset):
+            def add_offset_edge(
+                source_offset, dest_offset, source_capacity, dest_capacity
+            ):
                 source_offset_key = ("s_ofst", *source_col, source_offset)
                 dest_offset_key = ("d_ofst", *dest_col, dest_offset)
                 if source_offset_key not in asp_nodes:
@@ -352,7 +352,7 @@ class ColGraph(PipettingGraph):
                 G.add_edge(
                     source_row_key,
                     source_offset_key,
-                    capacity=scaling,
+                    capacity=source_capacity,
                     weight=0,
                 )
 
@@ -374,21 +374,23 @@ class ColGraph(PipettingGraph):
                 G.add_edge(
                     dest_offset_key,
                     dest_row_key,
-                    capacity=scaling,
+                    capacity=dest_capacity,
                     weight=0,
                 )
 
             # Check if we have virtual rows
-            if (getattr(op.source, "virtual_rows", 0) or 0) > op.source_pos[0]:
+            source_virtual_rows = getattr(op.source, "virtual_rows", 0) or 0
+            dest_virtual_rows = getattr(op.destination, "virtual_rows", 0) or 0
+            if source_virtual_rows > op.source_pos[0]:
                 source_offset_range = [0]
-                if (getattr(op.destination, "virtual_rows", 0) or 0) > op.dest_pos[0]:
+                if dest_virtual_rows > op.dest_pos[0]:
                     dest_offset_range = [0]
                 else:
                     dest_offset_range = range(op.dest_pos[0] - 7, op.dest_pos[0] + 1)
 
             else:
                 source_offset_range = range(op.source_pos[0] - 7, op.source_pos[0] + 1)
-                if (getattr(op.destination, "virtual_rows", 0) or 0) > op.dest_pos[0]:
+                if dest_virtual_rows > op.dest_pos[0]:
                     dest_offset_range = [0]
                 else:
                     dest_offset_range = [None]
@@ -404,7 +406,12 @@ class ColGraph(PipettingGraph):
                     if dest_offset > op.dest_pos[0] or dest_offset < op.dest_pos[0] - 7:
                         continue
 
-                    add_offset_edge(source_offset, dest_offset)
+                    add_offset_edge(
+                        source_offset,
+                        dest_offset,
+                        max(1, source_virtual_rows),
+                        max(1, dest_virtual_rows),
+                    )
 
                 # Add edges from rows to possible offsets
 
@@ -426,84 +433,62 @@ class ColGraph(PipettingGraph):
     def get_move(self):
         G = self
 
-        demand = 1
-        prev_cost = 0
-        prev_ops = []
-        prev_aspirates = None
-        prev_dispenses = None
-        # Loop to select number of operations. Keep adding until we lose efficiency
-        while demand <= 8:
-            G.nodes["s"]["demand"] = -demand
-            G.nodes["t"]["demand"] = demand
+        max_flow = nx.algorithms.maximum_flow_value(G, "s", "t")
 
-            try:
-                flow_cost, flow_dict = nx.network_simplex(G)
-            except nx.NetworkXUnfeasible:
-                break
+        G.nodes["s"]["demand"] = -max_flow
+        G.nodes["t"]["demand"] = max_flow
 
-            # Dict of (source, col, lc): [ops]
-            aspirates = {}
-            # Dict of (dest, col): [ops]
-            dispenses = {}
-            asp_ops = []
-            disp_ops = []
-            for u, v in G.edges():
-                # try:
-                G[u][v]["flow"] = flow_dict[u][v]
+        flow_cost, flow_dict = nx.network_simplex(G)
 
-            op_groups_sorted = sorted(self.op_groups.items(), key=lambda x: -len(x[1]))
+        # Dict of (source, col, lc): [ops]
+        aspirates = {}
+        # Dict of (dest, col): [ops]
+        dispenses = {}
+        asp_ops = []
+        disp_ops = []
+        for u, v in G.edges():
+            # try:
+            G[u][v]["flow"] = flow_dict[u][v]
 
-            for (source_key, dest_key), group_ops in op_groups_sorted:
-                flow_this_col = sum(flow_dict[source_key].values())
-                if flow_this_col <= 0:
-                    continue
+        op_groups_sorted = sorted(self.op_groups.items(), key=lambda x: -len(x[1]))
 
-                asp_nodes = self.group_asp_nodes[(source_key, dest_key)]
-                disp_nodes = self.group_disp_nodes[(source_key, dest_key)]
+        for (source_key, dest_key), group_ops in op_groups_sorted:
+            flow_this_col = sum(flow_dict[source_key].values())
+            if flow_this_col <= 0:
+                continue
 
-                for u, v in self.group_edges[(source_key, dest_key)]:
-                    if flow_dict[u][v] > 0 and u in asp_nodes:
-                        (_, _, source, col, _, offset) = u
-                        new_ops = set(G[u][v]["ops"]) - set(asp_ops)
-                        if len(new_ops) == 0:
-                            continue
-                        asp_ops += new_ops
-                        if (source, col, offset) in aspirates:
-                            aspirates[source, col, offset] += new_ops
-                        else:
-                            aspirates[source, col, offset] = list(new_ops)
+            asp_nodes = self.group_asp_nodes[(source_key, dest_key)]
+            disp_nodes = self.group_disp_nodes[(source_key, dest_key)]
 
-                    if flow_dict[u][v] > 0 and v in disp_nodes:
-                        (_, _, dest, col, _, offset) = v
-                        new_ops = set(G[u][v]["ops"]) - set(disp_ops)
-                        if len(new_ops) == 0:
-                            continue
-                        disp_ops += new_ops
+            for u, v in self.group_edges[(source_key, dest_key)]:
+                if flow_dict[u][v] > 0 and u in asp_nodes:
+                    (_, _, source, col, _, offset) = u
+                    new_ops = set(G[u][v]["ops"]) - set(asp_ops)
+                    if len(new_ops) == 0:
+                        continue
+                    asp_ops += new_ops
+                    if (source, col, offset) in aspirates:
+                        aspirates[source, col, offset] += new_ops
+                    else:
+                        aspirates[source, col, offset] = list(new_ops)
 
-                        if (dest, col, offset) in dispenses:
-                            dispenses[dest, col, offset] += new_ops
-                        else:
-                            dispenses[dest, col, offset] = list(new_ops)
+                if flow_dict[u][v] > 0 and v in disp_nodes:
+                    (_, _, dest, col, _, offset) = v
+                    new_ops = set(G[u][v]["ops"]) - set(disp_ops)
+                    if len(new_ops) == 0:
+                        continue
+                    disp_ops += new_ops
 
-            if demand > 1:
-                # Check if the previous selection had more ops/move than this one. If so, break and choose that
-                # Add 2 to each ratio for the time taken to wash between sets
-                prev_ratio = (prev_cost + 2) / len(prev_ops)
-                cur_ratio = (len(aspirates) + len(dispenses) + 2) / len(asp_ops)
-                if cur_ratio > prev_ratio:
-                    break
-
-            prev_aspirates = aspirates
-            prev_dispenses = dispenses
-            prev_cost = len(aspirates) + len(dispenses)
-            prev_ops = asp_ops
-            demand += 1
+                    if (dest, col, offset) in dispenses:
+                        dispenses[dest, col, offset] += new_ops
+                    else:
+                        dispenses[dest, col, offset] = list(new_ops)
 
         print(
-            f"Selecting ops. Moves {prev_cost}, ops {len(prev_ops)}, cost {flow_cost}"
+            f"Selecting ops. Moves {len(aspirates) + len(dispenses)}, ops {len(asp_ops)}, cost {flow_cost}"
         )
 
-        return prev_aspirates, prev_dispenses, prev_ops
+        return aspirates, dispenses, asp_ops
 
 
 def binary_cost(G, flow_dict):
@@ -575,7 +560,7 @@ class Node:
 
         aspirates, dispenses, ops = self.open_graph.get_move()
 
-        # self.open_graph.show()
+        self.open_graph.show()
 
         new_pending = copy(self.pending_ops)
 
