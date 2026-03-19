@@ -426,57 +426,84 @@ class ColGraph(PipettingGraph):
     def get_move(self):
         G = self
 
-        flow_cost, flow_dict = nx.network_simplex(G)
+        demand = 1
+        prev_cost = 0
+        prev_ops = []
+        prev_aspirates = None
+        prev_dispenses = None
+        # Loop to select number of operations. Keep adding until we lose efficiency
+        while demand <= 8:
+            G.nodes["s"]["demand"] = -demand
+            G.nodes["t"]["demand"] = demand
 
-        # Dict of (source, col, lc): [ops]
-        aspirates = {}
-        # Dict of (dest, col): [ops]
-        dispenses = {}
-        asp_ops = []
-        disp_ops = []
-        for u, v in G.edges():
-            # try:
-            G[u][v]["flow"] = flow_dict[u][v]
+            try:
+                flow_cost, flow_dict = nx.network_simplex(G)
+            except nx.NetworkXUnfeasible:
+                break
 
-        op_groups_sorted = sorted(self.op_groups.items(), key=lambda x: -len(x[1]))
+            # Dict of (source, col, lc): [ops]
+            aspirates = {}
+            # Dict of (dest, col): [ops]
+            dispenses = {}
+            asp_ops = []
+            disp_ops = []
+            for u, v in G.edges():
+                # try:
+                G[u][v]["flow"] = flow_dict[u][v]
 
-        for (source_key, dest_key), group_ops in op_groups_sorted:
-            flow_this_col = sum(flow_dict[source_key].values())
-            if flow_this_col <= 0:
-                continue
+            op_groups_sorted = sorted(self.op_groups.items(), key=lambda x: -len(x[1]))
 
-            asp_nodes = self.group_asp_nodes[(source_key, dest_key)]
-            disp_nodes = self.group_disp_nodes[(source_key, dest_key)]
+            for (source_key, dest_key), group_ops in op_groups_sorted:
+                flow_this_col = sum(flow_dict[source_key].values())
+                if flow_this_col <= 0:
+                    continue
 
-            for u, v in self.group_edges[(source_key, dest_key)]:
-                if flow_dict[u][v] > 0 and u in asp_nodes:
-                    (_, _, source, col, _, offset) = u
-                    new_ops = set(G[u][v]["ops"]) - set(asp_ops)
-                    if len(new_ops) == 0:
-                        continue
-                    asp_ops += new_ops
-                    if (source, col, offset) in aspirates:
-                        aspirates[source, col, offset] += new_ops
-                    else:
-                        aspirates[source, col, offset] = list(new_ops)
+                asp_nodes = self.group_asp_nodes[(source_key, dest_key)]
+                disp_nodes = self.group_disp_nodes[(source_key, dest_key)]
 
-                if flow_dict[u][v] > 0 and v in disp_nodes:
-                    (_, _, dest, col, _, offset) = v
-                    new_ops = set(G[u][v]["ops"]) - set(disp_ops)
-                    if len(new_ops) == 0:
-                        continue
-                    disp_ops += new_ops
+                for u, v in self.group_edges[(source_key, dest_key)]:
+                    if flow_dict[u][v] > 0 and u in asp_nodes:
+                        (_, _, source, col, _, offset) = u
+                        new_ops = set(G[u][v]["ops"]) - set(asp_ops)
+                        if len(new_ops) == 0:
+                            continue
+                        asp_ops += new_ops
+                        if (source, col, offset) in aspirates:
+                            aspirates[source, col, offset] += new_ops
+                        else:
+                            aspirates[source, col, offset] = list(new_ops)
 
-                    if (dest, col, offset) in dispenses:
-                        dispenses[dest, col, offset] += new_ops
-                    else:
-                        dispenses[dest, col, offset] = list(new_ops)
+                    if flow_dict[u][v] > 0 and v in disp_nodes:
+                        (_, _, dest, col, _, offset) = v
+                        new_ops = set(G[u][v]["ops"]) - set(disp_ops)
+                        if len(new_ops) == 0:
+                            continue
+                        disp_ops += new_ops
+
+                        if (dest, col, offset) in dispenses:
+                            dispenses[dest, col, offset] += new_ops
+                        else:
+                            dispenses[dest, col, offset] = list(new_ops)
+
+            if demand > 1:
+                # Check if the previous selection had more ops/move than this one. If so, break and choose that
+                # Add 2 to each ratio for the time taken to wash between sets
+                prev_ratio = (prev_cost + 2) / len(prev_ops)
+                cur_ratio = (len(aspirates) + len(dispenses) + 2) / len(asp_ops)
+                if cur_ratio > prev_ratio:
+                    break
+
+            prev_aspirates = aspirates
+            prev_dispenses = dispenses
+            prev_cost = len(aspirates) + len(dispenses)
+            prev_ops = asp_ops
+            demand += 1
 
         print(
-            f"Selecting ops. Moves {len(aspirates) + len(dispenses)}, cost {flow_cost}"
+            f"Selecting ops. Moves {prev_cost}, ops {len(prev_ops)}, cost {flow_cost}"
         )
 
-        return aspirates, dispenses, asp_ops
+        return prev_aspirates, prev_dispenses, prev_ops
 
 
 def binary_cost(G, flow_dict):
