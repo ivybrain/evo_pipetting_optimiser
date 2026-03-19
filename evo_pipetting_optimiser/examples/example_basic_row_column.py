@@ -38,7 +38,7 @@ test_trough = AdvancedTrough(
     1,
     min_volume=100,
     max_volume=100_000,
-    initial_volumes=100_000,
+    initial_volumes=80_000,
     location=(2, 1),
 )
 

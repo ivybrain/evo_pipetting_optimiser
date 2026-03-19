@@ -471,6 +471,13 @@ class AutoWorklist(EvoWorklist):
                 # Get the rows we need to dispense to for the group
                 dest_rows = [op.dest_pos[0] for op in ops]
 
+                # If we have a trough, just set source rows to whichever tips we're using
+                if (
+                    getattr(source_op.destination, "virtual_rows", 0)
+                    or 0 > max(tips) - 1
+                ):
+                    dest_rows = [tip - 1 for tip in tips]
+
                 # Get the volume stored in each op
                 volumes = [op.volume for op in ops]
 
@@ -481,10 +488,7 @@ class AutoWorklist(EvoWorklist):
                 ]
 
                 # If we have a trough, just set rows to whichever tips we're using
-                if (
-                    getattr(source_op.destination, "virtual_rows", 0)
-                    or 0 > max(tips) - 1
-                ):
+                if getattr(dest_op.destination, "virtual_rows", 0) or 0 > max(tips) - 1:
                     dest_rows = [tip - 1 for tip in tips]
 
                 # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
@@ -573,7 +577,6 @@ class AutoWorklist(EvoWorklist):
                 )
         self.currently_optimising = False
         super().append("B;")
-        TransferOperation.reset_counters()
 
     def __enter__(self) -> "AutoWorklist":
         # Redefine to give correct type hint

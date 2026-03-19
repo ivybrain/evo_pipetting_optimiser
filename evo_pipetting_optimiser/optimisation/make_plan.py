@@ -335,16 +335,9 @@ class ColGraph(PipettingGraph):
             else:
                 G.add_edge(dest_row_key, dest_col, capacity=scaling, weight=0)
 
-            for source_offset in range(op.source_pos[0] - 7, op.source_pos[0] + 1):
+            # TODO: Add trough handling
 
-                # Add edges from rows to possible offsets
-
-                dest_offset = source_offset + (op.dest_pos[0] - op.source_pos[0])
-
-                # Check if this offset is feasible for the dest row
-                if dest_offset > op.dest_pos[0] or dest_offset < op.dest_pos[0] - 7:
-                    continue
-
+            def add_offset_edge(source_offset, dest_offset):
                 source_offset_key = ("s_ofst", *source_col, source_offset)
                 dest_offset_key = ("d_ofst", *dest_col, dest_offset)
                 if source_offset_key not in asp_nodes:
@@ -385,6 +378,36 @@ class ColGraph(PipettingGraph):
                     weight=0,
                 )
 
+            # Check if we have virtual rows
+            if (getattr(op.source, "virtual_rows", 0) or 0) > op.source_pos[0]:
+                source_offset_range = [0]
+                if (getattr(op.destination, "virtual_rows", 0) or 0) > op.dest_pos[0]:
+                    dest_offset_range = [0]
+                else:
+                    dest_offset_range = range(op.dest_pos[0] - 7, op.dest_pos[0] + 1)
+
+            else:
+                source_offset_range = range(op.source_pos[0] - 7, op.source_pos[0] + 1)
+                if (getattr(op.destination, "virtual_rows", 0) or 0) > op.dest_pos[0]:
+                    dest_offset_range = [0]
+                else:
+                    dest_offset_range = [None]
+
+            for source_offset in source_offset_range:
+                for dest_offset in dest_offset_range:
+                    if dest_offset is None:
+                        dest_offset = source_offset + (
+                            op.dest_pos[0] - op.source_pos[0]
+                        )
+
+                    # Check if this offset is feasible for the dest row
+                    if dest_offset > op.dest_pos[0] or dest_offset < op.dest_pos[0] - 7:
+                        continue
+
+                    add_offset_edge(source_offset, dest_offset)
+
+                # Add edges from rows to possible offsets
+
         # Re-weight source row to source offset edges based on how many sources have edges going to the same offset
         # This incentivises choosing edges to offsets that have as many compatible rows as possible
         for source_node in source_row_nodes.keys():
@@ -409,12 +432,15 @@ class ColGraph(PipettingGraph):
         aspirates = {}
         # Dict of (dest, col): [ops]
         dispenses = {}
-        ops = []
+        asp_ops = []
+        disp_ops = []
         for u, v in G.edges():
             # try:
             G[u][v]["flow"] = flow_dict[u][v]
 
-        for (source_key, dest_key), group_ops in self.op_groups.items():
+        op_groups_sorted = sorted(self.op_groups.items(), key=lambda x: -len(x[1]))
+
+        for (source_key, dest_key), group_ops in op_groups_sorted:
             flow_this_col = sum(flow_dict[source_key].values())
             if flow_this_col <= 0:
                 continue
@@ -425,24 +451,32 @@ class ColGraph(PipettingGraph):
             for u, v in self.group_edges[(source_key, dest_key)]:
                 if flow_dict[u][v] > 0 and u in asp_nodes:
                     (_, _, source, col, _, offset) = u
-                    ops += G[u][v]["ops"]
+                    new_ops = set(G[u][v]["ops"]) - set(asp_ops)
+                    if len(new_ops) == 0:
+                        continue
+                    asp_ops += new_ops
                     if (source, col, offset) in aspirates:
-                        aspirates[source, col, offset] += G[u][v]["ops"]
+                        aspirates[source, col, offset] += new_ops
                     else:
-                        aspirates[source, col, offset] = copy(G[u][v]["ops"])
+                        aspirates[source, col, offset] = list(new_ops)
 
                 if flow_dict[u][v] > 0 and v in disp_nodes:
-                    ops += G[u][v]["ops"]
                     (_, _, dest, col, _, offset) = v
+                    new_ops = set(G[u][v]["ops"]) - set(disp_ops)
+                    if len(new_ops) == 0:
+                        continue
+                    disp_ops += new_ops
+
                     if (dest, col, offset) in dispenses:
-                        dispenses[dest, col, offset] += G[u][v]["ops"]
+                        dispenses[dest, col, offset] += new_ops
                     else:
-                        dispenses[dest, col, offset] = copy(G[u][v]["ops"])
+                        dispenses[dest, col, offset] = list(new_ops)
 
         print(
             f"Selecting ops. Moves {len(aspirates) + len(dispenses)}, cost {flow_cost}"
         )
-        return aspirates, dispenses, ops
+
+        return aspirates, dispenses, asp_ops
 
 
 def binary_cost(G, flow_dict):
@@ -664,47 +698,30 @@ def make_plan(pending_ops):
     # profiler = cProfile.Profile()
     # profiler.enable()
 
-    # Repeat until we have no more operations pending
-    while len(pending_ops) > 0:
-        # Group the operations. See group_ops method for details
+    moves = init_search(pending_ops)
 
-        best_groupings = init_search(pending_ops)
+    for aspirates, dispenses in moves:
+        ops = []
+        tips_selected = []
+        for (labware, col, offset), asp_ops in aspirates.items():
+            ops += asp_ops
+            # Calculate tip from offset
+            for op in asp_ops:
+                # If source is a trough, don't assign a tip for now. Assign  from dest
+                if getattr(op.source, "virtual_rows", 0) or 0 > op.source_pos[0]:
+                    # If dest is also a trough, just assign tips sequentially
+                    if getattr(op.destination, "virtual_rows", 0) or 0 > op.dest_pos[0]:
+                        tips_selected.append(len(tips_selected) - 1)
+                    else:
+                        # Find the dest offset used for this op and use it to calculate tip
+                        for (_, _, dest_offset), disp_ops in dispenses.items():
+                            if op in disp_ops:
+                                break
 
-        # TO implement: All groups that do not contain newly completed ops are still valid
-        # keep in memory and skip calculation for next
+                        tips_selected.append(op.dest_pos[0] - dest_offset)
+                else:
+                    tips_selected.append(op.source_pos[0] - offset)
 
-        # In the simple case, we can just take the single best group. However, if the best group doesn't use all 8 tips,
-        # We can select other groups to use the remaining tips
-        # Before washing them all together
-
-        # Track how many tips we've used across the currently selected groups
-        tips_used = 0
-        # Track the selected groups, and the ops among those selected groups
-        selected_groups = []
-        selected_ops = []
-
-        # Store the cost of executing the second best group available
-        # This is a benchmark for whether to include subsequent groups
-        # e.g. if it's more efficient to select the second best group and do an additional wash,
-        # compared to adding an unefficient group to the remaining tips,
-        # Then don't add any more groups, and leave the remaining tips empty
-        # second best cost is the number of ((aspirates + dispenses) + 2 (as a wash takes two movements into the waste then cleaner)),
-        # divided by the number of ops achieved by that group
-        second_best_cost = (best_groupings[1][0] + 2) / len(best_groupings[1][2])
-
-        (steps, group_type, ops, target_groups, tips_selected) = best_groupings[0]
-
-        selected_groups.append((group_type, ops, target_groups, tips_selected))
-        selected_ops += ops
-
-        if len(selected_ops) == 0:
-            raise OffsetLimitException(
-                "No valid groups to select. This probably means you're trying to transfer between two plates with offset restrictions that don't allow this transfer"
-            )
-
-        # Process the groups into a list of sources to aspirate and a list of destinations to dispense
-        source_list = []
-        dest_list = []
         op_tip = {op: tip + 1 for op, tip in zip(ops, tips_selected)}
 
         # Check if we need to wash any tips
@@ -757,69 +774,52 @@ def make_plan(pending_ops):
             actions.append(("Wash", ops, list(op_tip.values())))
             wash_count += 1
 
-        for group_type, ops, target_groups, tips_selected in selected_groups:
-
-            if group_type == "source":
-                # If we've grouped by source, we can aspirate all ops in the group at once
-                source_list += [ops]
-                # Destinations will depend on the subgroups selected, one for each subgroup
-                dest_list += [group[0] for group in target_groups]
-
-            else:
-                # If we've grouped by destination, we can dispense all ops in the group at once
-                dest_list += [ops]
-                # Sources will depend on the subgroups selected, one for each subgroup
-                source_list += [group[0] for group in target_groups]
-
         # Sort the source list and dest list by the tips used
         # This just makes sure the pipetting occurs in an order that's less confusing visually,
         # starting from tip 1 to tip 8
         group_sort_key = lambda ops: min([op_tip[op] for op in ops])
-        source_list.sort(key=group_sort_key)
-        dest_list.sort(key=group_sort_key)
 
-        for source_group in source_list:
+        for (labware, col, offset), asp_ops in aspirates.items():
 
             # Sort the group by assigned tip
-            source_group.sort(key=lambda op: op_tip[op])
+            asp_ops.sort(key=lambda op: op_tip[op])
 
-            actions.append(
-                ("Aspirate", source_group, [op_tip[op] for op in source_group])
-            )
+            actions.append(("Aspirate", asp_ops, [op_tip[op] for op in asp_ops]))
 
             # Remove liquid from our virtual copy of the plates so we can track composition
 
-            virtual_source = labware_copy(source_group[0].source)
+            virtual_source = labware_copy(asp_ops[0].source)
             virtual_source.remove(
-                [virtual_source.wells[op.source_pos] for op in source_group],
-                [op.volume for op in source_group],
+                [virtual_source.wells[op.source_pos] for op in asp_ops],
+                [op.volume for op in asp_ops],
             )
 
             asp_count += 1
 
-        for dest_group in dest_list:
+        for (labware, col, offset), disp_ops in dispenses.items():
 
             # Sort the group by assigned tip
-            dest_group.sort(key=lambda op: op_tip[op])
+            disp_ops.sort(key=lambda op: op_tip[op])
 
-            actions.append(("Dispense", dest_group, [op_tip[op] for op in dest_group]))
+            actions.append(("Dispense", disp_ops, [op_tip[op] for op in disp_ops]))
 
             # Add liquid to our virtual copy of the plates so we can track composition
-            virtual_dest = labware_copy(dest_group[0].destination)
+            virtual_dest = labware_copy(disp_ops[0].destination)
             compositions = [
                 labware_copy(op.source).get_well_composition(
                     op.source.wells[op.source_pos]
                 )
-                for op in dest_group
+                for op in disp_ops
             ]
             virtual_dest.add(
-                [virtual_dest.wells[op.dest_pos] for op in dest_group],
-                [op.volume for op in dest_group],
+                [virtual_dest.wells[op.dest_pos] for op in disp_ops],
+                [op.volume for op in disp_ops],
                 compositions=compositions,
             )
 
             disp_count += 1
 
+        selected_ops = ops
         pending_ops.difference_update(selected_ops)
         completed_ops.update(selected_ops)
 
