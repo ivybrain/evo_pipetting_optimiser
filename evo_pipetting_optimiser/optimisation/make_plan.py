@@ -406,6 +406,12 @@ class ColGraph(PipettingGraph):
                     if dest_offset > op.dest_pos[0] or dest_offset < op.dest_pos[0] - 7:
                         continue
 
+                    source_tip = op.source_pos[0] - source_offset
+                    dest_tip = op.dest_pos[0] - dest_offset
+
+                    assert 0 <= source_tip <= 7, "Tip out of range"
+                    assert 0 <= dest_tip <= 7, "Tip out of range"
+
                     add_offset_edge(
                         source_offset,
                         dest_offset,
@@ -452,43 +458,30 @@ class ColGraph(PipettingGraph):
 
         op_groups_sorted = sorted(self.op_groups.items(), key=lambda x: -len(x[1]))
 
-        for (source_key, dest_key), group_ops in op_groups_sorted:
-            flow_this_col = sum(flow_dict[source_key].values())
-            if flow_this_col <= 0:
-                continue
+        # NOT THIS as it doesn't account for a one-to-many.
+        # Choose single asp node or single disp node
+        edge_choices = [
+            ((u, v), G.edges[u, v])
+            for u, v in G.edges
+            if u[0] == "s_ofst" and v[0] == "d_ofst" and flow_dict[u][v] > 0
+        ]
 
-            asp_nodes = self.group_asp_nodes[(source_key, dest_key)]
-            disp_nodes = self.group_disp_nodes[(source_key, dest_key)]
+        edge_choices.sort(key=lambda x: (-x[1]["flow"], -len(x[1]["ops"])))
+        # For now, make single choice
+        edge_choice = edge_choices[0]
 
-            for u, v in self.group_edges[(source_key, dest_key)]:
-                if flow_dict[u][v] > 0 and u in asp_nodes:
-                    (_, _, source, col, _, offset) = u
-                    new_ops = set(G[u][v]["ops"]) - set(asp_ops)
-                    if len(new_ops) == 0:
-                        continue
-                    asp_ops += new_ops
-                    if (source, col, offset) in aspirates:
-                        aspirates[source, col, offset] += new_ops
-                    else:
-                        aspirates[source, col, offset] = list(new_ops)
-
-                if flow_dict[u][v] > 0 and v in disp_nodes:
-                    (_, _, dest, col, _, offset) = v
-                    new_ops = set(G[u][v]["ops"]) - set(disp_ops)
-                    if len(new_ops) == 0:
-                        continue
-                    disp_ops += new_ops
-
-                    if (dest, col, offset) in dispenses:
-                        dispenses[dest, col, offset] += new_ops
-                    else:
-                        dispenses[dest, col, offset] = list(new_ops)
+        (u, v) = edge_choice[0]
+        (_, _, source, s_col, _, s_offset) = u
+        (_, _, dest, d_col, _, d_offset) = v
+        ops = G[u][v]["ops"]
+        aspirates[source, s_col, s_offset] = ops
+        dispenses[dest, d_col, d_offset] = ops
 
         print(
-            f"Selecting ops. Moves {len(aspirates) + len(dispenses)}, ops {len(asp_ops)}, cost {flow_cost}"
+            f"Selecting ops. Moves {len(aspirates) + len(dispenses)}, ops {len(ops)}, cost {flow_cost}"
         )
 
-        return aspirates, dispenses, asp_ops
+        return aspirates, dispenses, ops
 
 
 def binary_cost(G, flow_dict):
@@ -560,7 +553,7 @@ class Node:
 
         aspirates, dispenses, ops = self.open_graph.get_move()
 
-        self.open_graph.show()
+        # self.open_graph.show()
 
         new_pending = copy(self.pending_ops)
 
