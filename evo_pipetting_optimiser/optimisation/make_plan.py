@@ -306,8 +306,9 @@ class OpGraph(PipettingGraph):
 
         self.offset_edges += group_edges
 
-    def get_move(self):
+    def get_moves(self):
         G = self
+        moves = []
 
         max_flow = nx.algorithms.maximum_flow_value(G, "s", "t")
 
@@ -316,12 +317,6 @@ class OpGraph(PipettingGraph):
 
         flow_cost, flow_dict = nx.network_simplex(G)
 
-        # Dict of (source, col, lc): [ops]
-        aspirates = {}
-        # Dict of (dest, col): [ops]
-        dispenses = {}
-        asp_ops = []
-        disp_ops = []
         for u, v in G.edges():
             # try:
             G[u][v]["flow"] = flow_dict[u][v]
@@ -333,70 +328,76 @@ class OpGraph(PipettingGraph):
         ]
         selectable_nodes.sort(key=lambda x: -x[1])
 
-        node_choice = selectable_nodes[0][0]
+        for node_choice, degree in selectable_nodes:
 
-        if node_choice[0] == "s_ofst":
-            # Pre-select edges matching the source offset node for efficiency
-            selectable_edges = ((node_choice, n) for n in G[node_choice])
-        else:
-            selectable_edges = G.edges
+            # Dict of (source, col, lc): [ops]
+            aspirates = {}
+            # Dict of (dest, col): [ops]
+            dispenses = {}
+            asp_ops = []
+            disp_ops = []
 
-        tips_used = set()
-
-        for u, v in selectable_edges:
-            if not (
-                (node_choice == u and u[0] == "s_ofst")
-                or (node_choice == v and v[0] == "d_ofst")
-            ):
-                continue
-            if flow_dict[u][v] <= 0:
-                continue
-
-            (_, _, source, col, _, offset) = u
-
-            # For now, just skip if there are conflicts - this is more efficient for now
-            # ops_tips = [
-            #     (op, tip)
-            #     for (op, tip) in zip(G[u][v]["ops"], G[u][v]["tips"])
-            #     if op not in asp_ops and tip not in tips_used
-            # ]
-            # if len(ops_tips) == 0:
-            #     continue
-
-            # new_ops, new_tips = zip(*ops_tips)
-
-            new_ops = set(G[u][v]["ops"]) - set(asp_ops)
-            if len(new_ops) == 0:
-                continue
-
-            new_tips = G[u][v]["tips"]
-            if any(tip in tips_used for tip in new_tips):
-                continue
-
-            tips_used = tips_used.union(set(new_tips))
-
-            asp_ops += new_ops
-            if (source, col, offset) in aspirates:
-                aspirates[source, col, offset] += new_ops
+            if node_choice[0] == "s_ofst":
+                # Pre-select edges matching the source offset node for efficiency
+                selectable_edges = ((node_choice, n) for n in G[node_choice])
             else:
-                aspirates[source, col, offset] = list(new_ops)
+                selectable_edges = G.edges
 
-            (_, _, dest, col, _, offset) = v
+            tips_used = set()
 
-            disp_ops += new_ops
+            for u, v in selectable_edges:
+                if not (
+                    (node_choice == u and u[0] == "s_ofst")
+                    or (node_choice == v and v[0] == "d_ofst")
+                ):
+                    continue
+                if flow_dict[u][v] <= 0:
+                    continue
 
-            if (dest, col, offset) in dispenses:
-                dispenses[dest, col, offset] += new_ops
-            else:
-                dispenses[dest, col, offset] = list(new_ops)
+                (_, _, source, col, _, offset) = u
+
+                # For now, just skip if there are conflicts - this is more efficient for now
+                # ops_tips = [
+                #     (op, tip)
+                #     for (op, tip) in zip(G[u][v]["ops"], G[u][v]["tips"])
+                #     if op not in asp_ops and tip not in tips_used
+                # ]
+                # if len(ops_tips) == 0:
+                #     continue
+
+                # new_ops, new_tips = zip(*ops_tips)
+
+                new_ops = set(G[u][v]["ops"]) - set(asp_ops)
+                if len(new_ops) == 0:
+                    continue
+
+                new_tips = G[u][v]["tips"]
+                if any(tip in tips_used for tip in new_tips):
+                    continue
+
+                tips_used = tips_used.union(set(new_tips))
+
+                asp_ops += new_ops
+                if (source, col, offset) in aspirates:
+                    aspirates[source, col, offset] += new_ops
+                else:
+                    aspirates[source, col, offset] = list(new_ops)
+
+                (_, _, dest, col, _, offset) = v
+
+                disp_ops += new_ops
+
+                if (dest, col, offset) in dispenses:
+                    dispenses[dest, col, offset] += new_ops
+                else:
+                    dispenses[dest, col, offset] = list(new_ops)
+            moves.append((aspirates, dispenses, asp_ops))
 
         print(
             f"Selecting ops. Moves {len(aspirates) + len(dispenses)}, ops {len(asp_ops)}, cost {flow_cost}"
         )
 
-        assert len(asp_ops) != 0, "No ops selected"
-
-        return aspirates, dispenses, asp_ops
+        return moves
 
 
 def binary_cost(G, flow_dict):
@@ -466,46 +467,46 @@ class Node:
 
         children = []
 
-        aspirates, dispenses, ops = self.open_graph.get_move()
+        moves = self.open_graph.get_moves()
 
         # self.open_graph.show()
 
-        new_pending = copy(self.pending_ops)
+        for aspirates, dispenses, ops in moves:
 
-        new_pending.difference_update(set(ops))
-        all_open_ops = set(
-            [
-                op
-                for op in new_pending
-                if op.source_dep not in new_pending and op.dest_dep not in new_pending
-            ]
-        )
+            new_pending = copy(self.pending_ops)
 
-        # Optimisation: do by copy and modification of old graph rather than rebuild
-        new_graph = OpGraph(all_open_ops)
+            new_pending.difference_update(set(ops))
+            all_open_ops = set(
+                [
+                    op
+                    for op in new_pending
+                    if op.source_dep not in new_pending
+                    and op.dest_dep not in new_pending
+                ]
+            )
 
-        new_node = Node(
-            self,
-            new_pending,
-            all_open_ops,
-            new_graph,
-            (aspirates, dispenses),
-            len(aspirates) + len(dispenses),
-        )
-        children.append(new_node)
+            # Optimisation: do by copy and modification of old graph rather than rebuild
+            new_graph = OpGraph(all_open_ops)
+
+            new_node = Node(
+                self,
+                new_pending,
+                all_open_ops,
+                new_graph,
+                (aspirates, dispenses),
+                self.cost + len(aspirates) + len(dispenses),
+            )
+            children.append(new_node)
         return children
 
     def heuristic_cost_estimate(self):
-        score = 0
-
-        return score
+        return len(self.pending_ops) * 2
 
     def key(self):
         # If pending_ops is the same, the graph must have the same nodes
         return (
             self.fscore,
             tuple(self.pending_ops),
-            tuple(self.open_graph.edges),
         )
 
     def __hash__(self):
@@ -519,8 +520,7 @@ class Node:
         if self.key() != other.key():
             return False
 
-        iso = nx.is_isomorphic(self.open_graph, other.open_graph)
-        return iso
+        return True
 
     def __repr__(self):
         return f"Node score {self.fscore}"
@@ -551,17 +551,14 @@ def init_search(pending_ops):
             break
 
         children = node.get_neighbours()
-        # print(
-        #     f"Depth {node.depth}, score {node.fscore}, queue {len(open_nodes)}, new_children {len(children)}, pruned {prune_count}"
-        # )
+        print(
+            f"Depth {node.depth}, score {node.fscore}, queue {len(open_nodes)}, new_children {len(children)}, pruned {prune_count}"
+        )
 
         for child in children:
-            if child in generated_nodes:
-                prune_count += 1
-                continue
-            else:
-                generated_nodes.add(child)
-                open_nodes.add(child)
+
+            generated_nodes.add(child)
+            open_nodes.add(child)
 
     path = [node]
     while node.parent:
