@@ -64,3 +64,7 @@ def test_basic_transfers():
         assert wl.asp_count == 16
         assert wl.disp_count == 16
         assert wl.wash_count == 4
+
+
+if __name__ == "__main__":
+    test_basic_transfers()

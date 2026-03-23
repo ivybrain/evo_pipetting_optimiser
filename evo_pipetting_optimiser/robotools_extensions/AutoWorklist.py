@@ -10,6 +10,10 @@ from ..optimisation import group_ops, make_plan
 import time
 
 
+class OffsetLimitException(Exception):
+    pass
+
+
 class AutoWorklist(EvoWorklist):
 
     all_labware = set()
@@ -534,6 +538,9 @@ class AutoWorklist(EvoWorklist):
         super().append(
             f"C;Optimisation session complete. aspirates: {counts[0]}, dispenses: {counts[1]}, washes: {counts[2]}"
         )
+        self.asp_count = counts[0]
+        self.disp_count = counts[1]
+        self.wash_count = counts[2]
         super().append("B;")
 
         return

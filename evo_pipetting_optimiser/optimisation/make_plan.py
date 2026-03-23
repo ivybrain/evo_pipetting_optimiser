@@ -327,7 +327,7 @@ class OpGraph(PipettingGraph):
         for u, v in selectable_edges:
             if not (
                 (node_choice == u and u[0] == "s_ofst")
-                or (node_choice == v and v[0] == "t_ofst")
+                or (node_choice == v and v[0] == "d_ofst")
             ):
                 continue
             if flow_dict[u][v] <= 0:
@@ -374,6 +374,8 @@ class OpGraph(PipettingGraph):
         print(
             f"Selecting ops. Moves {len(aspirates) + len(dispenses)}, ops {len(asp_ops)}, cost {flow_cost}"
         )
+
+        assert len(asp_ops) != 0, "No ops selected"
 
         return aspirates, dispenses, asp_ops
 
