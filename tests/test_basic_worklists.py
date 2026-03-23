@@ -46,7 +46,6 @@ def test_basic_transfers():
             1250,
             liquid_class="Water free dispense",
         )
-
         # Same situation but transferring row to column
         # Will do several aspirates, but group to one dispense
         wl.auto_transfer(

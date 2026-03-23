@@ -540,7 +540,7 @@ class AutoWorklist(EvoWorklist):
         )
         self.asp_count = counts[0]
         self.disp_count = counts[1]
-        self.wash_count = counts[2]
+        self.wash_count = counts[2] + 1
         super().append("B;")
 
         return

@@ -8,6 +8,7 @@ from collections import deque
 from sortedcontainers import SortedSet, SortedKeyList
 from matplotlib import pyplot as plt
 import itertools
+import math
 
 
 class OffsetLimitException(Exception):
@@ -128,20 +129,19 @@ class OpGraph(PipettingGraph):
                 self.op_to_group[op] = (source_key(op), dest_key(op))
 
             # Populate each group with the subgraph
-            self.group_asp_nodes = {}
-            self.group_disp_nodes = {}
-            self.group_edges = {}
+
+            self.offset_edges = []
+            self.source_offset_out_edges = {}
+            self.dest_offset_in_edges = {}
+
             for (source_col, dest_col), ops in self.op_groups.items():
                 self.create_subgraph(source_col, dest_col, ops)
 
-            # max_capacity = 0
-            # for u, v in self.op_groups:
-            #     max_capacity = max(max_capacity, G[u][v]["capacity"])
-
-            # for u, v in self.op_groups:
-            #     G[u][v]["weight"] = 1 + (max_capacity - G[u][v]["capacity"])
-            #     # perfect cost would be 1 / capcaity but that doesn't work with simplex as it integerfies everything
-            #     # Potentially make an integer only approximation
+            # Reweight offset edges
+            for u, v in self.offset_edges:
+                G.edges[u, v]["weight"] = (
+                    0 - self.source_offset_out_edges[u] - self.dest_offset_in_edges[v]
+                )
 
             return
 
@@ -152,13 +152,9 @@ class OpGraph(PipettingGraph):
     def create_subgraph(self, source_col, dest_col, ops):
         G = self
         scaling = 1
-
-        self.group_asp_nodes[(source_col, dest_col)] = {}
-        asp_nodes = self.group_asp_nodes[(source_col, dest_col)]
-        self.group_disp_nodes[(source_col, dest_col)] = {}
-        disp_nodes = self.group_disp_nodes[(source_col, dest_col)]
-        self.group_edges[(source_col, dest_col)] = []
-        group_edges = self.group_edges[(source_col, dest_col)]
+        asp_nodes = {}
+        disp_nodes = {}
+        group_edges = []
         source_row_nodes = {}
         dest_row_nodes = {}
         for op in ops:
@@ -194,6 +190,17 @@ class OpGraph(PipettingGraph):
                     asp_nodes[source_offset_key] += 1
                 if (dest_row_key, dest_offset_key) not in G.edges:
                     disp_nodes[dest_offset_key] += 1
+
+                if source_offset_key not in self.source_offset_out_edges:
+                    self.source_offset_out_edges[source_offset_key] = 1
+                else:
+                    self.source_offset_out_edges[source_offset_key] += 1
+
+                if dest_offset_key not in self.dest_offset_in_edges:
+                    self.dest_offset_in_edges[dest_offset_key] = 1
+                else:
+                    self.dest_offset_in_edges[dest_offset_key] += 1
+
                 G.add_edge(
                     source_row_key,
                     source_offset_key,
@@ -274,18 +281,30 @@ class OpGraph(PipettingGraph):
 
         # Re-weight source row to source offset edges based on how many sources have edges going to the same offset
         # This incentivises choosing edges to offsets that have as many compatible rows as possible
-        for source_node in source_row_nodes.keys():
-            for source_node_offset, source_count in asp_nodes.items():
-                if (source_node, source_node_offset) in G.edges:
-                    G.edges[source_node, source_node_offset]["weight"] = (
-                        9 - source_count
-                    )
+        # for source_node in source_row_nodes.keys():
+        #     for source_node_offset, source_count in asp_nodes.items():
+        #         if (source_node, source_node_offset) in G.edges:
+        #             G.edges[source_node, source_node_offset]["weight"] = (
+        #                 9 - source_count
+        #             )
 
-        # Same for dest
-        for dest_node in dest_row_nodes.keys():
-            for dest_node_offset, dest_count in disp_nodes.items():
-                if (dest_node_offset, dest_node) in G.edges:
-                    G.edges[dest_node_offset, dest_node]["weight"] = 9 - dest_count
+        # # Same for dest
+        # for dest_node in dest_row_nodes.keys():
+        #     for dest_node_offset, dest_count in disp_nodes.items():
+        #         if (dest_node_offset, dest_node) in G.edges:
+        #             G.edges[dest_node_offset, dest_node]["weight"] = 9 - dest_count
+
+        # Attempt integer 1/n reweight
+        # INT_RES = 256
+
+        # def approx_1_n(n):
+        #     return round((1 / n) * INT_RES)
+
+        # for u, v in G.edges():
+        #     if G.edges[u, v]["capacity"] > 0:
+        #         G.edges[u, v]["weight"] = approx_1_n(G.edges[u, v]["capacity"])
+
+        self.offset_edges += group_edges
 
     def get_move(self):
         G = self
