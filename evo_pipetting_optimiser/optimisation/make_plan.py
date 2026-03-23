@@ -64,162 +64,7 @@ class PipettingGraph(nx.DiGraph):
         plt.show()
 
 
-class TipGraph(PipettingGraph):
-
-    def __init__(self, ops=None):
-        """
-        Init a graph from a set of ops
-        Graph used to decide which rows to pipette and which tips to use
-        Between a single col source and single col dest
-        Graph has 6 'columns'
-        source node
-        source labware rows
-        all possible offsets for source labware
-        all possible offsets for dest labware
-        dest labware rows
-        sink node
-        """
-        super().__init__()
-
-        if ops:
-            G = self
-            scaling = 1
-            demand = scaling * min(8, len(ops))
-            G.add_node("s", demand=-demand)
-            G.add_node("t", demand=demand)
-
-            self.asp_nodes = {}
-            self.disp_nodes = {}
-            source_row_nodes = {}
-            dest_row_nodes = {}
-            for op in ops:
-
-                source_row_key = (*source_key(op), op.source_pos[0])
-                source_row_nodes[source_row_key] = True
-
-                if ("s", source_row_key) in G.edges:
-                    G.edges[("s", source_row_key)]["capacity"] += scaling
-                else:
-                    G.add_edge("s", source_row_key, capacity=scaling, weight=0)
-
-                dest_row_key = (*dest_key(op), op.dest_pos[0])
-                dest_row_nodes[dest_row_key] = True
-                if (dest_row_key, "t") in G.edges:
-                    G.edges[(dest_row_key, "t")]["capacity"] += scaling
-                else:
-                    G.add_edge(dest_row_key, "t", capacity=scaling, weight=0)
-
-                for source_offset in range(op.source_pos[0] - 7, op.source_pos[0] + 1):
-
-                    # Add edges from rows to possible offsets
-
-                    dest_offset = source_offset + (op.dest_pos[0] - op.source_pos[0])
-
-                    # Check if this offset is feasible for the dest row
-                    if dest_offset > op.dest_pos[0] or dest_offset < op.dest_pos[0] - 7:
-                        continue
-
-                    source_offset_key = ("s_ofst", *source_key(op), source_offset)
-                    dest_offset_key = ("d_ofst", *dest_key(op), dest_offset)
-                    if source_offset_key not in self.asp_nodes:
-                        self.asp_nodes[source_offset_key] = 0
-                    if dest_offset_key not in self.disp_nodes:
-                        self.disp_nodes[dest_offset_key] = 0
-
-                    if (source_row_key, source_offset_key) not in G.edges:
-                        self.asp_nodes[source_offset_key] += 1
-                    if (dest_row_key, dest_offset_key) not in G.edges:
-                        self.disp_nodes[dest_offset_key] += 1
-                    G.add_edge(
-                        source_row_key,
-                        source_offset_key,
-                        capacity=scaling,
-                        weight=0,
-                    )
-
-                    # Set weight based on how many incident edges the nodes at each end have
-                    if (source_offset_key, dest_offset_key) in G.edges:
-                        G.edges[(source_offset_key, dest_offset_key)][
-                            "capacity"
-                        ] += scaling
-                        G.edges[(source_offset_key, dest_offset_key)]["ops"].append(op)
-
-                    else:
-                        G.add_edge(
-                            source_offset_key,
-                            dest_offset_key,
-                            capacity=scaling,
-                            weight=0,
-                            ops=[op],
-                        )
-
-                    G.add_edge(
-                        dest_offset_key,
-                        dest_row_key,
-                        capacity=scaling,
-                        weight=0,
-                    )
-
-            # Re-weight source row to source offset edges based on how many sources have edges going to the same offset
-            # This incentivises choosing edges to offsets that have as many compatible rows as possible
-            for source_node in source_row_nodes.keys():
-                for source_node_offset, source_count in self.asp_nodes.items():
-                    if (source_node, source_node_offset) in G.edges:
-                        G.edges[source_node, source_node_offset]["weight"] = (
-                            9 - source_count
-                        )
-
-            # Same for dest
-            for dest_node in dest_row_nodes.keys():
-                for dest_node_offset, dest_count in self.disp_nodes.items():
-                    if (dest_node_offset, dest_node) in G.edges:
-                        G.edges[dest_node_offset, dest_node]["weight"] = 9 - dest_count
-
-            # Add weight for central edges that's 16 - the number of out edges from offset - number of in edges to dest offset
-            # for source_node, source_count in asp_nodes.items():
-            #     for dest_node, dest_count in disp_nodes.items():
-            #         if (source_node, dest_node) in G.edges:
-            #             G.edges[source_node, dest_node]["weight"] = (
-            #                 17 - source_count - dest_count
-            #             )
-
-    def get_move(self):
-        G = self
-
-        flow_cost, flow_dict = nx.network_simplex(G)
-
-        # Dict of (source, row, offset): [ops]
-        aspirates = {}
-        # Dict of (dest, row, offset): ops
-        dispenses = {}
-        for u, v in G.edges():
-            try:
-                G[u][v]["flow"] = flow_dict[u][v]
-                if flow_dict[u][v] > 0 and u in self.asp_nodes:
-                    (_, source, row, _, offset) = u
-                    if (source, row, offset) in aspirates:
-                        aspirates[source, row, offset] += G[u][v]["ops"]
-                    else:
-                        aspirates[source, row, offset] = copy(G[u][v]["ops"])
-
-                if flow_dict[u][v] > 0 and v in self.disp_nodes:
-                    (_, dest, row, _, offset) = v
-                    if (dest, row, offset) in dispenses:
-                        dispenses[dest, row, offset] += G[u][v]["ops"]
-                    else:
-                        dispenses[dest, row, offset] = copy(G[u][v]["ops"])
-
-            except KeyError:
-                G[u][v]["flow"] = 0
-
-        print(flow_cost, binary_cost(G, flow_dict))
-        return aspirates, dispenses
-
-    def gen_empty(self):
-        pass
-
-
-class ColGraph(PipettingGraph):
+class OpGraph(PipettingGraph):
     def __init__(self, ops=None):
         """
         Init a graph from a set of ops
@@ -489,6 +334,18 @@ class ColGraph(PipettingGraph):
                 continue
 
             (_, _, source, col, _, offset) = u
+
+            # For now, just skip if there are conflicts - this is more efficient for now
+            # ops_tips = [
+            #     (op, tip)
+            #     for (op, tip) in zip(G[u][v]["ops"], G[u][v]["tips"])
+            #     if op not in asp_ops and tip not in tips_used
+            # ]
+            # if len(ops_tips) == 0:
+            #     continue
+
+            # new_ops, new_tips = zip(*ops_tips)
+
             new_ops = set(G[u][v]["ops"]) - set(asp_ops)
             if len(new_ops) == 0:
                 continue
@@ -506,9 +363,7 @@ class ColGraph(PipettingGraph):
                 aspirates[source, col, offset] = list(new_ops)
 
             (_, _, dest, col, _, offset) = v
-            new_ops = set(G[u][v]["ops"]) - set(disp_ops)
-            if len(new_ops) == 0:
-                continue
+
             disp_ops += new_ops
 
             if (dest, col, offset) in dispenses:
@@ -577,7 +432,7 @@ class Node:
         )
 
         # self.pending_graph = TipGraph(pending_ops)
-        self.open_graph = ColGraph(self.open_ops)
+        self.open_graph = OpGraph(self.open_ops)
         # self.open_graph = TipGraph()
 
         self.move = None
@@ -606,7 +461,7 @@ class Node:
         )
 
         # Optimisation: do by copy and modification of old graph rather than rebuild
-        new_graph = ColGraph(all_open_ops)
+        new_graph = OpGraph(all_open_ops)
 
         new_node = Node(
             self,
