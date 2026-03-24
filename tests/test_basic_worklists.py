@@ -56,7 +56,7 @@ def test_basic_transfers():
             1250,
             liquid_class="Water free dispense",
         )
-        # print(wl.report_ops())
+
         wl.commit()
 
         # Ensure it completes this task efficiently as expected
