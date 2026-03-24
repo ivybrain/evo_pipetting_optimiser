@@ -465,6 +465,10 @@ class Node:
 
     def get_neighbours(self):
 
+        # If this node doesn't have a graph built yet, build it
+        if not self.open_graph:
+            self.open_graph = OpGraph(self.open_ops)
+
         children = []
 
         moves = self.open_graph.get_moves()
@@ -485,14 +489,11 @@ class Node:
                 ]
             )
 
-            # Optimisation: do by copy and modification of old graph rather than rebuild
-            new_graph = OpGraph(all_open_ops)
-
             new_node = Node(
                 self,
                 new_pending,
                 all_open_ops,
-                new_graph,
+                None,
                 (aspirates, dispenses),
                 self.cost + len(aspirates) + len(dispenses),
             )
@@ -547,7 +548,7 @@ def init_search(pending_ops):
 
         node = open_nodes.pop(0)
 
-        if len(node.open_graph) == 0:
+        if len(node.open_ops) == 0:
             break
 
         children = node.get_neighbours()
@@ -612,8 +613,8 @@ def make_plan(pending_ops):
     start_time = time.time()
 
     prev_tip_op = {}
-    # profiler = cProfile.Profile()
-    # profiler.enable()
+    profiler = cProfile.Profile()
+    profiler.enable()
 
     moves = init_search(pending_ops)
 
@@ -740,9 +741,9 @@ def make_plan(pending_ops):
         pending_ops.difference_update(selected_ops)
         completed_ops.update(selected_ops)
 
-    # profiler.disable()
-    # stats = pstats.Stats(profiler)
-    # stats.dump_stats("program.cprof")
+    profiler.disable()
+    stats = pstats.Stats(profiler)
+    stats.dump_stats("program.cprof")
 
     cost = asp_count + disp_count + (wash_count * 2)
 
