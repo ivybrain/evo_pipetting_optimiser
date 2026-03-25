@@ -66,7 +66,7 @@ class PipettingGraph(nx.DiGraph):
 
 
 class OpGraph(PipettingGraph):
-    def __init__(self, ops=None):
+    def __init__(self, ops=None, available_tips = set(range(8))):
         """
         Init a graph from a set of ops
         Graph used to decide which col in which source and dest to pipette
@@ -79,6 +79,8 @@ class OpGraph(PipettingGraph):
         sink node
         """
         super().__init__()
+
+        self.available_tips = available_tips
 
         if ops:
             G = self
@@ -211,8 +213,7 @@ class OpGraph(PipettingGraph):
                 # Set weight based on how many incident edges the nodes at each end have
                 if (source_offset_key, dest_offset_key) in G.edges:
                     G.edges[(source_offset_key, dest_offset_key)]["capacity"] += scaling
-                    G.edges[(source_offset_key, dest_offset_key)]["ops"].append(op)
-                    G.edges[(source_offset_key, dest_offset_key)]["tips"].append(tip)
+                    G.edges[(source_offset_key, dest_offset_key)]["op_tip"][op] = tip
 
                 else:
                     group_edges.append((source_offset_key, dest_offset_key))
@@ -221,8 +222,7 @@ class OpGraph(PipettingGraph):
                         dest_offset_key,
                         capacity=scaling,
                         weight=0,
-                        ops=[op],
-                        tips=[tip],
+                        op_tip={op: tip}
                     )
 
                 G.add_edge(
@@ -240,10 +240,12 @@ class OpGraph(PipettingGraph):
                 if dest_virtual_rows > op.dest_pos[0]:
                     dest_offset_range = [0]
                 else:
-                    dest_offset_range = range(op.dest_pos[0] - 7, op.dest_pos[0] + 1)
+                    # tip = row - offset
+                    # offset = row - tip
+                    dest_offset_range = [op.dest_pos[0] - tip for tip in self.available_tips]
 
             else:
-                source_offset_range = range(op.source_pos[0] - 7, op.source_pos[0] + 1)
+                source_offset_range = [op.source_pos[0] - tip for tip in self.available_tips]
                 if dest_virtual_rows > op.dest_pos[0]:
                     dest_offset_range = [0]
                 else:
@@ -367,13 +369,17 @@ class OpGraph(PipettingGraph):
 
                 # new_ops, new_tips = zip(*ops_tips)
 
-                new_ops = set(G[u][v]["ops"]) - set(asp_ops)
+                new_ops, new_tips = zip(*G[u][v]["op_tip"].items())
+                if any([op in asp_ops for op in new_ops]):
+                    raise Exception("oops")
+
                 if len(new_ops) == 0:
                     continue
-
-                new_tips = G[u][v]["tips"]
                 if any(tip in tips_used for tip in new_tips):
                     continue
+
+                if any(tip not in self.available_tips for tip in new_tips):
+                    raise Exception("Invalid assignment of used tip")
 
                 tips_used = tips_used.union(set(new_tips))
 
@@ -391,7 +397,7 @@ class OpGraph(PipettingGraph):
                     dispenses[dest, col, offset] += new_ops
                 else:
                     dispenses[dest, col, offset] = list(new_ops)
-            moves.append((aspirates, dispenses, asp_ops))
+            moves.append((aspirates, dispenses, asp_ops, tips_used))
 
         print(
             f"Selecting ops. Moves {len(aspirates) + len(dispenses)}, ops {len(asp_ops)}, cost {flow_cost}"
@@ -428,7 +434,7 @@ class Node:
             # plt.show()
 
         else:
-            (pending_ops, open_ops, open_graph, move, cost) = args
+            (pending_ops, open_ops, open_graph, move, cost, available_tips) = args
 
             self.open_graph = open_graph
             self.pending_ops = pending_ops
@@ -437,6 +443,7 @@ class Node:
 
             self.cost = cost
             self.move = move
+            self.available_tips = available_tips
 
         self.fscore = self.cost + self.heuristic_cost_estimate()
 
@@ -460,22 +467,55 @@ class Node:
         self.move = None
         self.cost = 0
         self.depth = 0
+        self.available_tips = set(range(8))
 
         return
 
     def get_neighbours(self):
+        children = []
+
+        # If we're not the first node, and the move to get here was not a wash, we can wash
+        
+        if self.depth > 0 and self.move[0] != "Wash":
+            # Find all the ops conducted and tips used since last wash
+            ops = []
+            tips = []
+            n = self
+            while n.parent and n.parent.move and n.parent.move[0] != "Wash":
+                ops += n.move[2]
+                tips += n.move[3]
+
+                n = n.parent
+
+            # give wash a cost of 2
+            # all tips are once again available
+            wash_node = Node(
+                self,
+                copy(self.pending_ops),
+                copy(self.open_ops),
+                None,
+                ("Wash", ops, tips),
+                self.cost + 2,
+                set(range(8))
+            )
+            children.append(wash_node)
+
+        # If we don't have any available tips, the only option is wash. so return
+        if not self.available_tips:
+            return children
+
 
         # If this node doesn't have a graph built yet, build it
         if not self.open_graph:
-            self.open_graph = OpGraph(self.open_ops)
-
-        children = []
-
+            self.open_graph = OpGraph(self.open_ops, self.available_tips)
+       
+        
         moves = self.open_graph.get_moves()
+
 
         # self.open_graph.show()
 
-        for aspirates, dispenses, ops in moves:
+        for aspirates, dispenses, ops, tips in moves:
 
             new_pending = copy(self.pending_ops)
 
@@ -488,20 +528,99 @@ class Node:
                     and op.dest_dep not in new_pending
                 ]
             )
+            
 
             new_node = Node(
                 self,
                 new_pending,
                 all_open_ops,
                 None,
-                (aspirates, dispenses),
+                (aspirates, dispenses, ops, tips),
                 self.cost + len(aspirates) + len(dispenses),
+                self.available_tips - set(tips),
             )
             children.append(new_node)
+
         return children
+    
+    # def check_wash(self):
+    #     for tip, op in zip(tips_selected, ops):
+    #         # Standard or decontamination mean we require a wash
+    #         if op.wash_scheme in [1, "D"] and tip in prev_tip_op:
+    #             wash_needed = True
+
+    #         if op.wash_scheme == "smart" and tip in prev_tip_op:
+    #             past_op = prev_tip_op[tip]
+
+    #             past_source = labware_copy(past_op.source)
+    #             past_dest = labware_copy(past_op.destination)
+    #             source = labware_copy(op.source)
+    #             dest = labware_copy(op.destination)
+
+    #             past_source_comp = past_source.get_well_composition(
+    #                 past_source.wells[past_op.source_pos]
+    #             )
+
+    #             past_dest_comp = past_dest.get_well_composition(
+    #                 past_dest.wells[past_op.dest_pos]
+    #             )
+
+    #             source_comp = source.get_well_composition(source.wells[op.source_pos])
+
+    #             past_touched = list(past_source_comp.items()) + list(
+    #                 past_dest_comp.items()
+    #             )
+
+    #             for prev_key, prev_conc in past_touched:
+    #                 # If the previous op touched a liquid that is not present in our source, we need to wash to not contaminate it
+    #                 if prev_key not in source_comp:
+    #                     wash_needed = True
+    #                     break
+
+    #                 # If last op touched a well with more than twice the conc of the source, wash to not contaminate with the higher conc
+    #                 if prev_conc > 2 * source_comp[prev_key]:
+    #                     wash_needed = True
+    #                     break
+
+    #             # If we've already determined we need a wash, no point checking the other tips
+    #             if wash_needed:
+    #                 break
+
+    #         prev_tip_op[tip] = op
 
     def heuristic_cost_estimate(self):
-        return len(self.pending_ops) * 2
+
+        def longest_consecutive_sequence(nums):
+            # Convert the list to a set for O(1) average time complexity lookups
+            num_set = set(nums)
+            longest_length = 0
+
+            for num in num_set:
+                # Check if the current number is the start of a sequence
+                # A number is a start if 'num - 1' is not in the set
+                if num - 1 not in num_set:
+                    current_num = num
+                    current_length = 1
+
+                    # Count the length of the consecutive sequence
+                    while current_num + 1 in num_set:
+                        current_num += 1
+                        current_length += 1
+
+                    # Update the maximum length found so far
+                    longest_length = max(longest_length, current_length)
+
+            return longest_length
+
+        op_cost = len(self.pending_ops) * 2
+
+        
+        longest_seq = longest_consecutive_sequence(self.available_tips) 
+        if len(self.pending_ops) > longest_seq:
+            # Give a slight preference for having more contiguous tips
+            op_cost -= ((len(self.available_tips) / 5) + (longest_seq / 5))
+        
+        return op_cost
 
     def key(self):
         # If pending_ops is the same, the graph must have the same nodes
@@ -618,85 +737,23 @@ def make_plan(pending_ops):
 
     moves = init_search(pending_ops)
 
-    for aspirates, dispenses in moves:
-        ops = []
-        tips_selected = []
-        for (labware, col, offset), asp_ops in aspirates.items():
-            ops += asp_ops
-            # Calculate tip from offset
-            for op in asp_ops:
-                # If source is a trough, don't assign a tip for now. Assign  from dest
-                if getattr(op.source, "virtual_rows", 0) or 0 > op.source_pos[0]:
-                    # If dest is also a trough, just assign tips sequentially
-                    if getattr(op.destination, "virtual_rows", 0) or 0 > op.dest_pos[0]:
-                        tips_selected.append(len(tips_selected) - 1)
-                    else:
-                        # Find the dest offset used for this op and use it to calculate tip
-                        for (_, _, dest_offset), disp_ops in dispenses.items():
-                            if op in disp_ops:
-                                break
 
-                        tips_selected.append(op.dest_pos[0] - dest_offset)
-                else:
-                    tips_selected.append(op.source_pos[0] - offset)
 
-        op_tip = {op: tip + 1 for op, tip in zip(ops, tips_selected)}
+    for move in moves:
 
-        # Check if we need to wash any tips
-        wash_needed = False
-        for tip, op in zip(tips_selected, ops):
-            # Standard or decontamination mean we require a wash
-            if op.wash_scheme in [1, "D"] and tip in prev_tip_op:
-                wash_needed = True
-
-            if op.wash_scheme == "smart" and tip in prev_tip_op:
-                past_op = prev_tip_op[tip]
-
-                past_source = labware_copy(past_op.source)
-                past_dest = labware_copy(past_op.destination)
-                source = labware_copy(op.source)
-                dest = labware_copy(op.destination)
-
-                past_source_comp = past_source.get_well_composition(
-                    past_source.wells[past_op.source_pos]
-                )
-
-                past_dest_comp = past_dest.get_well_composition(
-                    past_dest.wells[past_op.dest_pos]
-                )
-
-                source_comp = source.get_well_composition(source.wells[op.source_pos])
-
-                past_touched = list(past_source_comp.items()) + list(
-                    past_dest_comp.items()
-                )
-
-                for prev_key, prev_conc in past_touched:
-                    # If the previous op touched a liquid that is not present in our source, we need to wash to not contaminate it
-                    if prev_key not in source_comp:
-                        wash_needed = True
-                        break
-
-                    # If last op touched a well with more than twice the conc of the source, wash to not contaminate with the higher conc
-                    if prev_conc > 2 * source_comp[prev_key]:
-                        wash_needed = True
-                        break
-
-                # If we've already determined we need a wash, no point checking the other tips
-                if wash_needed:
-                    break
-
-            prev_tip_op[tip] = op
-
-        if wash_needed:
-            actions.append(("Wash", ops, list(op_tip.values())))
+        if move[0] == "Wash":
+            _, ops, tips = move
+            actions.append(("Wash", ops, [tip + 1 for tip in tips]))
             wash_count += 1
 
-        # Sort the source list and dest list by the tips used
-        # This just makes sure the pipetting occurs in an order that's less confusing visually,
-        # starting from tip 1 to tip 8
-        group_sort_key = lambda ops: min([op_tip[op] for op in ops])
+            continue
 
+        # Otherwise, we have these fields
+        aspirates, dispenses, ops, tips_selected = move
+
+        op_tip = {op: tip + 1 for op, tip in zip(ops, tips_selected)}
+        
+        
         for (labware, col, offset), asp_ops in aspirates.items():
 
             # Sort the group by assigned tip
