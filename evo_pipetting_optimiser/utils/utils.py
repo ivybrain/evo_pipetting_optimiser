@@ -61,3 +61,24 @@ def check_sublist(main_list, sub_list):
         if main_list[i : i + len(sub_list)] == sub_list:
             return True
     return False
+
+
+def longest_consecutive_sequence(nums):
+    num_set = set(nums)
+    longest_length = 0
+    for num in num_set:
+        # Check if the current number is the start of a sequence
+        # A number is a start if 'num - 1' is not in the set
+        if num - 1 not in num_set:
+            current_num = num
+            current_length = 1
+
+            # Count the length of the consecutive sequence
+            while current_num + 1 in num_set:
+                current_num += 1
+                current_length += 1
+
+            # Update the maximum length found so far
+            longest_length = max(longest_length, current_length)
+
+    return longest_length

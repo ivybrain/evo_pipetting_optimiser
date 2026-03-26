@@ -4,11 +4,9 @@ from copy import copy, deepcopy
 import cProfile, pstats
 import time
 import networkx as nx
-from collections import deque
 from sortedcontainers import SortedSet
 from matplotlib import pyplot as plt
-import itertools
-import math
+from ..utils import longest_consecutive_sequence
 
 
 class OffsetLimitException(Exception):
@@ -626,28 +624,6 @@ class Node:
 
     def heuristic_cost_estimate(self):
 
-        def longest_consecutive_sequence(nums):
-            # Convert the list to a set for O(1) average time complexity lookups
-            num_set = set(nums)
-            longest_length = 0
-
-            for num in num_set:
-                # Check if the current number is the start of a sequence
-                # A number is a start if 'num - 1' is not in the set
-                if num - 1 not in num_set:
-                    current_num = num
-                    current_length = 1
-
-                    # Count the length of the consecutive sequence
-                    while current_num + 1 in num_set:
-                        current_num += 1
-                        current_length += 1
-
-                    # Update the maximum length found so far
-                    longest_length = max(longest_length, current_length)
-
-            return longest_length
-
         op_cost = len(self.pending_ops) * 2
 
         longest_seq = longest_consecutive_sequence(self.available_tips)
@@ -662,12 +638,25 @@ class Node:
         return (
             self.fscore,
             tuple(self.pending_ops),
+            -longest_consecutive_sequence(self.available_tips),
+            -len(self.available_tips),
         )
+
+    def compare_key(self):
+        return (
+            self.fscore,
+            len(tuple(self.pending_ops)),
+            -longest_consecutive_sequence(self.available_tips),
+            -len(self.available_tips),
+        )
+
+    def __lt__(self, other):
+        return self.compare_key() <= other.compare_key()
 
     def __hash__(self):
         return hash(self.key())
 
-    # Hashes will collide whenever edges and vertices are the same - we then use isomorphic to check equality
+    # Hashes will collide whenever edges and vertices are the same -
     def __eq__(self, other):
         if not isinstance(other, Node):
             return False
@@ -692,7 +681,7 @@ def dest_key(op):
 def init_search(pending_ops):
 
     initial_node = Node(None, pending_ops)
-    open_nodes = SortedSet([initial_node], key=lambda node: (node.fscore, -node.depth))
+    open_nodes = SortedSet([initial_node])
     generated_nodes = set([initial_node])
     node = None
     max_len = 0
@@ -711,6 +700,9 @@ def init_search(pending_ops):
         )
 
         for child in children:
+            if child in generated_nodes:
+                prune_count += 1
+                continue
 
             generated_nodes.add(child)
             open_nodes.add(child)
