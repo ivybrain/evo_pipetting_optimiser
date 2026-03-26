@@ -66,7 +66,7 @@ class PipettingGraph(nx.DiGraph):
 
 
 class OpGraph(PipettingGraph):
-    def __init__(self, ops=None, available_tips = set(range(8))):
+    def __init__(self, ops=None, available_tips=set(range(8))):
         """
         Init a graph from a set of ops
         Graph used to decide which col in which source and dest to pipette
@@ -222,7 +222,7 @@ class OpGraph(PipettingGraph):
                         dest_offset_key,
                         capacity=scaling,
                         weight=0,
-                        op_tip={op: tip}
+                        op_tip={op: tip},
                     )
 
                 G.add_edge(
@@ -242,10 +242,14 @@ class OpGraph(PipettingGraph):
                 else:
                     # tip = row - offset
                     # offset = row - tip
-                    dest_offset_range = [op.dest_pos[0] - tip for tip in self.available_tips]
+                    dest_offset_range = [
+                        op.dest_pos[0] - tip for tip in self.available_tips
+                    ]
 
             else:
-                source_offset_range = [op.source_pos[0] - tip for tip in self.available_tips]
+                source_offset_range = [
+                    op.source_pos[0] - tip for tip in self.available_tips
+                ]
                 if dest_virtual_rows > op.dest_pos[0]:
                     dest_offset_range = [0]
                 else:
@@ -345,7 +349,7 @@ class OpGraph(PipettingGraph):
             else:
                 selectable_edges = G.edges
 
-            tips_used = set()
+            tips_used = []
 
             for u, v in selectable_edges:
                 if not (
@@ -371,7 +375,7 @@ class OpGraph(PipettingGraph):
 
                 new_ops, new_tips = zip(*G[u][v]["op_tip"].items())
                 if any([op in asp_ops for op in new_ops]):
-                    raise Exception("oops")
+                    continue
 
                 if len(new_ops) == 0:
                     continue
@@ -381,7 +385,7 @@ class OpGraph(PipettingGraph):
                 if any(tip not in self.available_tips for tip in new_tips):
                     raise Exception("Invalid assignment of used tip")
 
-                tips_used = tips_used.union(set(new_tips))
+                tips_used += new_tips
 
                 asp_ops += new_ops
                 if (source, col, offset) in aspirates:
@@ -475,7 +479,7 @@ class Node:
         children = []
 
         # If we're not the first node, and the move to get here was not a wash, we can wash
-        
+
         if self.depth > 0 and self.move[0] != "Wash":
             # Find all the ops conducted and tips used since last wash
             ops = []
@@ -496,7 +500,7 @@ class Node:
                 None,
                 ("Wash", ops, tips),
                 self.cost + 2,
-                set(range(8))
+                set(range(8)),
             )
             children.append(wash_node)
 
@@ -504,14 +508,11 @@ class Node:
         if not self.available_tips:
             return children
 
-
         # If this node doesn't have a graph built yet, build it
         if not self.open_graph:
             self.open_graph = OpGraph(self.open_ops, self.available_tips)
-       
-        
-        moves = self.open_graph.get_moves()
 
+        moves = self.open_graph.get_moves()
 
         # self.open_graph.show()
 
@@ -528,7 +529,6 @@ class Node:
                     and op.dest_dep not in new_pending
                 ]
             )
-            
 
             new_node = Node(
                 self,
@@ -542,7 +542,7 @@ class Node:
             children.append(new_node)
 
         return children
-    
+
     # def check_wash(self):
     #     for tip, op in zip(tips_selected, ops):
     #         # Standard or decontamination mean we require a wash
@@ -614,12 +614,11 @@ class Node:
 
         op_cost = len(self.pending_ops) * 2
 
-        
-        longest_seq = longest_consecutive_sequence(self.available_tips) 
+        longest_seq = longest_consecutive_sequence(self.available_tips)
         if len(self.pending_ops) > longest_seq:
             # Give a slight preference for having more contiguous tips
-            op_cost -= ((len(self.available_tips) / 5) + (longest_seq / 5))
-        
+            op_cost -= (len(self.available_tips) / 5) + (longest_seq / 5)
+
         return op_cost
 
     def key(self):
@@ -737,8 +736,6 @@ def make_plan(pending_ops):
 
     moves = init_search(pending_ops)
 
-
-
     for move in moves:
 
         if move[0] == "Wash":
@@ -752,8 +749,7 @@ def make_plan(pending_ops):
         aspirates, dispenses, ops, tips_selected = move
 
         op_tip = {op: tip + 1 for op, tip in zip(ops, tips_selected)}
-        
-        
+
         for (labware, col, offset), asp_ops in aspirates.items():
 
             # Sort the group by assigned tip
