@@ -485,9 +485,12 @@ class Node:
             ops = []
             tips = []
             n = self
-            while n.parent and n.parent.move and n.parent.move[0] != "Wash":
+            while True:
                 ops += n.move[2]
                 tips += n.move[3]
+
+                if not (n.parent and n.parent.move and n.parent.move[0] != "Wash"):
+                    break
 
                 n = n.parent
 
