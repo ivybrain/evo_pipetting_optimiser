@@ -5,7 +5,7 @@ import cProfile, pstats
 import time
 import networkx as nx
 from collections import deque
-from sortedcontainers import SortedSet, SortedKeyList
+from sortedcontainers import SortedSet
 from matplotlib import pyplot as plt
 import itertools
 import math
@@ -13,6 +13,42 @@ import math
 
 class OffsetLimitException(Exception):
     pass
+
+
+class Move:
+    def __init__(self, aspirates, dispenses, ops, tips):
+        self.aspirates = aspirates
+        self.dispenses = dispenses
+        self.ops = ops
+        self.tips = tips
+
+    def key(self):
+        asp_loc, asp_ops = self.aspirates.items()
+        disp_loc, disp_ops = self.dispenses.items()
+        return (asp_loc, tuple(op.id for op in asp_ops)), (
+            disp_loc,
+            tuple(op.id for op in disp_ops),
+        )
+
+    def tuple(self):
+        return self.aspirates, self.dispenses, self.ops, self.tips
+
+    def __repr__(self):
+        return str(self.tuple())
+
+    def __eq__(self, other):
+        if not isinstance(other, Move):
+            return False
+        return self.key() == other.key()
+
+    def __hash__(self):
+        return hash(self.key)
+
+    def __lt__(self, other):
+        return self.key() < other.key()
+
+    def __gt__(self, other):
+        return self.key() > other.key()
 
 
 # Abstract
@@ -314,6 +350,7 @@ class OpGraph(PipettingGraph):
 
     def get_moves(self):
         G = self
+
         moves = []
 
         flow_dict = nx.algorithms.max_flow_min_cost(G, "s", "t")
@@ -396,13 +433,13 @@ class OpGraph(PipettingGraph):
                     dispenses[dest, col, offset] += new_ops
                 else:
                     dispenses[dest, col, offset] = list(new_ops)
-            moves.append((aspirates, dispenses, asp_ops, tips_used))
+            moves.append(Move(aspirates, dispenses, asp_ops, tips_used))
 
         print(
             f"Selecting ops. Moves {len(aspirates) + len(dispenses)}, ops {len(asp_ops)}"
         )
 
-        return moves
+        return set(moves)
 
 
 def binary_cost(G, flow_dict):
@@ -514,7 +551,8 @@ class Node:
 
         # self.open_graph.show()
 
-        for aspirates, dispenses, ops, tips in moves:
+        for move in moves:
+            aspirates, dispenses, ops, tips = move.tuple()
 
             new_pending = copy(self.pending_ops)
 
