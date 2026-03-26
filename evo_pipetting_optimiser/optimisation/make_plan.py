@@ -316,12 +316,7 @@ class OpGraph(PipettingGraph):
         G = self
         moves = []
 
-        max_flow = nx.algorithms.maximum_flow_value(G, "s", "t")
-
-        G.nodes["s"]["demand"] = -max_flow
-        G.nodes["t"]["demand"] = max_flow
-
-        flow_cost, flow_dict = nx.network_simplex(G)
+        flow_dict = nx.algorithms.max_flow_min_cost(G, "s", "t")
 
         for u, v in G.edges():
             # try:
@@ -404,7 +399,7 @@ class OpGraph(PipettingGraph):
             moves.append((aspirates, dispenses, asp_ops, tips_used))
 
         print(
-            f"Selecting ops. Moves {len(aspirates) + len(dispenses)}, ops {len(asp_ops)}, cost {flow_cost}"
+            f"Selecting ops. Moves {len(aspirates) + len(dispenses)}, ops {len(asp_ops)}"
         )
 
         return moves
