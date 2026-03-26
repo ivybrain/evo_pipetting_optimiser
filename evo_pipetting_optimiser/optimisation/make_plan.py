@@ -433,10 +433,6 @@ class OpGraph(PipettingGraph):
                     dispenses[dest, col, offset] = list(new_ops)
             moves.append(Move(aspirates, dispenses, asp_ops, tips_used))
 
-        print(
-            f"Selecting ops. Moves {len(aspirates) + len(dispenses)}, ops {len(asp_ops)}"
-        )
-
         return set(moves)
 
 
@@ -530,7 +526,7 @@ class Node:
                 self,
                 copy(self.pending_ops),
                 copy(self.open_ops),
-                None,
+                OpGraph(self.open_ops, set(range(8))),
                 ("Wash", ops, tips),
                 self.cost + 2,
                 set(range(8)),
@@ -541,9 +537,7 @@ class Node:
         if not self.available_tips:
             return children
 
-        # If this node doesn't have a graph built yet, build it
-        if not self.open_graph:
-            self.open_graph = OpGraph(self.open_ops, self.available_tips)
+        # If this node doesn't have subgraphs built yet, build it
 
         moves = self.open_graph.get_moves()
 
@@ -568,7 +562,7 @@ class Node:
                 self,
                 new_pending,
                 all_open_ops,
-                None,
+                OpGraph(all_open_ops, self.available_tips - set(tips)),
                 (aspirates, dispenses, ops, tips),
                 self.cost + len(aspirates) + len(dispenses),
                 self.available_tips - set(tips),
