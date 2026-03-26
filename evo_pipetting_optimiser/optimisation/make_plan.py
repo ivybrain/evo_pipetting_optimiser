@@ -166,19 +166,6 @@ class OpGraph(PipettingGraph):
 
             # Populate each group with the subgraph
 
-            self.offset_edges = []
-            self.source_offset_out_edges = {}
-            self.dest_offset_in_edges = {}
-
-            for (source_col, dest_col), ops in self.op_groups.items():
-                self.create_subgraph(source_col, dest_col, ops)
-
-            # Reweight offset edges
-            for u, v in self.offset_edges:
-                G.edges[u, v]["weight"] = (
-                    0 - self.source_offset_out_edges[u] - self.dest_offset_in_edges[v]
-                )
-
             return
 
     # def remove_ops(self, ops):
@@ -348,6 +335,20 @@ class OpGraph(PipettingGraph):
 
     def get_moves(self):
         G = self
+
+        # Create subgraph representing offsets
+        self.offset_edges = []
+        self.source_offset_out_edges = {}
+        self.dest_offset_in_edges = {}
+
+        for (source_col, dest_col), ops in self.op_groups.items():
+            self.create_subgraph(source_col, dest_col, ops)
+
+        # Reweight offset edges
+        for u, v in self.offset_edges:
+            G.edges[u, v]["weight"] = (
+                0 - self.source_offset_out_edges[u] - self.dest_offset_in_edges[v]
+            )
 
         moves = []
 
