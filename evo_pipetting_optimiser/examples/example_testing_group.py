@@ -65,6 +65,7 @@ def basic_row_column(worklist):
             dilution_plate.wells.flatten()[:32],
             50,
             liquid_class="Water free dispense",
+            wash_scheme="smart",
         )
 
         print(wl.report)

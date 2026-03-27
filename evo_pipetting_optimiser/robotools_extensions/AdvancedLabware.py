@@ -73,8 +73,9 @@ class AdvancedLabware(robotools.Labware):
         if not location:
             raise ValueError("Grid and Site must be specified")
         self.location = location
-
-        self.offset_limit_up = offset_limit_up
-        self.offset_limit_down = offset_limit_down
+        self.offset_limit_up = offset_limit_up if offset_limit_up is not None else 7
+        self.offset_limit_down = (
+            offset_limit_down if offset_limit_down is not None else self.n_rows - 1
+        )
 
         self.reset_op_tracking()

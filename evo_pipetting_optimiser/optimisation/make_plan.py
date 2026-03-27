@@ -14,12 +14,12 @@ class OffsetLimitException(Exception):
 
 
 class Move:
-    def __init__(self, aspirates, dispenses, ops, tips):
+    def __init__(self, aspirates, dispenses, ops, tips, wash=True):
         self.aspirates = aspirates
         self.dispenses = dispenses
         self.ops = ops
         self.tips = tips
-        wash_penalty = 2
+        wash_penalty = 2 if wash else 0
 
         # Score the efficiency of the move
         self.score = (len(ops) * 2) / (len(aspirates) + len(dispenses) + wash_penalty)
@@ -102,7 +102,7 @@ class PipettingGraph(nx.DiGraph):
 
 
 class OpGraph(PipettingGraph):
-    def __init__(self, ops=None, available_tips=set(range(8))):
+    def __init__(self, ops=None, available_tips=set(range(8)), node=None):
         """
         Init a graph from a set of ops
         Graph used to decide which col in which source and dest to pipette
@@ -117,6 +117,7 @@ class OpGraph(PipettingGraph):
         super().__init__()
 
         self.available_tips = available_tips
+        self.node = node
 
         if ops:
             G = self
@@ -284,7 +285,15 @@ class OpGraph(PipettingGraph):
                         )
 
                     # Check if this offset is feasible for the dest row
-                    if dest_offset > op.dest_pos[0] or dest_offset < op.dest_pos[0] - 7:
+                    source_limit_up = -op.source.offset_limit_up
+                    source_limit_down = op.source.offset_limit_down
+                    dest_limit_up = -op.destination.offset_limit_up
+                    dest_limit_down = op.destination.offset_limit_down
+
+                    if not (source_limit_up <= source_offset <= source_limit_down):
+                        continue
+
+                    if not (dest_limit_up <= dest_offset <= dest_limit_down):
                         continue
 
                     source_tip = op.source_pos[0] - source_offset
@@ -332,6 +341,63 @@ class OpGraph(PipettingGraph):
         #         G.edges[u, v]["weight"] = approx_1_n(G.edges[u, v]["capacity"])
 
         self.offset_edges += group_edges
+
+    def check_wash(self, ops, tips):
+        """
+        Check if a wash is needed given parent ops
+        """
+        if not (self.node.parent and self.node.parent.move):
+            return False
+
+        return True
+        # if all(tip in )
+
+        return True
+        prev_ops, prev_tips = self.node.parent.move[-2:]
+        prev_tip_op = {tip: op for op, tip in zip(prev_ops, prev_tips)}
+        for op, tip in zip(ops, tips):
+            # Standard or decontamination mean we require a wash
+            if op.wash_scheme in [1, "D"] and tip in prev_tip_op:
+                return True
+
+            if op.wash_scheme == "smart" and tip in prev_tip_op:
+                past_op = prev_tip_op[tip]
+
+                past_source = labware_copy(past_op.source)
+                past_dest = labware_copy(past_op.destination)
+                source = labware_copy(op.source)
+                dest = labware_copy(op.destination)
+
+                past_source_comp = past_source.get_well_composition(
+                    past_source.wells[past_op.source_pos]
+                )
+
+                past_dest_comp = past_dest.get_well_composition(
+                    past_dest.wells[past_op.dest_pos]
+                )
+
+                source_comp = source.get_well_composition(source.wells[op.source_pos])
+
+                past_touched = list(past_source_comp.items()) + list(
+                    past_dest_comp.items()
+                )
+
+                for prev_key, prev_conc in past_touched:
+                    # If the previous op touched a liquid that is not present in our source, we need to wash to not contaminate it
+                    if prev_key not in source_comp:
+                        wash_needed = True
+                        break
+
+                    # If last op touched a well with more than twice the conc of the source, wash to not contaminate with the higher conc
+                    if prev_conc > 2 * source_comp[prev_key]:
+                        wash_needed = True
+                        break
+
+                # If we've already determined we need a wash, no point checking the other tips
+                if wash_needed:
+                    break
+
+            prev_tip_op[tip] = op
 
     def get_moves(self):
         G = self
@@ -432,11 +498,12 @@ class OpGraph(PipettingGraph):
                     dispenses[dest, col, offset] += new_ops
                 else:
                     dispenses[dest, col, offset] = list(new_ops)
-            moves.append(Move(aspirates, dispenses, asp_ops, tips_used))
+            wash = self.check_wash(asp_ops, tips_used)
+            moves.append(Move(aspirates, dispenses, asp_ops, tips_used, wash))
 
         moves.sort(key=lambda move: move.score, reverse=True)
         # Limit branching factor
-        return set(moves[:2])
+        return set(moves[:1])
 
 
 def binary_cost(G, flow_dict):
@@ -499,6 +566,7 @@ class Node:
 
         # self.pending_graph = TipGraph(pending_ops)
         self.open_graph = OpGraph(self.open_ops)
+        self.open_graph.node = self
         # self.open_graph = TipGraph()
 
         self.move = None
@@ -538,6 +606,7 @@ class Node:
                 self.cost + 2,
                 set(range(8)),
             )
+            wash_node.open_graph.node = wash_node
             children.append(wash_node)
 
         # If we don't have any available tips, the only option is wash. so return
@@ -574,54 +643,10 @@ class Node:
                 self.cost + len(aspirates) + len(dispenses),
                 self.available_tips - set(tips),
             )
+            new_node.open_graph.node = new_node
             children.append(new_node)
 
         return children
-
-    # def check_wash(self):
-    #     for tip, op in zip(tips_selected, ops):
-    #         # Standard or decontamination mean we require a wash
-    #         if op.wash_scheme in [1, "D"] and tip in prev_tip_op:
-    #             wash_needed = True
-
-    #         if op.wash_scheme == "smart" and tip in prev_tip_op:
-    #             past_op = prev_tip_op[tip]
-
-    #             past_source = labware_copy(past_op.source)
-    #             past_dest = labware_copy(past_op.destination)
-    #             source = labware_copy(op.source)
-    #             dest = labware_copy(op.destination)
-
-    #             past_source_comp = past_source.get_well_composition(
-    #                 past_source.wells[past_op.source_pos]
-    #             )
-
-    #             past_dest_comp = past_dest.get_well_composition(
-    #                 past_dest.wells[past_op.dest_pos]
-    #             )
-
-    #             source_comp = source.get_well_composition(source.wells[op.source_pos])
-
-    #             past_touched = list(past_source_comp.items()) + list(
-    #                 past_dest_comp.items()
-    #             )
-
-    #             for prev_key, prev_conc in past_touched:
-    #                 # If the previous op touched a liquid that is not present in our source, we need to wash to not contaminate it
-    #                 if prev_key not in source_comp:
-    #                     wash_needed = True
-    #                     break
-
-    #                 # If last op touched a well with more than twice the conc of the source, wash to not contaminate with the higher conc
-    #                 if prev_conc > 2 * source_comp[prev_key]:
-    #                     wash_needed = True
-    #                     break
-
-    #             # If we've already determined we need a wash, no point checking the other tips
-    #             if wash_needed:
-    #                 break
-
-    #         prev_tip_op[tip] = op
 
     def heuristic_cost_estimate(self):
         # op_cost = 0
@@ -631,14 +656,14 @@ class Node:
         # ):
         #     op_cost += (n_ops // 8) + 1
 
-        op_cost = len(self.pending_ops) * 2
+        op_cost = (len(self.pending_ops) * 18) / 8
 
         longest_seq = longest_consecutive_sequence(self.available_tips)
         if len(self.pending_ops) > longest_seq:
             # Give a slight preference for having more contiguous tips
             op_cost -= (len(self.available_tips) / 5) + (longest_seq / 5)
 
-        return op_cost
+        return op_cost - (self.depth)
 
     def key(self):
         # If pending_ops is the same, the graph must have the same nodes
