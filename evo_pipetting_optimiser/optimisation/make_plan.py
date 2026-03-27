@@ -19,17 +19,19 @@ class Move:
         self.dispenses = dispenses
         self.ops = ops
         self.tips = tips
+        wash_penalty = 2
+
+        # Score the efficiency of the move
+        self.score = (len(ops) * 2) / (len(aspirates) + len(dispenses) + wash_penalty)
 
     def key(self):
-        asp_loc, asp_ops = self.aspirates.items()
-        disp_loc, disp_ops = self.dispenses.items()
-        return (asp_loc, tuple(op.id for op in asp_ops)), (
-            disp_loc,
-            tuple(op.id for op in disp_ops),
-        )
+        asp_ops = tuple(op for set in self.aspirates.values() for op in set)
+        disp_ops = tuple(op for set in self.dispenses.values() for op in set)
+
+        return (self.score, asp_ops, disp_ops)
 
     def tuple(self):
-        return self.aspirates, self.dispenses, self.ops, self.tips
+        return self.score, self.aspirates, self.dispenses, self.ops, self.tips
 
     def __repr__(self):
         return str(self.tuple())
@@ -163,8 +165,6 @@ class OpGraph(PipettingGraph):
                     self.op_groups[(source_key(op), dest_key(op))] = [op]
 
                 self.op_to_group[op] = (source_key(op), dest_key(op))
-
-            # Populate each group with the subgraph
 
             return
 
@@ -434,7 +434,9 @@ class OpGraph(PipettingGraph):
                     dispenses[dest, col, offset] = list(new_ops)
             moves.append(Move(aspirates, dispenses, asp_ops, tips_used))
 
-        return set(moves)
+        moves.sort(key=lambda move: move.score, reverse=True)
+        # Limit branching factor
+        return set(moves[:2])
 
 
 def binary_cost(G, flow_dict):
@@ -443,6 +445,10 @@ def binary_cost(G, flow_dict):
         if G.edges[u, v]["weight"] > 0 and flow_dict[u][v] > 0:
             cost += 1
     return cost
+
+
+class ColGraph(OpGraph):
+    pass
 
 
 class Node:
@@ -545,7 +551,7 @@ class Node:
         # self.open_graph.show()
 
         for move in moves:
-            aspirates, dispenses, ops, tips = move.tuple()
+            score, aspirates, dispenses, ops, tips = move.tuple()
 
             new_pending = copy(self.pending_ops)
 
@@ -618,6 +624,12 @@ class Node:
     #         prev_tip_op[tip] = op
 
     def heuristic_cost_estimate(self):
+        # op_cost = 0
+
+        # for n_ops in list(self.open_graph.asp_nodes.values()) + list(
+        #     self.open_graph.disp_nodes.values()
+        # ):
+        #     op_cost += (n_ops // 8) + 1
 
         op_cost = len(self.pending_ops) * 2
 
@@ -633,14 +645,13 @@ class Node:
         return (
             self.fscore,
             tuple(self.pending_ops),
-            -longest_consecutive_sequence(self.available_tips),
-            -len(self.available_tips),
         )
 
     def compare_key(self):
         return (
             self.fscore,
             len(tuple(self.pending_ops)),
+            -self.depth,
             -longest_consecutive_sequence(self.available_tips),
             -len(self.available_tips),
         )
@@ -651,7 +662,6 @@ class Node:
     def __hash__(self):
         return hash(self.key())
 
-    # Hashes will collide whenever edges and vertices are the same -
     def __eq__(self, other):
         if not isinstance(other, Node):
             return False
@@ -674,6 +684,8 @@ def dest_key(op):
 
 
 def init_search(pending_ops):
+
+    # TODO: if certain time has elapsed, reweght to depth first
 
     initial_node = Node(None, pending_ops)
     open_nodes = SortedSet([initial_node])

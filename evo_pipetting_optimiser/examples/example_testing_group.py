@@ -49,7 +49,7 @@ def basic_row_column(worklist):
 
         # wl.auto_transfer(
         #     sample_plate,
-        #     #[sample_plate.wells.flatten("F")[i//2] for i in range(32)],
+        #     # [sample_plate.wells.flatten("F")[i//2] for i in range(32)],
         #     dilution_plate.wells.flatten()[:32],
         #     dilution_plate,
         #     dilution_plate.wells.flatten()[:32],
