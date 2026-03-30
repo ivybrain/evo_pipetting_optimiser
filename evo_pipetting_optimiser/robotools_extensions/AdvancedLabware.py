@@ -29,7 +29,7 @@ class AdvancedLabware(robotools.Labware):
         location=None,
         offset_limit_up=None,
         offset_limit_down=None,
-        **kwargs
+        **kwargs,
     ):
         """Creates an `AdvancedLabware` object for AutoWorklist pipetting optimisation
 

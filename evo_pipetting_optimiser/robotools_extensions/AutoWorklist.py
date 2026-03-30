@@ -269,12 +269,6 @@ class AutoWorklist(EvoWorklist):
             dest_well = destination_wells[i]
             if len(dest_well) == 2:
                 dest_well = dest_well[0] + "0" + dest_well[1]
-            source_dep = (
-                source.last_op[source_well]
-                if isinstance(source, AdvancedLabware)
-                else None
-            )
-            dest_dep = destination.last_op[dest_well]
 
             for j in range(repeats):
 
@@ -287,19 +281,8 @@ class AutoWorklist(EvoWorklist):
                     label=label,
                     wash_scheme=wash_scheme,
                     on_underflow=on_underflow,
-                    source_dep=source_dep,
-                    dest_dep=dest_dep,
                     liquid_class=liquid_class,
                 )
-
-                if source_dep:
-                    source_dep.dep_children.append(op)
-                if dest_dep:
-                    dest_dep.dep_children.append(op)
-
-                # Set the source and dest dependencies of the next LVH repeat op to this op
-                source_dep = op
-                dest_dep = op
 
                 # Append this op to the labware we're aspirating to
                 # So that future transfers to the well know that they need to wait for this transfer first

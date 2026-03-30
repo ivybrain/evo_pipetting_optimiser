@@ -11,12 +11,7 @@ class AdvancedTrough(AdvancedLabware, robotools.Trough):
     """
 
     def __init__(
-        self,
-        *args,
-        location=None,
-        offset_limit_up=None,
-        offset_limit_down=None,
-        **kwargs
+        self, *args, location=None, offset_limit_up=7, offset_limit_down=7, **kwargs
     ):
         """Creates an `AdvancedTrough` object for AutoWorklist pipetting optimisation
 
