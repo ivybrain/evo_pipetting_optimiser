@@ -53,31 +53,17 @@ class TransferOperation:
         self.source_dep = source.last_op[source_well]
         self.dest_dep = destination.last_op[dest_well]
 
-        if not self.source_dep:
-            self.source_volume = source.volumes[source_pos] - volume
-            source_composition = source.get_well_composition(source_well)
-        else:
-            self.source_volume = self.source_dep.dest_volume - volume
-            source_composition = self.source_dep.dest_composition
+        self.source_volume = source.latest_volume(source_well) - volume
+        source_composition = source.latest_composition(source_well)
 
-        if not self.dest_dep:
-            self.dest_volume = self.destination.volumes[dest_pos] + volume
-            self.dest_composition = combine_composition(
-                volume,
-                source_composition,
-                destination.volumes[dest_pos],
-                destination.get_well_composition(dest_well),
-            )
+        self.dest_volume = destination.latest_volume(dest_well) + volume
 
-        else:
-            self.dest_volume = self.dest_dep.dest_volume + volume
-
-            self.dest_composition = combine_composition(
-                volume,
-                source_composition,
-                self.dest_dep.dest_volume,
-                self.dest_dep.dest_composition,
-            )
+        self.dest_composition = combine_composition(
+            volume,
+            source_composition,
+            destination.volumes[dest_pos],
+            destination.latest_composition(dest_well),
+        )
 
         return
 

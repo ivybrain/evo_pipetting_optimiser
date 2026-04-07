@@ -286,7 +286,8 @@ class AutoWorklist(EvoWorklist):
 
                 # Append this op to the labware we're aspirating to
                 # So that future transfers to the well know that they need to wait for this transfer first
-                destination.op_tracking[destination_wells[i]].append(op)
+                source.source_op_tracking[source_well].append(op)
+                destination.op_tracking[dest_well].append(op)
 
                 # Add this op to the pending operations set
                 self.pending_ops.update([op])
