@@ -67,8 +67,12 @@ class AutoWorklist(EvoWorklist):
         self.arm = 1
 
         self.diti_mode = diti_mode
+        self.tips_mounted = None
         if diti_mode and (default_tip is None):
             raise ValueError("Default tip index must be specified in DiTi Mode")
+
+        if not waste_location:
+            raise ValueError("Waste location must be specified")
 
         if not diti_mode and not (cleaner_location and waste_location):
             raise ValueError(
@@ -183,6 +187,7 @@ class AutoWorklist(EvoWorklist):
             elif isinstance(tip, Tip):
                 tip_selection += tip.value
 
+        self.tips_mounted = tip_index
         self.append(
             f"B;GetDiti({tip_selection}, {tip_index}, {int(retry)}, {self.arm})"
         )
@@ -199,6 +204,7 @@ class AutoWorklist(EvoWorklist):
             elif isinstance(tip, Tip):
                 tip_selection += tip.value
 
+        self.tips_mounted = None
         self.append(
             f"B;DropDiTi({tip_selection}, {self.wash_params["waste_location"][0]}, {self.wash_params["waste_location"][1]}, {self.wash_params["airgap"]}, {self.wash_params["airgap_speed"]}, {self.arm})"
         )
@@ -404,6 +410,12 @@ class AutoWorklist(EvoWorklist):
         assert (
             len(tips) == len(wash_schemes) == len(tip_volumes)
         ), "Internal wash assignment error"
+
+        if self.diti_mode:
+            self.drop_diti(tips)
+            self.silence_append_warning = False
+            return
+
         decon_mask = [scheme == "D" for scheme in wash_schemes]
         decon_tips = [tips[i] for i in range(len(tips)) if decon_mask[i]]
         decon_wells = [tip - 1 for tip in decon_tips]
@@ -482,6 +494,20 @@ class AutoWorklist(EvoWorklist):
                 # Get the volumes stored in the ops
                 volumes = [op.volume for op in ops]
 
+                # Mount tips if we don't have any
+                if self.diti_mode and not self.tips_mounted:
+                    self.silence_append_warning = True
+                    self.get_diti(tips, ops[0].tip_index, retry=True)
+                    self.silence_append_warning = False
+
+                # Check that tip type index matches for all ops
+                if self.diti_mode:
+                    for op in ops:
+                        if self.tips_mounted != op.tip_index:
+                            raise Exception(
+                                "Error, attempting to aspirate with wrong tip type mounted"
+                            )
+
                 # Check from earlier troubleshooting
                 if len(tips) != len(set(tips)):
                     raise Exception("Error in tip logic")
@@ -503,6 +529,11 @@ class AutoWorklist(EvoWorklist):
                     getattr(source_op.source, "offset_limit_up", None) or 10000
                 ), "Offset limit violated"
 
+                # If in diti mode, extract the liquid class only from the liquid class + tip string
+                liquid_class = source_op.liquid_class
+                if self.diti_mode:
+                    liquid_class = liquid_class.split(";")[0]
+
                 # Perform the aspiration
                 self._evo_aspirate(
                     source_op.source,
@@ -510,7 +541,7 @@ class AutoWorklist(EvoWorklist):
                     source_op.source.location,
                     list(tips),
                     list(volumes),
-                    liquid_class=source_op.liquid_class,
+                    liquid_class=liquid_class,
                     label=" + ".join(set([op.label for op in ops]))
                     + ", ops: "
                     + ",".join([str(op.id) for op in ops]),
@@ -558,6 +589,11 @@ class AutoWorklist(EvoWorklist):
                     dest_op.destination.offset_limit_up or 10000
                 ), "Offset limit exceeded"
 
+                # If in diti mode, extract the liquid class only from the liquid class + tip string
+                liquid_class = dest_op.liquid_class
+                if self.diti_mode:
+                    liquid_class = liquid_class.split(";")[0]
+
                 # Perform the dispense op
                 self._evo_dispense(
                     dest_op.destination,
@@ -565,7 +601,7 @@ class AutoWorklist(EvoWorklist):
                     dest_op.destination.location,
                     list(tips),
                     list(volumes),
-                    liquid_class=dest_op.liquid_class,
+                    liquid_class=liquid_class,
                     label=" + ".join(set([op.label for op in ops]))
                     + ", ops: "
                     + ",".join([str(op.id) for op in ops]),

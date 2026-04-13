@@ -45,7 +45,9 @@ test_trough = AdvancedTrough(
 
 def basic_row_column(worklist):
 
-    with AutoWorklist(worklist, diti_mode=True, default_tip=11, arm=1) as wl:
+    with AutoWorklist(
+        worklist, diti_mode=True, default_tip=11, arm=1, waste_location=(42, 17)
+    ) as wl:
 
         wl.auto_transfer(
             sample_plate,
