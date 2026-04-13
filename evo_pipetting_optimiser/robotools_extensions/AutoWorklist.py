@@ -480,7 +480,7 @@ class AutoWorklist(EvoWorklist):
 
     def execute_plan(self, plan, counts):
 
-        for action, ops, tips in plan:
+        for i, (action, ops, tips) in enumerate(plan):
 
             if action == "Aspirate":
 
@@ -496,8 +496,20 @@ class AutoWorklist(EvoWorklist):
 
                 # Mount tips if we don't have any
                 if self.diti_mode and not self.tips_mounted:
+
+                    # Find the next 'wash' action and include all tips used up until that action
+                    search_index = i
+                    get_tips = []
+                    while search_index < len(plan):
+                        a, o, t = plan[search_index]
+                        if a == "Aspirate":
+                            get_tips += t
+                        if a == "Wash":
+                            break
+                        search_index += 1
+
                     self.silence_append_warning = True
-                    self.get_diti(tips, ops[0].tip_index, retry=True)
+                    self.get_diti(get_tips, ops[0].tip_index, retry=True)
                     self.silence_append_warning = False
 
                 # Check that tip type index matches for all ops
