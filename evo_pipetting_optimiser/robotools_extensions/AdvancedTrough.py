@@ -57,4 +57,4 @@ class AdvancedTrough(AdvancedLabware, robotools.Trough):
         self.offset_limit_up = offset_limit_up
         self.offset_limit_down = offset_limit_down
 
-        self.op_tracking = {well: [] for well in self.wells.flatten("F")}
+        self.reset_op_tracking()

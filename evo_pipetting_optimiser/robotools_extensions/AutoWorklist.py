@@ -20,9 +20,12 @@ class AutoWorklist(EvoWorklist):
 
     def __init__(
         self,
-        worklist_path,
-        waste_location: Tuple[int, int],
-        cleaner_location: Tuple[int, int],
+        worklist_path: str,
+        waste_location: Tuple[int, int] = None,
+        cleaner_location: Tuple[int, int] = None,
+        diti_mode: bool = False,
+        default_tip: int = None,
+        arm: int = 0,
         *args,
         **kwargs,
     ):
@@ -30,9 +33,17 @@ class AutoWorklist(EvoWorklist):
         worklist_path
             Optional filename/filepath to write when the context is exited (must include a .gwl extension)
         waste_location:  (int, int)
-            (grid, site) tuple for the waste station location on the evo. Used for automatic washes
+            (grid, site) tuple for the waste station location on the evo. Used for automatic washes if diti_mode=False. If diti_mode=True,
+            this is the location to drop ditis
         cleaner_location: (int, int)
-            (grid, site) tuple for the cleaner station location on the evo. Used for automatic washes
+            (grid, site) tuple for the cleaner station location on the evo. Used for automatic washes if diti_mode=False
+        diti_mode: bool
+            Set to true for an EVO with disposable tips instead of fixed
+        default_tip: int
+            Tip ID in evoware for the default disposable tip type to use when a specific tip type is not specified in a transfer command.
+            Must be set if diti_mode = True
+        arm: int
+            LiHa number. Default=0
         max_volume : int
             Maximum aspiration volume in µL
 
@@ -53,6 +64,18 @@ class AutoWorklist(EvoWorklist):
             "cleaner_location": cleaner_location,
         }
         self.set_wash_parameters()
+        self.arm = 1
+
+        self.diti_mode = diti_mode
+        if diti_mode and (default_tip is None):
+            raise ValueError("Default tip index must be specified in DiTi Mode")
+
+        if not diti_mode and not (cleaner_location and waste_location):
+            raise ValueError(
+                "Cleaner and Waste locations must be specified if diti_mode=False"
+            )
+
+        self.default_tip = default_tip
 
     def set_wash_parameters(
         self,
@@ -145,6 +168,41 @@ class AutoWorklist(EvoWorklist):
 
             self.wash_params[key] = passed_value
 
+    def get_diti(self, tips, tip_index, retry=False):
+        """
+        Get Ditis when diti mode
+        """
+
+        if not self.diti_mode:
+            raise Exception("Cannot get Ditis unless in DiTi mode")
+
+        tip_selection = 0
+        for tip in tips:
+            if isinstance(tip, int):
+                tip_selection += 2 ** (tip - 1)
+            elif isinstance(tip, Tip):
+                tip_selection += tip.value
+
+        self.append(
+            f"B;GetDiti({tip_selection}, {tip_index}, {int(retry)}, {self.arm})"
+        )
+
+    def drop_diti(self, tips):
+
+        if not self.diti_mode:
+            raise Exception("Cannot drop Ditis unless in DiTi mode")
+
+        tip_selection = 0
+        for tip in tips:
+            if isinstance(tip, int):
+                tip_selection += 2 ** (tip - 1)
+            elif isinstance(tip, Tip):
+                tip_selection += tip.value
+
+        self.append(
+            f"B;DropDiTi({tip_selection}, {self.wash_params["waste_location"][0]}, {self.wash_params["waste_location"][1]}, {self.wash_params["airgap"]}, {self.wash_params["airgap_speed"]}, {self.arm})"
+        )
+
     def auto_transfer(
         self,
         source: Union[AdvancedLabware, Trough],
@@ -157,6 +215,7 @@ class AutoWorklist(EvoWorklist):
         on_underflow: Literal["debug", "warn", "raise"] = "raise",
         liquid_class: str = None,
         wash_scheme: Literal["D", 1, None] = 1,
+        tip_index=None,
         **kwargs,
     ) -> None:
         """Transfer operation between two labwares with automatic pipetting order optimisation
@@ -206,6 +265,14 @@ class AutoWorklist(EvoWorklist):
         destination_wells = np.array(destination_wells).flatten("F")
         volumes = np.array(volumes).flatten("F")
         nmax = max((len(source_wells), len(destination_wells), len(volumes)))
+
+        # If in diti mode and tip not specified, assign the default tip
+        if self.diti_mode and (tip_index is None):
+            tip_index = self.default_tip
+
+        # If diti mode, append the tip index to the liquid class so that ops are grouped by tip type as well
+        if self.diti_mode:
+            liquid_class += f";{tip_index}"
 
         if len(source_wells) == 1:
             source_wells = np.repeat(source_wells, nmax)
@@ -282,6 +349,7 @@ class AutoWorklist(EvoWorklist):
                     wash_scheme=wash_scheme,
                     on_underflow=on_underflow,
                     liquid_class=liquid_class,
+                    tip_index=tip_index,
                 )
 
                 # Append this op to the labware we're aspirating to
@@ -309,12 +377,12 @@ class AutoWorklist(EvoWorklist):
     # Avoid warning the user in this case
     def _evo_aspirate(self, *args, silence_append_warning=True, **kwargs):
         self.silence_append_warning = silence_append_warning
-        super().evo_aspirate(*args, **kwargs)
+        super().evo_aspirate(*args, arm=self.arm, **kwargs)
         self.silence_append_warning = False
 
     def _evo_dispense(self, *args, silence_append_warning=True, **kwargs):
         self.silence_append_warning = silence_append_warning
-        super().evo_dispense(*args, **kwargs)
+        super().evo_dispense(*args, arm=self.arm, **kwargs)
         self.silence_append_warning = False
 
     def _auto_wash(
@@ -395,7 +463,7 @@ class AutoWorklist(EvoWorklist):
         }
 
         if len(wash_tips) > 0:
-            super().evo_wash(tips=wash_tips, **wash_params)
+            super().evo_wash(tips=wash_tips, arm=self.arm, **wash_params)
         self.silence_append_warning = False
 
     def execute_plan(self, plan, counts):

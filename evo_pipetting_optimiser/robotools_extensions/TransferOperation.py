@@ -26,6 +26,7 @@ class TransferOperation:
         on_underflow: Literal["debug", "warn", "raise"] = "raise",
         liquid_class=None,
         wash_scheme: Literal["D", 1, None, "smart"] = 1,
+        tip_index=None,
         **kwargs,
     ):
         self.id = TransferOperation._op_id_counter
@@ -64,6 +65,8 @@ class TransferOperation:
             destination.volumes[dest_pos],
             destination.latest_composition(dest_well),
         )
+
+        self.tip_index = tip_index
 
         return
 
