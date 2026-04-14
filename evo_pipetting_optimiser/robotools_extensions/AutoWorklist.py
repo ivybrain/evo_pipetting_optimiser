@@ -64,7 +64,7 @@ class AutoWorklist(EvoWorklist):
             "cleaner_location": cleaner_location,
         }
         self.set_wash_parameters()
-        self.arm = 1
+        self.arm = arm
 
         self.diti_mode = diti_mode
         self.tips_mounted = None
@@ -206,7 +206,7 @@ class AutoWorklist(EvoWorklist):
 
         self.tips_mounted = None
         self.append(
-            f"B;DropDiTi({tip_selection}, {self.wash_params["waste_location"][0]}, {self.wash_params["waste_location"][1]}, {self.wash_params["airgap"]}, {self.wash_params["airgap_speed"]}, {self.arm})"
+            f"B;DropDiTi({tip_selection}, {self.wash_params["waste_location"][0]}, {self.wash_params["waste_location"][1]-1}, {self.wash_params["airgap"]}, {self.wash_params["airgap_speed"]}, {self.arm})"
         )
 
     def auto_transfer(
