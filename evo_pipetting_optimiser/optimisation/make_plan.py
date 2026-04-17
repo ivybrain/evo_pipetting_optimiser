@@ -102,7 +102,9 @@ class PipettingGraph(nx.DiGraph):
 
 
 class OpGraph(PipettingGraph):
-    def __init__(self, ops=None, available_tips=set(range(8)), node=None):
+    def __init__(
+        self, ops=None, tip_ops_since_wash={i: [] for i in range(8)}, node=None
+    ):
         """
         Init a graph from a set of ops
         Graph used to decide which col in which source and dest to pipette
@@ -116,8 +118,8 @@ class OpGraph(PipettingGraph):
         """
         super().__init__()
 
-        self.available_tips = available_tips
         self.node = node
+        self.tip_ops_since_wash = tip_ops_since_wash
 
         if ops:
             G = self
@@ -181,7 +183,22 @@ class OpGraph(PipettingGraph):
         group_edges = []
         source_row_nodes = {}
         dest_row_nodes = {}
+        available_tips = set()
         for op in ops:
+
+            # Calculate the feasible tips for this op given the previous wash state of the tips
+            available_tips = set()
+            for tip, ops in self.tip_ops_since_wash.items():
+                # If tip is unused, we can use it
+                if not ops:
+                    available_tips.add(tip)
+
+                # If tip has only ops with wash=None, we can use
+                if all(op.wash_scheme == None for op in ops):
+                    available_tips.add(tip)
+
+            if not available_tips:
+                continue
 
             source_row_key = (*source_col, op.source_pos[0])
             source_row_nodes[source_row_key] = True
@@ -264,14 +281,10 @@ class OpGraph(PipettingGraph):
                 else:
                     # tip = row - offset
                     # offset = row - tip
-                    dest_offset_range = [
-                        op.dest_pos[0] - tip for tip in self.available_tips
-                    ]
+                    dest_offset_range = [op.dest_pos[0] - tip for tip in available_tips]
 
             else:
-                source_offset_range = [
-                    op.source_pos[0] - tip for tip in self.available_tips
-                ]
+                source_offset_range = [op.source_pos[0] - tip for tip in available_tips]
                 if dest_virtual_rows > op.dest_pos[0]:
                     dest_offset_range = [0]
                 else:
@@ -479,8 +492,8 @@ class OpGraph(PipettingGraph):
                 if any(tip in tips_used for tip in new_tips):
                     continue
 
-                if any(tip not in self.available_tips for tip in new_tips):
-                    raise Exception("Invalid assignment of used tip")
+                # if any(tip not in self.available_tips for tip in new_tips):
+                #     raise Exception("Invalid assignment of used tip")
 
                 tips_used += new_tips
 
@@ -538,7 +551,7 @@ class Node:
             # plt.show()
 
         else:
-            (pending_ops, open_ops, open_graph, move, cost, available_tips) = args
+            (pending_ops, open_ops, open_graph, move, cost) = args
 
             self.open_graph = open_graph
             self.pending_ops = pending_ops
@@ -547,7 +560,6 @@ class Node:
 
             self.cost = cost
             self.move = move
-            self.available_tips = available_tips
 
         self.fscore = self.cost + self.heuristic_cost_estimate()
 
@@ -572,15 +584,19 @@ class Node:
         self.move = None
         self.cost = 0
         self.depth = 0
-        self.available_tips = set(range(8))
 
         return
+
+    @property
+    def unused_tips(self):
+        return [i for i in range(8) if not self.open_graph.tip_ops_since_wash[i]]
 
     def get_neighbours(self):
         children = []
 
         # If we're not the first node, and the move to get here was not a wash, we can wash
 
+        tip_ops_since_wash = {t: [] for t in range(8)}
         if self.depth > 0 and self.move[0] != "Wash":
             # Find all the ops conducted and tips used since last wash
             ops = []
@@ -590,10 +606,15 @@ class Node:
                 ops += n.move[2]
                 tips += n.move[3]
 
+                for op, tip in zip(n.move[2], n.move[3]):
+                    tip_ops_since_wash[tip].append(op)
+
                 if not (n.parent and n.parent.move and n.parent.move[0] != "Wash"):
                     break
 
                 n = n.parent
+
+            self.open_graph.tip_ops_since_wash = tip_ops_since_wash
 
             # give wash a cost of 2
             # all tips are once again available
@@ -601,19 +622,12 @@ class Node:
                 self,
                 copy(self.pending_ops),
                 copy(self.open_ops),
-                OpGraph(self.open_ops, set(range(8))),
+                OpGraph(self.open_ops),
                 ("Wash", ops, tips),
                 self.cost + 2,
-                set(range(8)),
             )
             wash_node.open_graph.node = wash_node
             children.append(wash_node)
-
-        # If we don't have any available tips, the only option is wash. so return
-        if not self.available_tips:
-            return children
-
-        # If this node doesn't have subgraphs built yet, build it
 
         moves = self.open_graph.get_moves()
 
@@ -638,13 +652,17 @@ class Node:
                 self,
                 new_pending,
                 all_open_ops,
-                OpGraph(all_open_ops, self.available_tips - set(tips)),
+                OpGraph(all_open_ops),
                 (aspirates, dispenses, ops, tips),
                 self.cost + len(aspirates) + len(dispenses),
-                self.available_tips - set(tips),
             )
             new_node.open_graph.node = new_node
             children.append(new_node)
+
+        if not children:
+            raise Exception(
+                "Failed to solve. Perhaps you are trying to pipette wells with impossible offsets?"
+            )
 
         return children
 
@@ -658,27 +676,24 @@ class Node:
 
         op_cost = (len(self.pending_ops) * 18) / 8
 
-        longest_seq = longest_consecutive_sequence(self.available_tips)
+        longest_seq = longest_consecutive_sequence(self.unused_tips)
         if len(self.pending_ops) > longest_seq:
             # Give a slight preference for having more contiguous tips
-            op_cost -= (len(self.available_tips) / 5) + (longest_seq / 5)
+            op_cost -= (len(self.unused_tips) / 5) + (longest_seq / 5)
 
         return op_cost - (self.depth)
 
     def key(self):
         # If pending_ops is the same, the graph must have the same nodes
-        return (
-            self.fscore,
-            tuple(self.pending_ops),
-        )
+        return (self.fscore, tuple(self.pending_ops), len(self.unused_tips))
 
     def compare_key(self):
         return (
             self.fscore,
             len(tuple(self.pending_ops)),
             -self.depth,
-            -longest_consecutive_sequence(self.available_tips),
-            -len(self.available_tips),
+            -longest_consecutive_sequence(self.unused_tips),
+            -len(self.unused_tips),
         )
 
     def __lt__(self, other):
