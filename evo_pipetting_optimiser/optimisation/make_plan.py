@@ -14,15 +14,19 @@ class OffsetLimitException(Exception):
 
 
 class Move:
-    def __init__(self, aspirates, dispenses, ops, tips, wash=True):
-        self.aspirates = aspirates
-        self.dispenses = dispenses
-        self.ops = ops
-        self.tips = tips
-        wash_penalty = 2 if wash else 0
+    def __init__(self):
+        self.aspirates = {}
+        self.dispenses = {}
+        self.ops = []
+        self.tips = []
 
+        self.calc_score()
+
+    def calc_score(self):
         # Score the efficiency of the move
-        self.score = (len(ops) * 2) / (len(aspirates) + len(dispenses) + wash_penalty)
+        self.score = (len(self.ops) * 2) / (
+            len(self.aspirates) + len(self.dispenses) + 2
+        )
 
     def key(self):
         asp_ops = tuple(op for set in self.aspirates.values() for op in set)
@@ -51,60 +55,56 @@ class Move:
         return self.key() > other.key()
 
 
-# Abstract
-class PipettingGraph(nx.DiGraph):
-    def show(self):
-        G = self.copy()
+def show_graph(G):
+    G = G.copy()
 
-        reachable_dict = nx.shortest_path_length(G, source="s")
-        reachable_nodes = set(reachable_dict.keys())
+    reachable_dict = nx.shortest_path_length(G, source="s")
+    reachable_nodes = set(reachable_dict.keys())
 
-        all_nodes = set(G.nodes)
-        unreachable_nodes = all_nodes - reachable_nodes
+    all_nodes = set(G.nodes)
+    unreachable_nodes = all_nodes - reachable_nodes
 
-        # Step 3: Remove unreachable nodes
-        # We must convert the iterator to a list to avoid RuntimeError during iteration
-        G.remove_nodes_from(list(unreachable_nodes))
+    # Step 3: Remove unreachable nodes
+    # We must convert the iterator to a list to avoid RuntimeError during iteration
+    G.remove_nodes_from(list(unreachable_nodes))
 
-        pos = nx.bfs_layout(G, start="s")
+    pos = nx.bfs_layout(G, start="s")
 
-        # Identify edges with positive flow
-        active_edges = [
-            (u, v) for u, v in G.edges() if "flow" in G[u][v] and G[u][v]["flow"] > 0
-        ]
+    # Identify edges with positive flow
+    active_edges = [
+        (u, v) for u, v in G.edges() if "flow" in G[u][v] and G[u][v]["flow"] > 0
+    ]
 
-        # Draw nodes and all edges faintly
-        nx.draw_networkx_nodes(G, pos)
-        nx.draw_networkx_edges(G, pos, alpha=0.1)  # faint background edges
+    # Draw nodes and all edges faintly
+    nx.draw_networkx_nodes(G, pos)
+    nx.draw_networkx_edges(G, pos, alpha=0.1)  # faint background edges
 
-        # Draw active flow edges prominently
-        nx.draw_networkx_edges(G, pos, edgelist=active_edges, edge_color="r", width=2)
+    # Draw active flow edges prominently
+    nx.draw_networkx_edges(G, pos, edgelist=active_edges, edge_color="r", width=2)
 
-        # Extract the flow values for labeling
-        flow_labels = nx.get_edge_attributes(G, "flow")
-        capacity_labels = nx.get_edge_attributes(G, "capacity")
-        weight_labels = nx.get_edge_attributes(G, "weight")
+    # Extract the flow values for labeling
+    flow_labels = nx.get_edge_attributes(G, "flow")
+    capacity_labels = nx.get_edge_attributes(G, "capacity")
+    weight_labels = nx.get_edge_attributes(G, "weight")
 
-        edge_labels = {
-            key: f"{flow_labels[key]}/{capacity_labels[key]}/{weight_labels[key]}"
-            for key in flow_labels.keys()
-            # if key in active_edges
-        }
+    edge_labels = {
+        key: f"{flow_labels[key]}/{capacity_labels[key]}/{weight_labels[key]}"
+        for key in flow_labels.keys()
+        # if key in active_edges
+    }
 
-        node_labels = {node: str(node) for node in G.nodes}
+    node_labels = {node: str(node) for node in G.nodes}
 
-        # Draw the labels on the edges
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+    # Draw the labels on the edges
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
 
-        nx.draw_networkx_labels(G, pos, labels=node_labels)
+    nx.draw_networkx_labels(G, pos, labels=node_labels)
 
-        plt.show()
+    plt.show()
 
 
-class OpGraph(PipettingGraph):
-    def __init__(
-        self, ops=None, tip_ops_since_wash={i: [] for i in range(8)}, node=None
-    ):
+class OpGraph:
+    def __init__(self, ops, tip_ops_since_wash={i: [] for i in range(8)}, node=None):
         """
         Init a graph from a set of ops
         Graph used to decide which col in which source and dest to pipette
@@ -120,240 +120,60 @@ class OpGraph(PipettingGraph):
 
         self.node = node
         self.tip_ops_since_wash = tip_ops_since_wash
+        G = nx.DiGraph()
+        self.G = G
 
-        if ops:
-            G = self
-            scaling = 1
-            # demand = len(ops)
-            G.add_node("s")
-            G.add_node("t")
+        scaling = 1
+        # demand = len(ops)
+        G.add_node("s")
+        G.add_node("t")
 
-            self.asp_nodes = {}
-            self.disp_nodes = {}
-            source_nodes = {}
-            dest_nodes = {}
-            self.op_groups = {}
-            self.op_to_group = {}
+        self.asp_nodes = {}
+        self.disp_nodes = {}
+        source_nodes = {}
+        dest_nodes = {}
+        self.op_groups = {}
+        self.op_to_group = {}
 
-            for op in ops:
+        for op in ops:
 
-                source_nodes[source_key(op)] = True
+            source_nodes[source_key(op)] = True
 
-                if ("s", source_key(op)) in G.edges:
-                    G.edges[("s", source_key(op))]["capacity"] += scaling
-                else:
-                    G.add_edge("s", source_key(op), capacity=scaling, weight=0)
+            if ("s", source_key(op)) in G.edges:
+                G.edges[("s", source_key(op))]["capacity"] += scaling
+            else:
+                G.add_edge("s", source_key(op), capacity=scaling, weight=0)
 
-                dest_nodes[dest_key(op)] = True
-                if (dest_key(op), "t") in G.edges:
-                    G.edges[(dest_key(op), "t")]["capacity"] += scaling
-                else:
-                    G.add_edge(dest_key(op), "t", capacity=scaling, weight=0)
+            dest_nodes[dest_key(op)] = True
+            if (dest_key(op), "t") in G.edges:
+                G.edges[(dest_key(op), "t")]["capacity"] += scaling
+            else:
+                G.add_edge(dest_key(op), "t", capacity=scaling, weight=0)
 
-                if source_key(op) not in self.asp_nodes:
-                    self.asp_nodes[source_key(op)] = 0
-                if dest_key(op) not in self.disp_nodes:
-                    self.disp_nodes[dest_key(op)] = 0
+            if source_key(op) not in self.asp_nodes:
+                self.asp_nodes[source_key(op)] = 0
+            if dest_key(op) not in self.disp_nodes:
+                self.disp_nodes[dest_key(op)] = 0
 
-                if (source_key(op), dest_key(op)) not in G.edges:
-                    self.asp_nodes[source_key(op)] += 1
-                    self.disp_nodes[dest_key(op)] += 1
+            if (source_key(op), dest_key(op)) not in G.edges:
+                self.asp_nodes[source_key(op)] += 1
+                self.disp_nodes[dest_key(op)] += 1
 
-                # Add groups representing edges from source to dest
-                # but made up of a subgraph to calculate tip use and cost
-                if (source_key(op), dest_key(op)) in self.op_groups:
-                    self.op_groups[(source_key(op), dest_key(op))].append(op)
-                else:
+            # Add groups representing edges from source to dest
+            # but made up of a subgraph to calculate tip use and cost
+            if (source_key(op), dest_key(op)) in self.op_groups:
+                self.op_groups[(source_key(op), dest_key(op))].append(op)
+            else:
 
-                    self.op_groups[(source_key(op), dest_key(op))] = [op]
+                self.op_groups[(source_key(op), dest_key(op))] = [op]
 
-                self.op_to_group[op] = (source_key(op), dest_key(op))
+            self.op_to_group[op] = (source_key(op), dest_key(op))
 
-            return
+        return
 
     # def remove_ops(self, ops):
     #     for op in ops:
     #         self.remove_edge(self.op_to_edge[op])
-
-    def create_subgraph(self, source_col, dest_col, ops):
-        G = self
-        scaling = 1
-        asp_nodes = {}
-        disp_nodes = {}
-        group_edges = []
-        source_row_nodes = {}
-        dest_row_nodes = {}
-        available_tips = set()
-        for op in ops:
-
-            # Calculate the feasible tips for this op given the previous wash state of the tips
-            available_tips = set()
-            for tip, ops in self.tip_ops_since_wash.items():
-                # If tip is unused, we can use it
-                if not ops:
-                    available_tips.add(tip)
-
-                # If tip has only ops with wash=None, we can use
-                if all(op.wash_scheme == None for op in ops):
-                    available_tips.add(tip)
-
-            if not available_tips:
-                continue
-
-            source_row_key = (*source_col, op.source_pos[0])
-            source_row_nodes[source_row_key] = True
-
-            if (source_col, source_row_key) in G.edges:
-                G.edges[(source_col, source_row_key)]["capacity"] += scaling
-            else:
-                G.add_edge(source_col, source_row_key, capacity=scaling, weight=0)
-
-            dest_row_key = (*dest_col, op.dest_pos[0])
-            dest_row_nodes[dest_row_key] = True
-            if (dest_row_key, dest_col) in G.edges:
-                G.edges[(dest_row_key, dest_col)]["capacity"] += scaling
-            else:
-                G.add_edge(dest_row_key, dest_col, capacity=scaling, weight=0)
-
-            # TODO: Add trough handling
-
-            def add_offset_edge(
-                source_offset, dest_offset, source_capacity, dest_capacity, tip=0
-            ):
-                source_offset_key = ("s_ofst", *source_col, source_offset)
-                dest_offset_key = ("d_ofst", *dest_col, dest_offset)
-                if source_offset_key not in asp_nodes:
-                    asp_nodes[source_offset_key] = 0
-                if dest_offset_key not in disp_nodes:
-                    disp_nodes[dest_offset_key] = 0
-
-                if (source_row_key, source_offset_key) not in G.edges:
-                    asp_nodes[source_offset_key] += 1
-                if (dest_row_key, dest_offset_key) not in G.edges:
-                    disp_nodes[dest_offset_key] += 1
-
-                if source_offset_key not in self.source_offset_out_edges:
-                    self.source_offset_out_edges[source_offset_key] = 1
-                else:
-                    self.source_offset_out_edges[source_offset_key] += 1
-
-                if dest_offset_key not in self.dest_offset_in_edges:
-                    self.dest_offset_in_edges[dest_offset_key] = 1
-                else:
-                    self.dest_offset_in_edges[dest_offset_key] += 1
-
-                G.add_edge(
-                    source_row_key,
-                    source_offset_key,
-                    capacity=source_capacity,
-                    weight=0,
-                )
-
-                # Set weight based on how many incident edges the nodes at each end have
-                if (source_offset_key, dest_offset_key) in G.edges:
-                    G.edges[(source_offset_key, dest_offset_key)]["capacity"] += scaling
-                    G.edges[(source_offset_key, dest_offset_key)]["op_tip"][op] = tip
-
-                else:
-                    group_edges.append((source_offset_key, dest_offset_key))
-                    G.add_edge(
-                        source_offset_key,
-                        dest_offset_key,
-                        capacity=scaling,
-                        weight=0,
-                        op_tip={op: tip},
-                    )
-
-                G.add_edge(
-                    dest_offset_key,
-                    dest_row_key,
-                    capacity=dest_capacity,
-                    weight=0,
-                )
-
-            # Check if we have virtual rows
-            source_virtual_rows = getattr(op.source, "virtual_rows", 0) or 0
-            dest_virtual_rows = getattr(op.destination, "virtual_rows", 0) or 0
-            if source_virtual_rows > op.source_pos[0]:
-                source_offset_range = [0]
-                if dest_virtual_rows > op.dest_pos[0]:
-                    dest_offset_range = [0]
-                else:
-                    # tip = row - offset
-                    # offset = row - tip
-                    dest_offset_range = [op.dest_pos[0] - tip for tip in available_tips]
-
-            else:
-                source_offset_range = [op.source_pos[0] - tip for tip in available_tips]
-                if dest_virtual_rows > op.dest_pos[0]:
-                    dest_offset_range = [0]
-                else:
-                    dest_offset_range = [None]
-
-            for source_offset in source_offset_range:
-                for dest_offset in dest_offset_range:
-                    if dest_offset is None:
-                        dest_offset = source_offset + (
-                            op.dest_pos[0] - op.source_pos[0]
-                        )
-
-                    # Check if this offset is feasible for the dest row
-                    source_limit_up = -op.source.offset_limit_up
-                    source_limit_down = op.source.offset_limit_down
-                    dest_limit_up = -op.destination.offset_limit_up
-                    dest_limit_down = op.destination.offset_limit_down
-
-                    if not (source_limit_up <= source_offset <= source_limit_down):
-                        continue
-
-                    if not (dest_limit_up <= dest_offset <= dest_limit_down):
-                        continue
-
-                    source_tip = op.source_pos[0] - source_offset
-                    dest_tip = op.dest_pos[0] - dest_offset
-
-                    assert 0 <= source_tip <= 7, "Tip out of range"
-                    assert 0 <= dest_tip <= 7, "Tip out of range"
-                    assert (
-                        source_tip == 0 or dest_tip == 0 or source_tip == dest_tip
-                    ), "Tip mismatch"
-
-                    add_offset_edge(
-                        source_offset,
-                        dest_offset,
-                        max(1, source_virtual_rows),
-                        max(1, dest_virtual_rows),
-                        tip=max(source_tip, dest_tip),
-                    )
-
-                # Add edges from rows to possible offsets
-
-        # Re-weight source row to source offset edges based on how many sources have edges going to the same offset
-        # This incentivises choosing edges to offsets that have as many compatible rows as possible
-        # for source_node in source_row_nodes.keys():
-        #     for source_node_offset, source_count in asp_nodes.items():
-        #         if (source_node, source_node_offset) in G.edges:
-        #             G.edges[source_node, source_node_offset]["weight"] = (
-        #                 9 - source_count
-        #             )
-
-        # # Same for dest
-        # for dest_node in dest_row_nodes.keys():
-        #     for dest_node_offset, dest_count in disp_nodes.items():
-        #         if (dest_node_offset, dest_node) in G.edges:
-        #             G.edges[dest_node_offset, dest_node]["weight"] = 9 - dest_count
-
-        # Attempt integer 1/n reweight
-        # INT_RES = 256
-
-        # def approx_1_n(n):
-        #     return round((1 / n) * INT_RES)
-
-        # for u, v in G.edges():
-        #     if G.edges[u, v]["capacity"] > 0:
-        #         G.edges[u, v]["weight"] = approx_1_n(G.edges[u, v]["capacity"])
-
-        self.offset_edges += group_edges
 
     def check_wash(self, ops, tips):
         """
@@ -412,54 +232,236 @@ class OpGraph(PipettingGraph):
 
             prev_tip_op[tip] = op
 
-    def get_moves(self):
-        G = self
+    def get_moves(
+        self, occupied_tips=set(), selected_node=None, move=None, selected_ops=set()
+    ):
+
+        # Create a copy of the graph to populate with the subgraphs
+        G = self.G.copy()
 
         # Create subgraph representing offsets
-        self.offset_edges = []
-        self.source_offset_out_edges = {}
-        self.dest_offset_in_edges = {}
+        offset_edges = []
+        source_offset_out_edges = {}
+        dest_offset_in_edges = {}
 
         for (source_col, dest_col), ops in self.op_groups.items():
-            self.create_subgraph(source_col, dest_col, ops)
+            scaling = 1
+            asp_nodes = {}
+            disp_nodes = {}
+            group_edges = []
+            source_row_nodes = {}
+            dest_row_nodes = {}
+            available_tips = set()
+            for op in ops:
+                if op in selected_ops:
+                    continue
+
+                # Calculate the feasible tips for this op given the previous wash state of the tips
+                available_tips = set()
+                for tip, ops in self.tip_ops_since_wash.items():
+                    # If tip is occupied, skip it
+                    if tip in occupied_tips:
+                        continue
+
+                    # If tip is unused, we can use it
+                    if not ops:
+                        available_tips.add(tip)
+
+                    # If tip has only ops with wash=None, we can use
+                    if all(op.wash_scheme == None for op in ops):
+                        available_tips.add(tip)
+
+                if not available_tips:
+                    continue
+
+                source_row_key = (*source_col, op.source_pos[0])
+                source_row_nodes[source_row_key] = True
+
+                if (source_col, source_row_key) in G.edges:
+                    G.edges[(source_col, source_row_key)]["capacity"] += scaling
+                else:
+                    G.add_edge(source_col, source_row_key, capacity=scaling, weight=0)
+
+                dest_row_key = (*dest_col, op.dest_pos[0])
+                dest_row_nodes[dest_row_key] = True
+                if (dest_row_key, dest_col) in G.edges:
+                    G.edges[(dest_row_key, dest_col)]["capacity"] += scaling
+                else:
+                    G.add_edge(dest_row_key, dest_col, capacity=scaling, weight=0)
+
+                # TODO: Add trough handling
+
+                def add_offset_edge(
+                    source_offset, dest_offset, source_capacity, dest_capacity, tip=0
+                ):
+                    source_offset_key = ("s_ofst", *source_col, source_offset)
+                    dest_offset_key = ("d_ofst", *dest_col, dest_offset)
+                    if source_offset_key not in asp_nodes:
+                        asp_nodes[source_offset_key] = 0
+                    if dest_offset_key not in disp_nodes:
+                        disp_nodes[dest_offset_key] = 0
+
+                    if (source_row_key, source_offset_key) not in G.edges:
+                        asp_nodes[source_offset_key] += 1
+                    if (dest_row_key, dest_offset_key) not in G.edges:
+                        disp_nodes[dest_offset_key] += 1
+
+                    if source_offset_key not in source_offset_out_edges:
+                        source_offset_out_edges[source_offset_key] = 1
+                    else:
+                        source_offset_out_edges[source_offset_key] += 1
+
+                    if dest_offset_key not in dest_offset_in_edges:
+                        dest_offset_in_edges[dest_offset_key] = 1
+                    else:
+                        dest_offset_in_edges[dest_offset_key] += 1
+
+                    G.add_edge(
+                        source_row_key,
+                        source_offset_key,
+                        capacity=source_capacity,
+                        weight=0,
+                    )
+
+                    # Set weight based on how many incident edges the nodes at each end have
+                    if (source_offset_key, dest_offset_key) in G.edges:
+                        G.edges[(source_offset_key, dest_offset_key)][
+                            "capacity"
+                        ] += scaling
+                        G.edges[(source_offset_key, dest_offset_key)]["op_tip"][
+                            op
+                        ] = tip
+
+                    else:
+                        group_edges.append((source_offset_key, dest_offset_key))
+                        G.add_edge(
+                            source_offset_key,
+                            dest_offset_key,
+                            capacity=scaling,
+                            weight=0,
+                            op_tip={op: tip},
+                        )
+
+                    G.add_edge(
+                        dest_offset_key,
+                        dest_row_key,
+                        capacity=dest_capacity,
+                        weight=0,
+                    )
+
+                # Check if we have virtual rows
+                source_virtual_rows = getattr(op.source, "virtual_rows", 0) or 0
+                dest_virtual_rows = getattr(op.destination, "virtual_rows", 0) or 0
+                if source_virtual_rows > op.source_pos[0]:
+                    source_offset_range = [0]
+                    if dest_virtual_rows > op.dest_pos[0]:
+                        dest_offset_range = [0]
+                    else:
+                        # tip = row - offset
+                        # offset = row - tip
+                        dest_offset_range = [
+                            op.dest_pos[0] - tip for tip in available_tips
+                        ]
+
+                else:
+                    source_offset_range = [
+                        op.source_pos[0] - tip for tip in available_tips
+                    ]
+                    if dest_virtual_rows > op.dest_pos[0]:
+                        dest_offset_range = [0]
+                    else:
+                        dest_offset_range = [None]
+
+                for source_offset in source_offset_range:
+                    for dest_offset in dest_offset_range:
+                        if dest_offset is None:
+                            dest_offset = source_offset + (
+                                op.dest_pos[0] - op.source_pos[0]
+                            )
+
+                        # Check if this offset is feasible for the dest row
+                        source_limit_up = -op.source.offset_limit_up
+                        source_limit_down = op.source.offset_limit_down
+                        dest_limit_up = -op.destination.offset_limit_up
+                        dest_limit_down = op.destination.offset_limit_down
+
+                        if not (source_limit_up <= source_offset <= source_limit_down):
+                            continue
+
+                        if not (dest_limit_up <= dest_offset <= dest_limit_down):
+                            continue
+
+                        source_tip = op.source_pos[0] - source_offset
+                        dest_tip = op.dest_pos[0] - dest_offset
+
+                        assert 0 <= source_tip <= 7, "Tip out of range"
+                        assert 0 <= dest_tip <= 7, "Tip out of range"
+                        assert (
+                            source_tip == 0 or dest_tip == 0 or source_tip == dest_tip
+                        ), "Tip mismatch"
+
+                        add_offset_edge(
+                            source_offset,
+                            dest_offset,
+                            max(1, source_virtual_rows),
+                            max(1, dest_virtual_rows),
+                            tip=max(source_tip, dest_tip),
+                        )
+
+                    # Add edges from rows to possible offsets
+
+            offset_edges += group_edges
 
         # Reweight offset edges
-        for u, v in self.offset_edges:
+        for u, v in offset_edges:
             G.edges[u, v]["weight"] = (
-                0 - self.source_offset_out_edges[u] - self.dest_offset_in_edges[v]
+                0 - source_offset_out_edges[u] - dest_offset_in_edges[v]
             )
 
         moves = []
 
         flow_dict = nx.algorithms.max_flow_min_cost(G, "s", "t")
+        flow_value = sum(flow_dict["s"].values())
 
         for u, v in G.edges():
             # try:
             G[u][v]["flow"] = flow_dict[u][v]
 
-        selectable_nodes = [
-            (n, G.degree[n])
-            for n in G.nodes
-            if (n[0] == "s_ofst" or n[0] == "d_ofst") and sum(flow_dict[n].values()) > 0
-        ]
-        selectable_nodes.sort(key=lambda x: -x[1])
+        if selected_node:
+            # If we are trying to expand an existing move, check the selected node is still in the graph
+            if selected_node not in G:
+                return
+            selectable_nodes = [(selected_node, 0)]
+
+        else:
+            selectable_nodes = [
+                (n, G.degree[n])
+                for n in G.nodes
+                if (n[0] == "s_ofst" or n[0] == "d_ofst")
+                and sum(flow_dict[n].values()) > 0
+            ]
+            selectable_nodes.sort(key=lambda x: -x[1])
 
         for node_choice, degree in selectable_nodes:
 
+            # Initialise a possible move associated with this node
+            if not selected_node:
+                move = Move()
+                moves.append(move)
+
             # Dict of (source, col, lc): [ops]
-            aspirates = {}
+            aspirates = move.aspirates
             # Dict of (dest, col): [ops]
-            dispenses = {}
-            asp_ops = []
-            disp_ops = []
+            dispenses = move.dispenses
+            asp_ops = move.ops
+            tips_used = move.tips
+            new_ops = []
 
             if node_choice[0] == "s_ofst":
                 # Pre-select edges matching the source offset node for efficiency
-                selectable_edges = ((node_choice, n) for n in G[node_choice])
+                selectable_edges = [(node_choice, n) for n in G[node_choice]]
             else:
-                selectable_edges = G.edges
-
-            tips_used = []
+                selectable_edges = list(G.edges)
 
             for u, v in selectable_edges:
                 if not (
@@ -471,17 +473,6 @@ class OpGraph(PipettingGraph):
                     continue
 
                 (_, _, source, col, _, offset) = u
-
-                # For now, just skip if there are conflicts - this is more efficient for now
-                # ops_tips = [
-                #     (op, tip)
-                #     for (op, tip) in zip(G[u][v]["ops"], G[u][v]["tips"])
-                #     if op not in asp_ops and tip not in tips_used
-                # ]
-                # if len(ops_tips) == 0:
-                #     continue
-
-                # new_ops, new_tips = zip(*ops_tips)
 
                 new_ops, new_tips = zip(*G[u][v]["op_tip"].items())
                 if any([op in asp_ops for op in new_ops]):
@@ -505,14 +496,21 @@ class OpGraph(PipettingGraph):
 
                 (_, _, dest, col, _, offset) = v
 
-                disp_ops += new_ops
-
                 if (dest, col, offset) in dispenses:
                     dispenses[dest, col, offset] += new_ops
                 else:
                     dispenses[dest, col, offset] = list(new_ops)
+                break
+
             wash = self.check_wash(asp_ops, tips_used)
-            moves.append(Move(aspirates, dispenses, asp_ops, tips_used, wash))
+            move.calc_score()
+
+            # Given these tips used, calculate other edges that can be added
+            if new_ops and len(move.tips) < 8 and flow_value > len(asp_ops):
+                self.get_moves(tips_used, node_choice, move, selected_ops=set(asp_ops))
+                pass
+
+            #
 
         moves.sort(key=lambda move: move.score, reverse=True)
         # Limit branching factor
@@ -525,10 +523,6 @@ def binary_cost(G, flow_dict):
         if G.edges[u, v]["weight"] > 0 and flow_dict[u][v] > 0:
             cost += 1
     return cost
-
-
-class ColGraph(OpGraph):
-    pass
 
 
 class Node:
