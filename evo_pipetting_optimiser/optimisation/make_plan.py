@@ -20,12 +20,12 @@ class Move:
         self.ops = []
         self.tips = []
 
-        self.calc_score()
+        self.wash_first = False
 
     def calc_score(self):
         # Score the efficiency of the move
         self.score = (len(self.ops) * 2) / (
-            len(self.aspirates) + len(self.dispenses) + 2
+            len(self.aspirates) + len(self.dispenses) + (2 if self.wash_first else 0)
         )
 
     def key(self):
@@ -251,13 +251,13 @@ class OpGraph:
             group_edges = []
             source_row_nodes = {}
             dest_row_nodes = {}
-            available_tips = set()
             for op in ops:
                 if op in selected_ops:
                     continue
 
                 # Calculate the feasible tips for this op given the previous wash state of the tips
-                available_tips = set()
+                free_tips = set()
+                tips_with_wash = set()
                 for tip, ops in self.tip_ops_since_wash.items():
                     # If tip is occupied, skip it
                     if tip in occupied_tips:
@@ -265,14 +265,15 @@ class OpGraph:
 
                     # If tip is unused, we can use it
                     if not ops:
-                        available_tips.add(tip)
+                        free_tips.add(tip)
+                        continue
 
                     # If tip has only ops with wash=None, we can use
                     if all(op.wash_scheme == None for op in ops):
-                        available_tips.add(tip)
+                        free_tips.add(tip)
+                        continue
 
-                if not available_tips:
-                    continue
+                    tips_with_wash.add(tip)
 
                 source_row_key = (*source_col, op.source_pos[0])
                 source_row_nodes[source_row_key] = True
@@ -292,7 +293,12 @@ class OpGraph:
                 # TODO: Add trough handling
 
                 def add_offset_edge(
-                    source_offset, dest_offset, source_capacity, dest_capacity, tip=0
+                    source_offset,
+                    dest_offset,
+                    source_capacity,
+                    dest_capacity,
+                    tip=0,
+                    wash_needed=False,
                 ):
                     source_offset_key = ("s_ofst", *source_col, source_offset)
                     dest_offset_key = ("d_ofst", *dest_col, dest_offset)
@@ -348,6 +354,7 @@ class OpGraph:
                             capacity=scaling,
                             weight=0,
                             op_tip={op: tip},
+                            wash_needed=wash_needed,
                         )
 
                     G.add_edge(
@@ -368,12 +375,14 @@ class OpGraph:
                         # tip = row - offset
                         # offset = row - tip
                         dest_offset_range = [
-                            op.dest_pos[0] - tip for tip in available_tips
+                            op.dest_pos[0] - tip
+                            for tip in (free_tips.union(tips_with_wash))
                         ]
 
                 else:
                     source_offset_range = [
-                        op.source_pos[0] - tip for tip in available_tips
+                        op.source_pos[0] - tip
+                        for tip in (free_tips.union(tips_with_wash))
                     ]
                     if dest_virtual_rows > op.dest_pos[0]:
                         dest_offset_range = [0]
@@ -402,6 +411,11 @@ class OpGraph:
                         source_tip = op.source_pos[0] - source_offset
                         dest_tip = op.dest_pos[0] - dest_offset
 
+                        tip = max(source_tip, dest_tip)
+                        wash_needed = tip in tips_with_wash
+
+                        assert tip in tips_with_wash or tip in free_tips
+
                         assert 0 <= source_tip <= 7, "Tip out of range"
                         assert 0 <= dest_tip <= 7, "Tip out of range"
                         assert (
@@ -414,6 +428,7 @@ class OpGraph:
                             max(1, source_virtual_rows),
                             max(1, dest_virtual_rows),
                             tip=max(source_tip, dest_tip),
+                            wash_needed=wash_needed,
                         )
 
                     # Add edges from rows to possible offsets
@@ -439,18 +454,18 @@ class OpGraph:
             # If we are trying to expand an existing move, check the selected node is still in the graph
             if selected_node not in G:
                 return
-            selectable_nodes = [(selected_node, 0)]
+            selectable_nodes = [(0, selected_node)]
 
         else:
             selectable_nodes = [
-                (n, G.degree[n])
+                (sum(flow_dict[n].values()), n)
                 for n in G.nodes
                 if (n[0] == "s_ofst" or n[0] == "d_ofst")
                 and sum(flow_dict[n].values()) > 0
             ]
-            selectable_nodes.sort(key=lambda x: -x[1])
+            selectable_nodes.sort(key=lambda x: -x[0])
 
-        for node_choice, degree in selectable_nodes:
+        for node_score, node_choice in selectable_nodes:
 
             # Initialise a possible move associated with this node
             if not selected_node:
@@ -467,20 +482,21 @@ class OpGraph:
 
             if node_choice[0] == "s_ofst":
                 # Pre-select edges matching the source offset node for efficiency
-                selectable_edges = [(node_choice, n) for n in G[node_choice]]
+                selectable_edges = G.out_edges(node_choice)
             else:
-                selectable_edges = list(G.edges)
+                selectable_edges = G.in_edges(node_choice)
+
+            selectable_edges = sorted(
+                selectable_edges, key=lambda x: G.edges[*x]["wash_needed"]
+            )
 
             for u, v in selectable_edges:
-                if not (
-                    (node_choice == u and u[0] == "s_ofst")
-                    or (node_choice == v and v[0] == "d_ofst")
-                ):
-                    continue
-                if flow_dict[u][v] <= 0:
-                    continue
 
                 (_, _, source, col, _, offset) = u
+
+                if G.edges[u, v]["wash_needed"]:
+                    move.wash_first = True
+                    move.tip_ops_since_wash = self.tip_ops_since_wash
 
                 new_ops, new_tips = zip(*G[u][v]["op_tip"].items())
                 if any([op in asp_ops for op in new_ops]):
@@ -490,9 +506,6 @@ class OpGraph:
                     continue
                 if any(tip in tips_used for tip in new_tips):
                     continue
-
-                # if any(tip not in self.available_tips for tip in new_tips):
-                #     raise Exception("Invalid assignment of used tip")
 
                 tips_used += new_tips
 
@@ -521,8 +534,7 @@ class OpGraph:
             #
 
         moves.sort(key=lambda move: move.score, reverse=True)
-        # Limit branching factor
-        return set(moves[:1])
+        return moves
 
 
 def binary_cost(G, flow_dict):
@@ -596,40 +608,27 @@ class Node:
     def get_neighbours(self):
         children = []
 
-        # If we're not the first node, and the move to get here was not a wash, we can wash
+        # If we're not the first node, we can consider a wash
 
         tip_ops_since_wash = {t: [] for t in range(8)}
-        if self.depth > 0 and self.move[0] != "Wash":
+        if self.depth > 0:
             # Find all the ops conducted and tips used since last wash
             ops = []
             tips = []
             n = self
             while True:
-                ops += n.move[2]
-                tips += n.move[3]
+                ops += n.move.ops
+                tips += n.move.tips
 
-                for op, tip in zip(n.move[2], n.move[3]):
+                for op, tip in zip(n.move.ops, n.move.tips):
                     tip_ops_since_wash[tip].append(op)
 
-                if not (n.parent and n.parent.move and n.parent.move[0] != "Wash"):
+                if n.move.wash_first or not (n.parent and n.parent.move):
                     break
 
                 n = n.parent
 
             self.open_graph.tip_ops_since_wash = tip_ops_since_wash
-
-            # give wash a cost of 2
-            # all tips are once again available
-            wash_node = Node(
-                self,
-                copy(self.pending_ops),
-                copy(self.open_ops),
-                OpGraph(self.open_ops),
-                ("Wash", ops, tips),
-                self.cost + 2,
-            )
-            wash_node.open_graph.node = wash_node
-            children.append(wash_node)
 
         moves = self.open_graph.get_moves()
 
@@ -655,7 +654,7 @@ class Node:
                 new_pending,
                 all_open_ops,
                 OpGraph(all_open_ops),
-                (aspirates, dispenses, ops, tips),
+                move,
                 self.cost + len(aspirates) + len(dispenses),
             )
             new_node.open_graph.node = new_node
@@ -696,10 +695,11 @@ class Node:
             -self.depth,
             -longest_consecutive_sequence(self.unused_tips),
             -len(self.unused_tips),
+            self.move,
         )
 
     def __lt__(self, other):
-        return self.compare_key() <= other.compare_key()
+        return self.compare_key() < other.compare_key()
 
     def __hash__(self):
         return hash(self.key())
@@ -815,15 +815,18 @@ def make_plan(pending_ops):
 
     for move in moves:
 
-        if move[0] == "Wash":
-            _, ops, tips = move
+        if move.wash_first:
+            tips = []
+            ops = []
+            for t, o in move.tip_ops_since_wash.items():
+                if o:
+                    tips.append(t)
+                ops += o
             actions.append(("Wash", ops, [tip + 1 for tip in tips]))
             wash_count += 1
 
-            continue
-
         # Otherwise, we have these fields
-        aspirates, dispenses, ops, tips_selected = move
+        _, aspirates, dispenses, ops, tips_selected = move.tuple()
 
         op_tip = {op: tip + 1 for op, tip in zip(ops, tips_selected)}
 

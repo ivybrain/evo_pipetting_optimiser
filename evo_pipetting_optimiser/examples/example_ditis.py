@@ -64,6 +64,7 @@ def basic_row_column(worklist):
                 250,
                 liquid_class="Ivy training",
                 label="Dispense diluent",
+                wash_scheme=None,
             )
 
         # Print the operations we have registered, so we can sanity check
