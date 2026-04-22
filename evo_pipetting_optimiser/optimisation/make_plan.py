@@ -296,6 +296,14 @@ class OpGraph:
                 ):
                     source_offset_key = ("s_ofst", *source_col, source_offset)
                     dest_offset_key = ("d_ofst", *dest_col, dest_offset)
+
+                    # If we're finding new ops to add to an existing move, only process the selected node
+                    if selected_node and (
+                        selected_node != source_offset_key
+                        and selected_node != dest_offset_key
+                    ):
+                        return
+
                     if source_offset_key not in asp_nodes:
                         asp_nodes[source_offset_key] = 0
                     if dest_offset_key not in disp_nodes:
