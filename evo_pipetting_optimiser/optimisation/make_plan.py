@@ -345,6 +345,10 @@ class OpGraph:
                         G.edges[(source_offset_key, dest_offset_key)]["op_tip"][
                             op
                         ] = tip
+                        G.edges[(source_offset_key, dest_offset_key)]["wash_needed"] = (
+                            G.edges[(source_offset_key, dest_offset_key)]["wash_needed"]
+                            or wash_needed
+                        )
 
                     else:
                         group_edges.append((source_offset_key, dest_offset_key))
@@ -482,7 +486,7 @@ class OpGraph:
 
             if node_choice[0] == "s_ofst":
                 # Pre-select edges matching the source offset node for efficiency
-                selectable_edges = G.out_edges(node_choice)
+                selectable_edges = list(G.out_edges(node_choice))
             else:
                 selectable_edges = G.in_edges(node_choice)
 
