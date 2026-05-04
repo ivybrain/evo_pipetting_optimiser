@@ -527,11 +527,10 @@ class OpGraph:
                     dispenses[dest, col, offset] = list(new_ops)
                 break
 
-            wash = self.check_wash(asp_ops, tips_used)
             move.calc_score()
 
             # Given these tips used, calculate other edges that can be added
-            if new_ops and len(move.tips) < 8 and flow_value > len(asp_ops):
+            if new_ops and len(move.tips) < 8 and flow_value > len(new_ops):
                 self.get_moves(tips_used, node_choice, move, selected_ops=set(asp_ops))
                 pass
 
