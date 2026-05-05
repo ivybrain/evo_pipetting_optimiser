@@ -7,6 +7,13 @@ import networkx as nx
 from sortedcontainers import SortedSet
 from matplotlib import pyplot as plt
 from ..utils import longest_consecutive_sequence
+from rich.progress import (
+    Progress,
+    BarColumn,
+    TextColumn,
+    MofNCompleteColumn,
+    TimeElapsedColumn,
+)
 
 
 class OffsetLimitException(Exception):
@@ -634,6 +641,7 @@ class Node:
             self.open_graph.tip_ops_since_wash = tip_ops_since_wash
 
         moves = self.open_graph.get_moves()
+        moves = moves[:1]
 
         # self.open_graph.show()
 
@@ -728,7 +736,7 @@ def dest_key(op):
     return ("t", op.destination.name, op.dest_pos[1], op.liquid_class)
 
 
-def init_search(pending_ops):
+def init_search(pending_ops, report=True):
 
     # TODO: if certain time has elapsed, reweght to depth first
 
@@ -738,18 +746,32 @@ def init_search(pending_ops):
     node = None
     max_len = 0
     prune_count = 0
+
+    if report:
+        progress = Progress(
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+        )
+        task = progress.add_task("Optimising...", total=len(pending_ops))
+        progress.start()
+
     while len(open_nodes) > 0:
         max_len = max(max_len, len(open_nodes))
 
         node = open_nodes.pop(0)
 
+        if report and node.move:
+            progress.update(task, advance=len(node.move.ops))
+
         if len(node.open_ops) == 0:
             break
 
         children = node.get_neighbours()
-        print(
-            f"Depth {node.depth}, score {node.fscore}, queue {len(open_nodes)}, new_children {len(children)}, pruned {prune_count}"
-        )
+        # print(
+        #     f"Depth {node.depth}, score {node.fscore}, queue {len(open_nodes)}, new_children {len(children)}, pruned {prune_count}"
+        # )
 
         for child in children:
             if child in generated_nodes:
@@ -758,6 +780,9 @@ def init_search(pending_ops):
 
             generated_nodes.add(child)
             open_nodes.add(child)
+
+    if report:
+        progress.stop()
 
     path = [node]
     while node.parent:
@@ -779,7 +804,7 @@ def init_search(pending_ops):
     return moves
 
 
-def make_plan(pending_ops):
+def make_plan(pending_ops, report=True):
     """
     Create a list of pipetting actions from a set of pending ops
     Actions are a tuple of
@@ -810,11 +835,10 @@ def make_plan(pending_ops):
 
     start_time = time.time()
 
-    prev_tip_op = {}
-    profiler = cProfile.Profile()
-    profiler.enable()
+    # profiler = cProfile.Profile()
+    # profiler.enable()
 
-    moves = init_search(pending_ops)
+    moves = init_search(pending_ops, report=report)
 
     for move in moves:
 
@@ -877,15 +901,13 @@ def make_plan(pending_ops):
         pending_ops.difference_update(selected_ops)
         completed_ops.update(selected_ops)
 
-    profiler.disable()
-    stats = pstats.Stats(profiler)
-    stats.dump_stats("program.cprof")
+    # profiler.disable()
+    # stats = pstats.Stats(profiler)
+    # stats.dump_stats("program.cprof")
 
     cost = asp_count + disp_count + (wash_count * 2)
 
     end_time = time.time()
     elapsed_time = end_time - start_time
-    print(f"Execution time: {elapsed_time:.4f} seconds")
-    print((asp_count, disp_count, wash_count))
 
     return actions, cost, (asp_count, disp_count, wash_count)

@@ -660,13 +660,13 @@ class AutoWorklist(EvoWorklist):
             [str(op) for op in sorted(self.pending_ops, key=lambda x: x.id)]
         )
 
-    def commit(self, report=False):
+    def commit(self, report=True):
 
         # If we have ops pending, optimise and apply them
         if len(self.pending_ops) > 0 and not self.processing:
             self.processing = True
             plan, cost, (asp_count, disp_count, wash_count) = make_plan(
-                self.pending_ops
+                self.pending_ops, report=report
             )
             self.execute_plan(plan, (asp_count, disp_count, wash_count))
             self.pending_ops = set()
