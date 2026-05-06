@@ -672,7 +672,7 @@ class Node:
             children.append(new_node)
 
         if not children:
-            raise Exception(
+            raise OffsetLimitException(
                 "Failed to solve. Perhaps you are trying to pipette wells with impossible offsets?"
             )
 

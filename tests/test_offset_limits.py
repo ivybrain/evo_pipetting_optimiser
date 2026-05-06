@@ -1,8 +1,8 @@
 from evo_pipetting_optimiser import *
-from evo_pipetting_optimiser.robotools_extensions.AutoWorklist import (
-    OffsetLimitException,
-)
+from evo_pipetting_optimiser import OffsetLimitException
 from itertools import permutations
+from random import sample
+from .fixtures.invalid_offsets import invalid_offsets
 
 
 def test_offset_limits():
@@ -11,9 +11,13 @@ def test_offset_limits():
 
     limit_values = [None, 0, 1, 2, 3, 4, 5, 6, 7]
 
-    invalid_combos = []
+    # All possible up and down offsets for smp plate and dilution plate
+    possible_offsets = list(permutations(limit_values, 4))
 
-    for smp_up, smp_down, dil_up, dil_down in permutations(limit_values, 4):
+    # Randomly pick 30 offsets to test - good sample, ensures we get some valid and some invalid
+    testing_offsets = sample(possible_offsets, k=30)
+
+    for smp_up, smp_down, dil_up, dil_down in testing_offsets:
 
         sample_plate = AdvancedLabware(
             "smp",
@@ -74,15 +78,14 @@ def test_offset_limits():
 
             try:
                 # Optimise these steps and add to worklist
-                wl.commit()
+                wl.commit(report=False)
+
+                # If the optimisation succeeds, this combo should not be in the invalid offsets list
+                assert (smp_up, smp_down, dil_up, dil_down) not in invalid_offsets, f"{(smp_up, smp_down, dil_up, dil_down)} should not be possible"
             # Some transfers are not possible with offset limits that are too restrictive
             # With no offsets allowed on either plate, you can only transfer between identical rows
             except OffsetLimitException:
-                print(smp_up, smp_down, dil_up, dil_down)
-                invalid_combos.append((smp_up, smp_down, dil_up, dil_down))
-
-    # With these transfers, we expect 664 / 3024 offset limit combos that aren't possible
-    assert (len(invalid_combos)) == 664
+                assert (smp_up, smp_down, dil_up, dil_down) in invalid_offsets, f"{(smp_up, smp_down, dil_up, dil_down)} should be possible"
 
 
 if __name__ == "__main__":

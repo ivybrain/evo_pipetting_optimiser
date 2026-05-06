@@ -10,10 +10,6 @@ from ..optimisation import group_ops, make_plan
 import time
 
 
-class OffsetLimitException(Exception):
-    pass
-
-
 class AutoWorklist(EvoWorklist):
 
     all_labware = set()
