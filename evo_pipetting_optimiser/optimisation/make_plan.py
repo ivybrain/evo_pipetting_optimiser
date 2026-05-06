@@ -202,7 +202,7 @@ def init_search(pending_ops, report=True):
 
     if report:
         progress = Progress(
-            TextColumn("[bold blue]{task.description}"),
+            TextColumn("[bold pink]{task.description}"),
             BarColumn(),
             MofNCompleteColumn(),
             TimeElapsedColumn(),
@@ -301,7 +301,10 @@ def make_plan(pending_ops, report=True):
             for t, o in move.tip_ops_since_wash.items():
                 if o:
                     tips.append(t)
-                ops += o
+                    # Give the wash command with the last op on the tip
+                    # We will use the wash scheme from this one
+                    ops.append(o[-1])
+
             actions.append(("Wash", ops, [tip + 1 for tip in tips]))
             wash_count += 1
 

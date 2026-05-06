@@ -1,6 +1,7 @@
 from matplotlib import pyplot as plt
 import networkx as nx
 from .Move import Move
+from functools import reduce
 
 
 def source_key(op):
@@ -91,34 +92,66 @@ class OpGraph:
         source_offset_out_edges = {}
         dest_offset_in_edges = {}
 
-        for (source_col, dest_col), ops in self.op_groups.items():
+        for (source_col, dest_col), past_ops in self.op_groups.items():
             scaling = 1
             asp_nodes = {}
             disp_nodes = {}
             group_edges = []
             source_row_nodes = {}
             dest_row_nodes = {}
-            for op in ops:
+            for op in past_ops:
                 if op in selected_ops:
                     continue
 
                 # Calculate the feasible tips for this op given the previous wash state of the tips
                 free_tips = set()
                 tips_with_wash = set()
-                for tip, ops in self.tip_ops_since_wash.items():
+                for tip, past_ops in self.tip_ops_since_wash.items():
                     # If tip is occupied, skip it
                     if tip in occupied_tips:
                         continue
 
                     # If tip is unused, we can use it
-                    if not ops:
+                    if not past_ops:
                         free_tips.add(tip)
                         continue
 
                     # If tip has only ops with wash=None, we can use
-                    if all(op.wash_scheme == None for op in ops):
+                    if all(past_op.wash_scheme == None for past_op in past_ops):
                         free_tips.add(tip)
                         continue
+
+                    # If the current op and prior ops on the tip have smartwash enabled, we can check if composition is the same
+                    if op.wash_scheme == "smart" and all(
+                        past_op.wash_scheme == "smart" for past_op in past_ops
+                    ):
+
+                        past_touched = reduce(
+                            lambda x, y: x
+                            + list(y.source_composition.items())
+                            + list(y.dest_composition.items()),
+                            past_ops,
+                            [],
+                        )
+
+                        source_comp = op.source_composition
+                        dest_comp = op.dest_composition
+                        wash_needed = False
+
+                        for prev_key, prev_conc in past_touched:
+                            # If the previous ops touched a liquid that is not present in our source, we need to wash to not contaminate it
+                            if prev_key not in source_comp:
+                                wash_needed = True
+                                break
+
+                            # If last op touched a well with more than twice the conc of the source, wash to not contaminate with the higher conc
+                            if prev_conc > 2 * source_comp[prev_key]:
+                                wash_needed = True
+                                break
+
+                        if not wash_needed:
+                            free_tips.add(tip)
+                            continue
 
                     tips_with_wash.add(tip)
 

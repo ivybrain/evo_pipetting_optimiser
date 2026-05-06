@@ -55,13 +55,13 @@ class TransferOperation:
         self.dest_dep = destination.last_op[dest_well]
 
         self.source_volume = source.latest_volume(source_well) - volume
-        source_composition = source.latest_composition(source_well)
+        self.source_composition = source.latest_composition(source_well)
 
         self.dest_volume = destination.latest_volume(dest_well) + volume
 
         self.dest_composition = combine_composition(
             volume,
-            source_composition,
+            self.source_composition,
             destination.volumes[dest_pos],
             destination.latest_composition(dest_well),
         )
