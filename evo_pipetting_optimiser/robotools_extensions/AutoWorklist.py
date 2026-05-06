@@ -185,7 +185,7 @@ class AutoWorklist(EvoWorklist):
 
         self.tips_mounted = tip_index
         self.append(
-            f"B;GetDiti({tip_selection}, {tip_index}, {int(retry)}, {self.arm})"
+            f'B;GetDiti({tip_selection}, {tip_index}, {int(retry)}, {self.arm})'
         )
 
     def drop_diti(self, tips):
@@ -202,7 +202,7 @@ class AutoWorklist(EvoWorklist):
 
         self.tips_mounted = None
         self.append(
-            f"B;DropDiTi({tip_selection}, {self.wash_params["waste_location"][0]}, {self.wash_params["waste_location"][1]-1}, {self.wash_params["airgap"]}, {self.wash_params["airgap_speed"]}, {self.arm})"
+            f'B;DropDiTi({tip_selection}, {self.wash_params["waste_location"][0]}, {self.wash_params["waste_location"][1]-1}, {self.wash_params["airgap"]}, {self.wash_params["airgap_speed"]}, {self.arm})'
         )
 
     def auto_transfer(
@@ -632,7 +632,7 @@ class AutoWorklist(EvoWorklist):
             tips=list(range(1, 9)), tip_volumes=[950] * 8, wash_schemes=[1] * 8
         )
         super().append(
-            f"C;Optimisation session complete. aspirates: {counts[0]}, dispenses: {counts[1]}, washes: {counts[2]}"
+            f'C;Optimisation session complete. aspirates: {counts[0]}, dispenses: {counts[1]}, washes: {counts[2]}'
         )
         self.asp_count = counts[0]
         self.disp_count = counts[1]
