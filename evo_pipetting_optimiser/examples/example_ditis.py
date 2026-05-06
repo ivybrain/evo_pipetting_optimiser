@@ -44,27 +44,39 @@ def basic_row_column(worklist):
 
         sample_count = 4
 
+        # Transfer neat sample to first column
         wl.auto_transfer(
             tubes,
-            tubes.wells[:4, 0],
+            tubes.wells[:sample_count, 0],
             DWP,
-            DWP.wells[:4, 0],
+            DWP.wells[:sample_count, 0],
             500,
             liquid_class="Ivy Training",
-            label="Get sample",
+            label="Get neat sample",
         )
-        wl.commit()
 
-        for i in range(4):
+        for i in range(5):
+            # Transfer diluent
             wl.auto_transfer(
                 diluent,
-                diluent.wells[:4],
+                diluent.wells[:sample_count],
                 DWP,
-                DWP.wells[:4, i + 1],
+                DWP.wells[:sample_count, i + 1],
                 250,
                 liquid_class="Ivy training",
                 label="Dispense diluent",
-                wash_scheme=None,
+                wash_scheme="smart",
+            )
+            # Series dilute from this column to next
+            wl.auto_transfer(
+                DWP,
+                DWP.wells[:sample_count, i],
+                DWP,
+                DWP.wells[:sample_count, i + 1],
+                250,
+                liquid_class="Ivy Training",
+                label=f"Series diluting into column {i+1}",
+                wash_scheme="smart",
             )
 
         # Print the operations we have registered, so we can sanity check

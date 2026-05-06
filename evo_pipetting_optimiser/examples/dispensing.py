@@ -129,7 +129,8 @@ perplate_aliquot_volumes = [300, 100]
 # Diltion blockm 100 neat, 900 diluent
 
 
-liquid_class = "Water free dispense"
+neat_liquid_class = "LC03 100 mg/mL Separate tips"
+dilute_liquid_class = "LC01 0-10 mg/mL Separate tips"
 
 
 with AutoWorklist(
@@ -145,7 +146,7 @@ with AutoWorklist(
         Dest_lunatic,
         Dest_lunatic.wells[:n_formulations, 0:3].flatten("F"),
         4,
-        liquid_class=liquid_class,
+        liquid_class=neat_liquid_class,
         wash_scheme="smart",
         label="Dispense lunatic triplicates",
     )
@@ -157,7 +158,7 @@ with AutoWorklist(
         Dest_DilutionBlock,
         Dest_DilutionBlock.wells.flatten("F")[:n_formulations],
         900,
-        liquid_class=liquid_class,
+        liquid_class="Water free dispense",
         wash_scheme="smart",
         label="Dispense diluent",
     )
@@ -213,7 +214,7 @@ with AutoWorklist(
                 dest,
                 dest.wells[row, col],
                 volume,
-                liquid_class=liquid_class,
+                liquid_class=neat_liquid_class,
                 wash_scheme="smart",
             )
         # Remove any source wells from the list that have no aliquot volumes left
@@ -253,7 +254,7 @@ with AutoWorklist(
                 dest,
                 dest_wells,
                 volume,
-                liquid_class=liquid_class,
+                liquid_class=neat_liquid_class,
                 wash_scheme="smart",
             )
 
@@ -272,7 +273,7 @@ with AutoWorklist(
         Dest_Caliper,
         Dest_Caliper.wells[:n_formulations, 0:2].flatten("F"),
         100,
-        liquid_class=liquid_class,
+        liquid_class=dilute_liquid_class,
         wash_scheme="smart",
         label=f"Caliper diluted",
     )
@@ -284,7 +285,7 @@ with AutoWorklist(
         Dest_SEC.wells.flatten("F")[:n_formulations],
         100,
         label=f"SEC diluted",
-        liquid_class=liquid_class,
+        liquid_class=dilute_liquid_class,
         wash_scheme="smart",
     )
     # Transfer diluent to aura plate
@@ -294,7 +295,7 @@ with AutoWorklist(
         Dest_AURA,
         Dest_AURA.wells[:n_formulations, 1],
         300,
-        liquid_class=liquid_class,
+        liquid_class="Water Free Dispense",
         wash_scheme="smart",
         label="Add diluent to aura plate",
     )
@@ -307,7 +308,7 @@ with AutoWorklist(
             Dest_DilutedRetains,
             Dest_DilutedRetains.wells[:n_formulations, i],
             100,
-            liquid_class=liquid_class,
+            liquid_class=dilute_liquid_class,
             wash_scheme="smart",
             label=f"Diluted retains {i}",
         )
@@ -319,7 +320,7 @@ with AutoWorklist(
             Dest_NeatRetains,
             Dest_NeatRetains.wells[:n_formulations, i],
             130,
-            liquid_class=liquid_class,
+            liquid_class=neat_liquid_class,
             wash_scheme="smart",
             label=f"Neat retains {i}",
         )

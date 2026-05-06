@@ -202,7 +202,7 @@ def init_search(pending_ops, report=True):
 
     if report:
         progress = Progress(
-            TextColumn("[bold pink]{task.description}"),
+            TextColumn("[bright_magenta]{task.description}"),
             BarColumn(),
             MofNCompleteColumn(),
             TimeElapsedColumn(),

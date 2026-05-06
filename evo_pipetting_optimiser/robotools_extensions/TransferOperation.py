@@ -62,7 +62,7 @@ class TransferOperation:
         self.dest_composition = combine_composition(
             volume,
             self.source_composition,
-            destination.volumes[dest_pos],
+            destination.latest_volume(dest_well),
             destination.latest_composition(dest_well),
         )
 

@@ -144,8 +144,8 @@ class OpGraph:
                                 wash_needed = True
                                 break
 
-                            # If last op touched a well with more than twice the conc of the source, wash to not contaminate with the higher conc
-                            if prev_conc > 2 * source_comp[prev_key]:
+                            # If last op touched a well signficantly more concentrated than this one, wash to not contaminate with the higher conc
+                            if prev_conc > 1.2 * source_comp[prev_key]:
                                 wash_needed = True
                                 break
 
