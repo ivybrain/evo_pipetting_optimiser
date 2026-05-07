@@ -21,6 +21,9 @@ class OffsetLimitException(Exception):
 class Node:
     """
     Node in the problem graph
+    Used to enable A-star search where we can look ahead to find the best action several moves in advance
+    A-star is not currently used for performance reasons - we only select the best node at each step
+    Retained in case better optimisation decisions are needed in the future
     """
 
     def __init__(self, parent, *args):
@@ -29,13 +32,25 @@ class Node:
 
         if not parent:
             (pending_ops,) = args
-            self.init_root(pending_ops)
+            self.pending_ops = pending_ops
 
-            # nx.draw(self.pending_graph, with_labels=True)
-            # plt.show()
+            # Open ops are those currently executable (do not have dependencies)
+            self.open_ops = set(
+                [
+                    op
+                    for op in pending_ops
+                    if op.source_dep not in pending_ops
+                    and op.dest_dep not in pending_ops
+                ]
+            )
 
-            # nx.draw(self.open_graph, with_labels=True)
-            # plt.show()
+            # Initialise the graph representing the open ops
+            self.open_graph = OpGraph(self.open_ops)
+            self.open_graph.node = self
+
+            self.move = None
+            self.cost = 0
+            self.depth = 0
 
         else:
             (pending_ops, open_ops, open_graph, move, cost) = args
@@ -52,37 +67,19 @@ class Node:
 
         return
 
-    def init_root(self, pending_ops):
-        self.pending_ops = pending_ops
-
-        self.open_ops = set(
-            [
-                op
-                for op in pending_ops
-                if op.source_dep not in pending_ops and op.dest_dep not in pending_ops
-            ]
-        )
-
-        # self.pending_graph = TipGraph(pending_ops)
-        self.open_graph = OpGraph(self.open_ops)
-        self.open_graph.node = self
-        # self.open_graph = TipGraph()
-
-        self.move = None
-        self.cost = 0
-        self.depth = 0
-
-        return
-
     @property
     def unused_tips(self):
         return [i for i in range(8) if not self.open_graph.tip_ops_since_wash[i]]
 
     def get_neighbours(self):
+        """
+        Get the liquid handler moves that we can make from the current state, and the resulting nodes (states) from those moves
+        We currently only select the 1 best move and create one new state (greedy approach)
+        """
+
         children = []
 
-        # If we're not the first node, we can consider a wash
-
+        # Create a dictionary tracking all the ops that each tip has conducted since its lart wash
         tip_ops_since_wash = {t: [] for t in range(8)}
         if self.depth > 0:
             # Find all the ops conducted and tips used since last wash
@@ -104,17 +101,21 @@ class Node:
             self.open_graph.tip_ops_since_wash = tip_ops_since_wash
 
         moves = self.open_graph.get_moves()
+        # select only one best move (moves are pre-sorted by the get_moves method)
         moves = moves[:1]
 
-        # self.open_graph.show()
-
         for move in moves:
+
+            # Get the details of this move
             score, aspirates, dispenses, ops, tips = move.tuple()
 
+            # The new node's pending operations will not include the ops that were just comlpeted
             new_pending = copy(self.pending_ops)
-
             new_pending.difference_update(set(ops))
-            all_open_ops = set(
+
+            # Calculate which ops are 'open' (executable straight away, without dependencies) from the new pending ops
+            # This may include new ops now that some ops are no longer pending (complete)
+            new_open_ops = set(
                 [
                     op
                     for op in new_pending
@@ -123,18 +124,24 @@ class Node:
                 ]
             )
 
+            # New cost is the old cost, plus how many aspirates, dispenses, and wash steps this move took
+            new_cost = (
+                self.cost
+                + len(aspirates)
+                + len(dispenses)
+                + (2 if move.wash_first else 0)
+            )
+
+            # Create the new node with the new pending and open states
+
             new_node = Node(
-                self,
-                new_pending,
-                all_open_ops,
-                OpGraph(all_open_ops),
-                move,
-                self.cost + len(aspirates) + len(dispenses),
+                self, new_pending, new_open_ops, OpGraph(new_open_ops), move, new_cost
             )
             new_node.open_graph.node = new_node
             children.append(new_node)
 
         if not children:
+            # If we can't find a move, then there are no valid moves to complete any of the remaining ops
             raise OffsetLimitException(
                 "Failed to solve. Perhaps you are trying to pipette wells with impossible offsets?"
             )
@@ -142,12 +149,10 @@ class Node:
         return children
 
     def heuristic_cost_estimate(self):
-        # op_cost = 0
-
-        # for n_ops in list(self.open_graph.asp_nodes.values()) + list(
-        #     self.open_graph.disp_nodes.values()
-        # ):
-        #     op_cost += (n_ops // 8) + 1
+        """
+        Used to evaluate which node to choose next for Astar
+        Not currently relevant as we only have one node at a time
+        """
 
         op_cost = (len(self.pending_ops) * 18) / 8
 
@@ -203,7 +208,7 @@ def init_search(pending_ops, report=True):
     if report:
         progress = Progress(
             TextColumn("[bright_magenta]{task.description}"),
-            BarColumn(),
+            BarColumn(finished_style="bar.complete"),
             MofNCompleteColumn(),
             TimeElapsedColumn(),
         )
