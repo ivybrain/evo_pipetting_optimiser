@@ -1,6 +1,7 @@
 from robotools import *
 from typing import Literal, Optional, Tuple
-from . import *
+from robotools.liquidhandling.composition import combine_composition
+from . import AdvancedLabware
 
 
 class TransferOperation:
@@ -9,11 +10,13 @@ class TransferOperation:
     For a transfer from one well to another
     """
 
-    op_id_counter = 0
+    # Track ids of each op
+    _op_id_counter = 0
+    op_index = {}
 
     def __init__(
         self,
-        source: liquidhandling.Labware,
+        source: AdvancedLabware,
         source_pos: Tuple[int, int],
         destination: AdvancedLabware,
         dest_pos: Tuple[int, int],
@@ -21,14 +24,14 @@ class TransferOperation:
         *,
         label: Optional[str] = None,
         on_underflow: Literal["debug", "warn", "raise"] = "raise",
-        source_dep=None,
-        dest_dep=None,
         liquid_class=None,
         wash_scheme: Literal["D", 1, None, "smart"] = 1,
+        tip_index=None,
         **kwargs,
     ):
-        self.id = TransferOperation.op_id_counter
-        TransferOperation.op_id_counter += 1
+        self.id = TransferOperation._op_id_counter
+        TransferOperation._op_id_counter += 1
+        TransferOperation.op_index = self
 
         self.source = source
         self.source_pos = source_pos
@@ -39,14 +42,33 @@ class TransferOperation:
         self.label = label
         self.on_underflow = on_underflow
 
-        self.source_dep = source_dep
-        self.dest_dep = dest_dep
-
-        self.selected_tip = None
-
         self.wash_scheme = wash_scheme
 
         self.liquid_class = liquid_class
+
+        self.dep_children = []
+
+        source_well = source.wells[source_pos]
+        dest_well = destination.wells[dest_pos]
+
+        self.source_dep = source.last_op[source_well]
+        self.dest_dep = destination.last_op[dest_well]
+
+        self.source_volume = source.latest_volume(source_well) - volume
+        self.source_composition = source.latest_composition(source_well)
+
+        self.dest_volume = destination.latest_volume(dest_well) + volume
+
+        self.dest_composition = combine_composition(
+            volume,
+            self.source_composition,
+            destination.latest_volume(dest_well),
+            destination.latest_composition(dest_well),
+        )
+
+        self.tip_index = tip_index
+
+        return
 
     def __str__(self):
         source_label = f"{self.source.name}-{'any' if isinstance(self.source, Trough) else self.source.wells[self.source_pos]}"

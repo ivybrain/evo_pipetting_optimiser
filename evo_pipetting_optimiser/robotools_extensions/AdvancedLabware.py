@@ -20,13 +20,42 @@ class AdvancedLabware(robotools.Labware):
             for well in self.wells.flatten("F")
         }
 
+    def latest_volume(self, well):
+        # Default volume if we have no ops
+        vol = self.volumes[self.indices[well]]
+        dest_op = None
+
+        # If we have an op that uses this labware as a destination, get volume from that
+        if self.op_tracking[well]:
+            dest_op = self.op_tracking[well][-1]
+            vol = dest_op.dest_volume
+
+        # If we have an op that uses this labware as a source, and it's more recent than the dest op, use that volume
+        if self.source_op_tracking[well] and (
+            (not dest_op) or self.source_op_tracking[well][-1] > dest_op
+        ):
+            vol = self.source_op_tracking[well][-1].source_volume
+
+        return vol
+
+    def latest_composition(self, well):
+        if self.op_tracking[well]:
+            op = self.op_tracking[well][-1]
+            return op.dest_composition
+
+        return self.get_well_composition(well)
+
+    def reset_op_tracking(self):
+        self.op_tracking = {well: [] for well in self.wells.flatten("F")}
+        self.source_op_tracking = {well: [] for well in self.wells.flatten("F")}
+
     def __init__(
         self,
         *args,
         location=None,
         offset_limit_up=None,
         offset_limit_down=None,
-        **kwargs
+        **kwargs,
     ):
         """Creates an `AdvancedLabware` object for AutoWorklist pipetting optimisation
 
@@ -70,8 +99,9 @@ class AdvancedLabware(robotools.Labware):
         if not location:
             raise ValueError("Grid and Site must be specified")
         self.location = location
+        self.offset_limit_up = offset_limit_up if offset_limit_up is not None else 7
+        self.offset_limit_down = (
+            offset_limit_down if offset_limit_down is not None else self.n_rows - 1
+        )
 
-        self.offset_limit_up = offset_limit_up
-        self.offset_limit_down = offset_limit_down
-
-        self.op_tracking = {well: [] for well in self.wells.flatten("F")}
+        self.reset_op_tracking()
