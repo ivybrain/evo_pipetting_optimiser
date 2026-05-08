@@ -3,7 +3,9 @@ import json
 
 from evo_pipetting_optimiser import AdvancedLabware, AutoWorklist, AdvancedTrough
 
-# Define a rack of sample matrix tubes as sample plate. It is a 96-well microplate, so 8 rows, 12 columns
+"""
+This example shows using disposable tips (DiTis)
+"""
 
 
 diluent = AdvancedTrough(
@@ -15,7 +17,6 @@ diluent = AdvancedTrough(
     initial_volumes=80_000,
     location=(8, 3),
 )
-# Define dilution plate. It is a 96-well microplate, so 8 rows, 12 columns
 
 microplate = AdvancedLabware(
     "Microplate", 8, 12, min_volume=20, max_volume=340, location=(32, 1)
@@ -38,6 +39,7 @@ tubes = AdvancedLabware(
 
 def basic_row_column(worklist):
 
+    # Use LiHa 2 (arm=1)
     with AutoWorklist(
         worklist, diti_mode=True, default_tip=16, arm=1, waste_location=(25, 3)
     ) as wl:
@@ -45,6 +47,7 @@ def basic_row_column(worklist):
         sample_count = 4
 
         # Transfer neat sample to first column
+        # Wash scheme is default (1) so new tips will be fetched then discarded
         wl.auto_transfer(
             tubes,
             tubes.wells[:sample_count, 0],
@@ -55,6 +58,8 @@ def basic_row_column(worklist):
             label="Get neat sample",
         )
 
+        # Wash scheme is 'smart', so same tips will be used for all diluent
+        # But different tips will be used where concentration differs
         for i in range(5):
             # Transfer diluent
             wl.auto_transfer(
@@ -86,4 +91,4 @@ def basic_row_column(worklist):
 
 
 if __name__ == "__main__":
-    basic_row_column(r"\\PME1SVM001L.lab.net\rla\FreedomEvo200_L6\optimiser_ditis.gwl")
+    basic_row_column("example_ditis.gwl")

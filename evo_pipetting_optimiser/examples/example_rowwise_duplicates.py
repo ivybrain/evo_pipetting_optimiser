@@ -1,7 +1,8 @@
-import robotools
-import json
-
 from evo_pipetting_optimiser import AdvancedLabware, AutoWorklist, AdvancedTrough
+
+"""
+An example where we pipette duplicates of samples rowwise. This is also tricky to optimise
+"""
 
 # Define a rack of sample matrix tubes as sample plate. It is a 96-well microplate, so 8 rows, 12 columns
 sample_plate = AdvancedLabware(
@@ -47,16 +48,6 @@ def basic_row_column(worklist):
 
     with AutoWorklist(worklist, waste_location=(1, 2), cleaner_location=(1, 3)) as wl:
 
-        # wl.auto_transfer(
-        #     sample_plate,
-        #     # [sample_plate.wells.flatten("F")[i//2] for i in range(32)],
-        #     dilution_plate.wells.flatten()[:32],
-        #     dilution_plate,
-        #     dilution_plate.wells.flatten()[:32],
-        #     50,
-        #     liquid_class="Water free dispense",
-        # )
-
         wl.auto_transfer(
             sample_plate,
             # [sample_plate.wells.flatten("F")[i//2] for i in range(32)],
@@ -74,4 +65,4 @@ def basic_row_column(worklist):
 
 
 if __name__ == "__main__":
-    basic_row_column("example_basic_row_column.gwl")
+    basic_row_column("example_rowwise_duplicates.gwl")
