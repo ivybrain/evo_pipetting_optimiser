@@ -473,7 +473,7 @@ class AutoWorklist(EvoWorklist):
         wash_params = {
             key: value
             for key, value in self.wash_params.items()
-            if not key.startswith("decon_")
+            if (not key.startswith("decon_")) and key != "max_tip_uses"
         }
 
         if len(wash_tips) > 0:
