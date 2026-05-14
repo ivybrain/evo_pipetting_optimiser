@@ -283,14 +283,6 @@ def make_plan(pending_ops, report=True):
 
     completed_ops = set()
 
-    labware_copies = {}
-
-    def labware_copy(labware):
-        if labware.name not in labware_copies:
-            labware_copies[labware.name] = deepcopy(labware)
-
-        return labware_copies[labware.name]
-
     start_time = time.time()
 
     # profiler = cProfile.Profile()
@@ -325,14 +317,6 @@ def make_plan(pending_ops, report=True):
 
             actions.append(("Aspirate", asp_ops, [op_tip[op] for op in asp_ops]))
 
-            # Remove liquid from our virtual copy of the plates so we can track composition
-
-            virtual_source = labware_copy(asp_ops[0].source)
-            virtual_source.remove(
-                [virtual_source.wells[op.source_pos] for op in asp_ops],
-                [op.volume for op in asp_ops],
-            )
-
             asp_count += 1
 
         for (labware, col, offset), disp_ops in dispenses.items():
@@ -341,20 +325,6 @@ def make_plan(pending_ops, report=True):
             disp_ops.sort(key=lambda op: op_tip[op])
 
             actions.append(("Dispense", disp_ops, [op_tip[op] for op in disp_ops]))
-
-            # Add liquid to our virtual copy of the plates so we can track composition
-            virtual_dest = labware_copy(disp_ops[0].destination)
-            compositions = [
-                labware_copy(op.source).get_well_composition(
-                    op.source.wells[op.source_pos]
-                )
-                for op in disp_ops
-            ]
-            virtual_dest.add(
-                [virtual_dest.wells[op.dest_pos] for op in disp_ops],
-                [op.volume for op in disp_ops],
-                compositions=compositions,
-            )
 
             disp_count += 1
 

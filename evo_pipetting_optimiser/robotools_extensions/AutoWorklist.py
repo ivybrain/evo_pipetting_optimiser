@@ -94,6 +94,7 @@ class AutoWorklist(EvoWorklist):
         decon_excess_volume: int = 20,
         decon_liquid_class: str = None,
         decon_delay: int = 1000,
+        max_tip_uses: int = 5,
     ):
         """
         Set the parameters that will be passed to evo_wash for washes triggered by auto_transfer().
@@ -139,6 +140,9 @@ class AutoWorklist(EvoWorklist):
             Liquid class to use for decon aspiration
         decon_delay : int
             Delay to soak the tips after aspirating decon solution. Default 1000ms
+        max_tip_uses:
+            When reusing tips with wash_scheme = "smart" or None, this is the maximum number of uses of a tip before a wash is done anyway.
+            This is useful to prevent a loss of accuracy and 'reset' the liquid class. Set to None for no limit. Default 5
         """
 
         param_defaults = {
@@ -157,6 +161,7 @@ class AutoWorklist(EvoWorklist):
             "decon_excess_volume": 20,
             "decon_liquid_class": None,
             "decon_delay": 1000,
+            "max_tip_uses": 5,
         }
 
         for key, default in param_defaults.items():
@@ -352,6 +357,7 @@ class AutoWorklist(EvoWorklist):
                     on_underflow=on_underflow,
                     liquid_class=liquid_class,
                     tip_index=tip_index,
+                    worklist=self,
                 )
 
                 # Append this op to the labware we're aspirating to
@@ -662,7 +668,8 @@ class AutoWorklist(EvoWorklist):
         if len(self.pending_ops) > 0 and not self.processing:
             self.processing = True
             plan, cost, (asp_count, disp_count, wash_count) = make_plan(
-                self.pending_ops, report=report
+                self.pending_ops,
+                report=report,
             )
             self.execute_plan(plan, (asp_count, disp_count, wash_count))
             self.pending_ops = set()

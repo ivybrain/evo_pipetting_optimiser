@@ -27,6 +27,7 @@ class TransferOperation:
         liquid_class=None,
         wash_scheme: Literal["D", 1, None, "smart"] = 1,
         tip_index=None,
+        worklist=None,
         **kwargs,
     ):
         self.id = TransferOperation._op_id_counter
@@ -45,6 +46,7 @@ class TransferOperation:
         self.wash_scheme = wash_scheme
 
         self.liquid_class = liquid_class
+        self.worklist = worklist
 
         self.dep_children = []
 

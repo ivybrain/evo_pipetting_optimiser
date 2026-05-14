@@ -44,6 +44,8 @@ def basic_row_column(worklist):
         worklist, diti_mode=True, default_tip=16, arm=1, waste_location=(25, 3)
     ) as wl:
 
+        # wl.set_wash_parameters(max_tip_reuse=2)
+
         sample_count = 4
 
         # Transfer neat sample to first column

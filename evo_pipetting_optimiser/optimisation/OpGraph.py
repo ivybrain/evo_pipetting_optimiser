@@ -107,6 +107,12 @@ class OpGraph:
                 free_tips = set()
                 tips_with_wash = set()
                 for tip, past_ops in self.tip_ops_since_wash.items():
+
+                    # Check we have not reached the max use limit for this tip
+                    if len(past_ops) >= op.worklist.wash_params["max_tip_uses"]:
+                        tips_with_wash.add(tip)
+                        continue
+
                     # If tip is occupied, skip it
                     if tip in occupied_tips:
                         continue
