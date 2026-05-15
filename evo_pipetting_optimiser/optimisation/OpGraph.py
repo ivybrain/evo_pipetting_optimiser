@@ -133,12 +133,10 @@ class OpGraph:
                     ):
 
                         past_touched = reduce(
-                            lambda x, y: x
-                            + list(y.source_composition.items())
-                            + list(y.dest_composition.items()),
+                            lambda x, y: x | y.dest_composition | y.source_composition,
                             past_ops,
-                            [],
-                        )
+                            {},
+                        ).items()
 
                         source_comp = op.source_composition
                         dest_comp = op.dest_composition

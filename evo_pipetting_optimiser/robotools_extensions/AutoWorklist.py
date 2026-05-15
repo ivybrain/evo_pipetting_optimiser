@@ -7,7 +7,14 @@ import math
 from .TransferOperation import TransferOperation
 from ..utils.utils import *
 from ..optimisation import make_plan
-import time
+from concurrent.futures import ThreadPoolExecutor
+from rich.progress import (
+    Progress,
+    BarColumn,
+    TextColumn,
+    MofNCompleteColumn,
+    TimeElapsedColumn,
+)
 
 
 class AutoWorklist(EvoWorklist):
@@ -22,6 +29,7 @@ class AutoWorklist(EvoWorklist):
         diti_mode: bool = False,
         default_tip: int = None,
         arm: int = 0,
+        max_concurrent_ops: int = None,
         *args,
         **kwargs,
     ):
@@ -42,10 +50,13 @@ class AutoWorklist(EvoWorklist):
             LiHa number. Default=0
         max_volume : int
             Maximum aspiration volume in µL
+        max_concurrent_ops: int
+            Maximum number of ops to optimise over at once. If there are more pipetting operations than this, they will be split into sections
+            and optimised seperately, so that optimisation does not take a long time. Default None = no split.
 
         """
         super().__init__(worklist_path, *args, **kwargs)
-        self.pending_ops = set()
+        self.pending_ops = []
 
         self.tips_used = [False] * 8
         self.tip_contents = [None] * 8
@@ -54,6 +65,7 @@ class AutoWorklist(EvoWorklist):
         self.silence_append_warning = False
 
         self.processing = False
+        self.max_concurrent_ops = max_concurrent_ops
 
         self.wash_params = {
             "waste_location": waste_location,
@@ -365,8 +377,8 @@ class AutoWorklist(EvoWorklist):
                 source.source_op_tracking[source_well].append(op)
                 destination.op_tracking[dest_well].append(op)
 
-                # Add this op to the pending operations set
-                self.pending_ops.update([op])
+                # Add this op to the pending operations
+                self.pending_ops.append(op)
 
     def append(self, *args, **kwargs):
         # If we have un-commited auto transfers and the user tries to append something else to the worklist
@@ -667,12 +679,53 @@ class AutoWorklist(EvoWorklist):
         # If we have ops pending, optimise and apply them
         if len(self.pending_ops) > 0 and not self.processing:
             self.processing = True
-            plan, cost, (asp_count, disp_count, wash_count) = make_plan(
-                self.pending_ops,
-                report=report,
-            )
-            self.execute_plan(plan, (asp_count, disp_count, wash_count))
-            self.pending_ops = set()
+
+            total_asp, total_disp, total_wash = 0, 0, 0
+
+            # Split the ops into sections to optimise for performance
+            if self.max_concurrent_ops:
+                segments = range((len(self.pending_ops) // self.max_concurrent_ops) + 1)
+            else:
+                segments = [0]
+
+            with Progress(
+                TextColumn("[bright_magenta]{task.description}"),
+                BarColumn(finished_style="bar.complete"),
+                MofNCompleteColumn(),
+                TimeElapsedColumn(),
+            ) as progress:
+
+                with ThreadPoolExecutor(max_workers=4) as executor:
+                    segment_ops = []
+                    tasks = []
+                    for s in segments:
+
+                        if self.max_concurrent_ops:
+                            ops = self.pending_ops[
+                                s
+                                * self.max_concurrent_ops : (s + 1)
+                                * self.max_concurrent_ops
+                            ]
+                        else:
+                            ops = self.pending_ops
+
+                        segment_ops.append(ops)
+
+                        tasks.append(progress.add_task("Optimising...", total=len(ops)))
+
+                    results = executor.map(
+                        make_plan, segment_ops, [progress] * len(segments), tasks
+                    )
+
+            for plan, cost, (asp_count, disp_count, wash_count) in results:
+                total_asp += asp_count
+                total_disp += disp_count
+                total_wash += wash_count
+
+                self.execute_plan(plan, (asp_count, disp_count, wash_count))
+
+            # Reset the pending ops
+            self.pending_ops = []
 
             # Reset the op tracking on all labware
             for labware in self.all_labware:
@@ -683,7 +736,7 @@ class AutoWorklist(EvoWorklist):
             self.processing = False
             if report:
                 print(
-                    f"Optimisation complete. aspirates: {asp_count}, dispenses: {disp_count}, washes: {wash_count}"
+                    f"Optimisation complete. aspirates: {total_asp}, dispenses: {total_disp}, washes: {total_wash}"
                 )
         self.currently_optimising = False
         super().append("B;")

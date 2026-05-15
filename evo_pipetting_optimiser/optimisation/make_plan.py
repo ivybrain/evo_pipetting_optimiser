@@ -5,13 +5,6 @@ from sortedcontainers import SortedSet
 from .OpGraph import OpGraph
 
 from ..utils import longest_consecutive_sequence
-from rich.progress import (
-    Progress,
-    BarColumn,
-    TextColumn,
-    MofNCompleteColumn,
-    TimeElapsedColumn,
-)
 
 
 class OffsetLimitException(Exception):
@@ -196,7 +189,7 @@ class Node:
         return f"Node score {self.fscore}"
 
 
-def init_search(pending_ops, report=True):
+def init_search(pending_ops, progress=None, task=None):
 
     initial_node = Node(None, pending_ops)
     open_nodes = SortedSet([initial_node])
@@ -205,22 +198,12 @@ def init_search(pending_ops, report=True):
     max_len = 0
     prune_count = 0
 
-    if report:
-        progress = Progress(
-            TextColumn("[bright_magenta]{task.description}"),
-            BarColumn(finished_style="bar.complete"),
-            MofNCompleteColumn(),
-            TimeElapsedColumn(),
-        )
-        task = progress.add_task("Optimising...", total=len(pending_ops))
-        progress.start()
-
     while len(open_nodes) > 0:
         max_len = max(max_len, len(open_nodes))
 
         node = open_nodes.pop(0)
 
-        if report and node.move:
+        if progress and node.move:
             progress.update(task, advance=len(node.move.ops))
 
         if len(node.open_ops) == 0:
@@ -238,9 +221,6 @@ def init_search(pending_ops, report=True):
 
             generated_nodes.add(child)
             open_nodes.add(child)
-
-    if report:
-        progress.stop()
 
     path = [node]
     while node.parent:
@@ -262,7 +242,7 @@ def init_search(pending_ops, report=True):
     return moves
 
 
-def make_plan(pending_ops, report=True):
+def make_plan(pending_ops, progress=None, task=None):
     """
     Create a list of pipetting actions from a set of pending ops
     Actions are a tuple of
@@ -279,7 +259,7 @@ def make_plan(pending_ops, report=True):
     actions = []
 
     # Create a copy of pending ops set that we can mutate
-    pending_ops = copy(pending_ops)
+    pending_ops = set(pending_ops)
 
     completed_ops = set()
 
@@ -288,7 +268,7 @@ def make_plan(pending_ops, report=True):
     # profiler = cProfile.Profile()
     # profiler.enable()
 
-    moves = init_search(pending_ops, report=report)
+    moves = init_search(pending_ops, progress, task)
 
     for move in moves:
 
@@ -335,6 +315,9 @@ def make_plan(pending_ops, report=True):
     # profiler.disable()
     # stats = pstats.Stats(profiler)
     # stats.dump_stats("program.cprof")
+
+    # Add an additional wash at the end as we always do one at the end of a plan
+    wash_count += 1
 
     cost = asp_count + disp_count + (wash_count * 2)
 
