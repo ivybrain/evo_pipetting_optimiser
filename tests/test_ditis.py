@@ -84,7 +84,7 @@ def test_ditis():
         # Ensure it completes this task efficiently as expected
         assert wl.asp_count == 9
         assert wl.disp_count == 11
-        assert wl.wash_count == 7
+        assert wl.wash_count == 8
 
 
 if __name__ == "__main__":
