@@ -89,8 +89,8 @@ class OpGraph:
 
         # Create subgraph representing offsets
         offset_edges = []
-        source_offset_out_edges = {}
-        dest_offset_in_edges = {}
+        source_offset_in_edges = {}
+        dest_offset_out_edges = {}
 
         for (source_col, dest_col), past_ops in self.op_groups.items():
             scaling = 1
@@ -202,15 +202,15 @@ class OpGraph:
                     if (dest_row_key, dest_offset_key) not in G.edges:
                         disp_nodes[dest_offset_key] += 1
 
-                    if source_offset_key not in source_offset_out_edges:
-                        source_offset_out_edges[source_offset_key] = 1
+                    if source_offset_key not in source_offset_in_edges:
+                        source_offset_in_edges[source_offset_key] = 1
                     else:
-                        source_offset_out_edges[source_offset_key] += 1
+                        source_offset_in_edges[source_offset_key] += 1
 
-                    if dest_offset_key not in dest_offset_in_edges:
-                        dest_offset_in_edges[dest_offset_key] = 1
+                    if dest_offset_key not in dest_offset_out_edges:
+                        dest_offset_out_edges[dest_offset_key] = 1
                     else:
-                        dest_offset_in_edges[dest_offset_key] += 1
+                        dest_offset_out_edges[dest_offset_key] += 1
 
                     G.add_edge(
                         source_row_key,
@@ -323,8 +323,25 @@ class OpGraph:
 
         # Reweight offset edges
         for u, v in offset_edges:
+            # Penalty for unneeded offsets
+            offset_penalty = 0
+            # If offsets the same, should be 0 as we're then doing straight transfer
+            # Abs offset should be below the difference in offsets
+            # Add 7 to offsets to they're moved into the range 0-15
+            u_offset = u[-1]
+            v_offset = v[-1]
+
+            offset_difference = abs(u_offset - v_offset)
+            largest_offset = max(abs(u_offset), abs(v_offset))
+
+            if largest_offset > offset_difference:
+                offset_penalty = 1
+
             G.edges[u, v]["weight"] = (
-                0 - source_offset_out_edges[u] - dest_offset_in_edges[v]
+                # small penalty for offset further from 0
+                offset_penalty
+                - source_offset_in_edges[u]
+                - dest_offset_out_edges[v]
             )
 
         moves = []
