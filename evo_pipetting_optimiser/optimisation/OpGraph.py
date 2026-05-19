@@ -435,7 +435,7 @@ class OpGraph:
 
             #
 
-        moves.sort(key=lambda move: move.score, reverse=True)
+        moves.sort(reverse=True)
         return moves
 
 

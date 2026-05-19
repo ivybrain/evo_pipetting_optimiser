@@ -22,7 +22,7 @@ class Move:
         asp_ops = tuple(op for set in self.aspirates.values() for op in set)
         disp_ops = tuple(op for set in self.dispenses.values() for op in set)
 
-        return (self.score, asp_ops, disp_ops)
+        return (-self.score, asp_ops, disp_ops)
 
     def tuple(self):
         return self.score, self.aspirates, self.dispenses, self.ops, self.tips
@@ -39,7 +39,7 @@ class Move:
         return hash(self.key)
 
     def __lt__(self, other):
-        return self.key() < other.key()
+        return self.key() > other.key()
 
     def __gt__(self, other):
-        return self.key() > other.key()
+        return self.key() < other.key()
