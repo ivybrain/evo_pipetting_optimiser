@@ -390,7 +390,12 @@ class OpGraph:
                 selectable_edges = G.in_edges(node_choice)
 
             selectable_edges = sorted(
-                selectable_edges, key=lambda x: G.edges[*x]["wash_needed"]
+                selectable_edges,
+                key=lambda x: (
+                    G.edges[*x]["wash_needed"],
+                    -len(G.edges[*x]["op_tip"]),
+                    min(G.edges[*x]["op_tip"].keys()),
+                ),
             )
 
             for u, v in selectable_edges:
