@@ -14,6 +14,7 @@ class Move:
 
     def calc_score(self):
         # Score the efficiency of the move
+        # self.score = (2 * len(self.ops)) - 4 if self.wash_first else 0
         self.score = (len(self.ops) * 2) / (
             len(self.aspirates) + len(self.dispenses) + (2 if self.wash_first else 0)
         )

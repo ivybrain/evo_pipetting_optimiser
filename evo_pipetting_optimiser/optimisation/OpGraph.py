@@ -381,7 +381,7 @@ class OpGraph:
             dispenses = move.dispenses
             asp_ops = move.ops
             tips_used = move.tips
-            new_ops = []
+            potential_ops = []
 
             if node_choice[0] == "s_ofst":
                 # Pre-select edges matching the source offset node for efficiency
@@ -397,6 +397,7 @@ class OpGraph:
                     min(G.edges[*x]["op_tip"].keys()),
                 ),
             )
+            new_ops = None
 
             for u, v in selectable_edges:
 
@@ -406,35 +407,37 @@ class OpGraph:
                     move.wash_first = True
                     move.tip_ops_since_wash = self.tip_ops_since_wash
 
-                new_ops, new_tips = zip(*G[u][v]["op_tip"].items())
-                if any([op in asp_ops for op in new_ops]):
+                potential_ops, potential_tips = zip(*G[u][v]["op_tip"].items())
+                if any([op in asp_ops for op in potential_ops]):
                     continue
 
-                if len(new_ops) == 0:
+                if len(potential_ops) == 0:
                     continue
-                if any(tip in tips_used for tip in new_tips):
+                if any(tip in tips_used for tip in potential_tips):
                     continue
 
-                tips_used += new_tips
+                tips_used += potential_tips
 
-                asp_ops += new_ops
+                asp_ops += potential_ops
                 if (source, col, offset) in aspirates:
-                    aspirates[source, col, offset] += new_ops
+                    aspirates[source, col, offset] += potential_ops
                 else:
-                    aspirates[source, col, offset] = list(new_ops)
+                    aspirates[source, col, offset] = list(potential_ops)
 
                 (_, _, dest, col, _, offset) = v
 
                 if (dest, col, offset) in dispenses:
-                    dispenses[dest, col, offset] += new_ops
+                    dispenses[dest, col, offset] += potential_ops
                 else:
-                    dispenses[dest, col, offset] = list(new_ops)
+                    dispenses[dest, col, offset] = list(potential_ops)
+
+                new_ops = potential_ops
                 break
 
             move.calc_score()
 
             # Given these tips used, calculate other edges that can be added
-            if new_ops and len(move.tips) < 8 and flow_value > len(new_ops):
+            if new_ops and len(move.tips) < 8 and flow_value > len(potential_ops):
                 self.get_moves(tips_used, node_choice, move, selected_ops=set(asp_ops))
                 pass
 

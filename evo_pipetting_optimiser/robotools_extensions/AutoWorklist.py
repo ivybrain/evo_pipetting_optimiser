@@ -680,8 +680,6 @@ class AutoWorklist(EvoWorklist):
         if len(self.pending_ops) > 0 and not self.processing:
             self.processing = True
 
-            total_asp, total_disp, total_wash = 0, 0, 0
-
             # Split the ops into sections to optimise for performance
             if self.max_concurrent_ops:
                 segments = range((len(self.pending_ops) // self.max_concurrent_ops) + 1)
@@ -718,9 +716,6 @@ class AutoWorklist(EvoWorklist):
                     )
 
             for plan, cost, (asp_count, disp_count, wash_count) in results:
-                total_asp += asp_count
-                total_disp += disp_count
-                total_wash += wash_count
 
                 self.execute_plan(plan, (asp_count, disp_count, wash_count))
 
@@ -736,7 +731,7 @@ class AutoWorklist(EvoWorklist):
             self.processing = False
             if report:
                 print(
-                    f"Optimisation complete. aspirates: {total_asp}, dispenses: {total_disp}, washes: {total_wash}"
+                    f"Optimisation complete. aspirates: {self.asp_count}, dispenses: {self.disp_count}, washes: {self.wash_count}"
                 )
         self.currently_optimising = False
         super().append("B;")

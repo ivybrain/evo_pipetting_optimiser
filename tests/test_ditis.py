@@ -79,7 +79,7 @@ def test_ditis():
                 wash_scheme="smart",
             )
 
-        wl.commit(report=False)
+        wl.commit(report=True)
 
         # Ensure it completes this task efficiently as expected
         assert wl.asp_count == 9

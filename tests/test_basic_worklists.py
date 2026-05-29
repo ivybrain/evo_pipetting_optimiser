@@ -57,9 +57,7 @@ def test_basic_transfers():
             liquid_class="Water free dispense",
         )
 
-        print(wl.report)
-
-        wl.commit()
+        wl.commit(report=True)
 
         # Ensure it completes this task efficiently as expected
         assert wl.asp_count == 16
