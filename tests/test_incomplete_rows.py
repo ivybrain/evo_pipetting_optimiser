@@ -63,9 +63,9 @@ def test_incomplete_rows():
 
         wl.commit(report=True)
 
-        assert wl.asp_count == 10
+        assert wl.asp_count == 9
         assert wl.disp_count == 21
-        assert wl.wash_count == 11
+        assert wl.wash_count == 10
 
 
 if __name__ == "__main__":

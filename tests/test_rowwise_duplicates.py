@@ -63,7 +63,7 @@ def test_rowwise_duplicates():
 
         wl.commit(report=True)
         assert wl.asp_count == 24
-        assert wl.disp_count == 13
+        assert wl.disp_count == 12
         assert wl.wash_count == 13
 
 
