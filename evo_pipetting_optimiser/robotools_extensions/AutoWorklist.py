@@ -233,7 +233,7 @@ class AutoWorklist(EvoWorklist):
         label: Optional[str] = "",
         on_underflow: Literal["debug", "warn", "raise"] = "raise",
         liquid_class: str = None,
-        wash_scheme: Literal["D", 1, None] = 1,
+        wash_scheme: Literal["D", 1, None, "smart"] = 1,
         tip_index=None,
         **kwargs,
     ) -> None:
