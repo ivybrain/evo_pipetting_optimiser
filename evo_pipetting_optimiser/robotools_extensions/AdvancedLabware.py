@@ -21,6 +21,11 @@ class AdvancedLabware(robotools.Labware):
         }
 
     def latest_volume(self, well):
+        """
+        Get the volume of a particular well as it will be when any pending operations have been applied
+        Parameters:
+            well: str, like "A01"
+        """
         # Default volume if we have no ops
         vol = self.volumes[self.indices[well]]
         dest_op = None
@@ -39,6 +44,11 @@ class AdvancedLabware(robotools.Labware):
         return vol
 
     def latest_composition(self, well):
+        """
+        Get the composition of a particular well as it will be when any pending operations have been applied
+        Parameters:
+            well: str, like "A01"
+        """
         if self.op_tracking[well]:
             op = self.op_tracking[well][-1]
             return op.dest_composition
