@@ -41,7 +41,7 @@ def basic_row_column(worklist):
 
     # Use LiHa 2 (arm=1)
     with AutoWorklist(
-        worklist, diti_mode=True, default_tip=16, arm=1, waste_location=(25, 3)
+        worklist, diti_mode=True, default_tip=16, arm=1, tip_discard_location=(25, 3)
     ) as wl:
 
         wl.set_wash_parameters(max_tip_uses=1)

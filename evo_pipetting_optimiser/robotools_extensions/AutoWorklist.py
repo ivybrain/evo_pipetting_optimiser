@@ -1,4 +1,5 @@
-from robotools import *
+from robotools import EvoWorklist, Labware, Trough, Tip
+from robotools.evotools.commands import evo_get_selection
 from typing import Dict, List, Literal, Optional, Sequence, Tuple, Union
 from . import *
 import warnings
@@ -28,6 +29,7 @@ class AutoWorklist(EvoWorklist):
         cleaner_location: Tuple[int, int] = None,
         diti_mode: bool = False,
         default_tip: int = None,
+        tip_discard_location: Tuple[int, int] = None,
         arm: int = 0,
         max_concurrent_ops: int = None,
         *args,
@@ -46,6 +48,8 @@ class AutoWorklist(EvoWorklist):
         default_tip: int
             Tip ID in evoware for the default disposable tip type to use when a specific tip type is not specified in a transfer command.
             Must be set if diti_mode = True
+        tip_discard_location: Tuple(grid, site)
+            In Diti mode, the location to drop used DiTis with the DropDiti command
         arm: int
             LiHa number. Default=0
         max_volume : int
@@ -67,11 +71,8 @@ class AutoWorklist(EvoWorklist):
         self.processing = False
         self.max_concurrent_ops = max_concurrent_ops
 
-        self.wash_params = {
-            "waste_location": waste_location,
-            "cleaner_location": cleaner_location,
-        }
-        self.set_wash_parameters()
+        self.wash_params = {}
+        self.set_wash_parameters(waste_location=waste_location, cleaner_location=cleaner_location, tip_discard_location=tip_discard_location)
         self.arm = arm
 
         self.diti_mode = diti_mode
@@ -79,8 +80,8 @@ class AutoWorklist(EvoWorklist):
         if diti_mode and (default_tip is None):
             raise ValueError("Default tip index must be specified in DiTi Mode")
 
-        if not waste_location:
-            raise ValueError("Waste location must be specified")
+        if diti_mode and (tip_discard_location is None):
+            raise ValueError("Tip discard location must be set in Diti mode")
 
         if not diti_mode and not (cleaner_location and waste_location):
             raise ValueError(
@@ -107,6 +108,7 @@ class AutoWorklist(EvoWorklist):
         decon_liquid_class: str = None,
         decon_delay: int = 1000,
         max_tip_uses: int = 5,
+        tip_discard_location: Tuple[int, int] = None
     ):
         """
         Set the parameters that will be passed to evo_wash for washes triggered by auto_transfer().
@@ -155,6 +157,8 @@ class AutoWorklist(EvoWorklist):
         max_tip_uses:
             When reusing tips with wash_scheme = "smart" or None, this is the maximum number of uses of a tip before a wash is done anyway.
             This is useful to prevent a loss of accuracy and 'reset' the liquid class. Set to None for no limit. Default 5
+        tip_discard_location: Tuple(grid, site)
+            In Diti mode, the location to drop used DiTis with the DropDiti command
         """
 
         param_defaults = {
@@ -174,6 +178,7 @@ class AutoWorklist(EvoWorklist):
             "decon_liquid_class": None,
             "decon_delay": 1000,
             "max_tip_uses": 5,
+            "tip_discard_location": None
         }
 
         for key, default in param_defaults.items():
@@ -218,9 +223,40 @@ class AutoWorklist(EvoWorklist):
                 tip_selection += tip.value
 
         self.tips_mounted = None
+
+        grid = self.wash_params["tip_discard_location"][0]
+        site = self.wash_params["tip_discard_location"][1]
+
         self.append(
-            f'B;DropDiTi({tip_selection}, {self.wash_params["waste_location"][0]}, {self.wash_params["waste_location"][1]-1}, {self.wash_params["airgap"]}, {self.wash_params["airgap_speed"]}, {self.arm})'
+            f'B;DropDiTi({tip_selection}, {grid}, {site-1}, {self.wash_params["airgap"]}, {self.wash_params["airgap_speed"]}, {self.arm})'
         )
+
+    def liha_flush(self):
+        '''
+        Flushes the liha (dispenses any remaining liquid) at the waste location
+        Useful if any liquid class leaves an excess
+        Used in decontamination wash to remove any excess before aspirating decon
+        '''
+
+        if not self.wash_params["waste_location"]:
+            raise ValueError("Waste location not specified")
+
+        grid = self.wash_params["waste_location"][0]
+        site = self.wash_params["waste_location"][1]
+
+        # Well selection for all 8 wells of waste
+        selection = evo_get_selection(8, 1, np.ones((8,1)))
+
+        # Move the Liha above the waste position
+        self.append(f'B;MoveLiha(255,{grid},{site - 1},1,"{selection}",{0},{0},0,10,0,0);')
+
+        self.append('B;Command("C5PAZ1200,1200,1200,1200,1200,1200,1200,1200",1,1,,,2,2,0);')
+        self.append('B;Command("C5PVL0,0,0,0,0,0,0,0",1,1,,,2,2,0);')
+        self.append('B;Command("C5SEP5400,5400,5400,5400,5400,5400,5400,5400",1,1,,,2,2,0);')
+        self.append('B;Command("C5SPP2700,2700,2700,2700,2700,2700,2700,2700",1,1,,,2,2,0);')
+        self.append('B;Command("C5PPA0,0,0,0,0,0,0,0",1,1,,,2,2,0);')
+        self.append('B;Command("C5PAZ2100,2100,2100,2100,2100,2100,2100,2100",1,1,,,2,2,0);')
+
 
     def auto_transfer(
         self,
@@ -405,6 +441,8 @@ class AutoWorklist(EvoWorklist):
         super().evo_dispense(*args, arm=self.arm, **kwargs)
         self.silence_append_warning = False
 
+    
+
     def _auto_wash(
         self,
         *args,
@@ -448,6 +486,9 @@ class AutoWorklist(EvoWorklist):
         if len(decon_tips) > 0:
             self.comment("Decontaminating")
 
+            # Flush any existing liquid out of the tips before aspirating decontaminant
+            self.liha_flush()
+
             needed_volume = sum(decon_volumes)
             # If we have a single trough, just use that
             if isinstance(self.wash_params["decon_troughs"], Trough):
@@ -463,6 +504,7 @@ class AutoWorklist(EvoWorklist):
                 ):
                     decon_trough_index += 1
                     decon_trough = self.wash_params["decon_troughs"][decon_trough_index]
+
 
             self._evo_aspirate(
                 decon_trough,
@@ -485,7 +527,7 @@ class AutoWorklist(EvoWorklist):
         wash_params = {
             key: value
             for key, value in self.wash_params.items()
-            if (not key.startswith("decon_")) and key != "max_tip_uses"
+            if (not key.startswith("decon_")) and key not in ["max_tip_uses", "tip_discard_location"]
         }
 
         if len(wash_tips) > 0:

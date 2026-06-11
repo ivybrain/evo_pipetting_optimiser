@@ -39,7 +39,7 @@ def test_ditis():
     """
 
     with AutoWorklist(
-        "test_ditis.gwl", diti_mode=True, default_tip=16, arm=1, waste_location=(25, 3)
+        "test_ditis.gwl", diti_mode=True, default_tip=16, arm=1, tip_discard_location=(25, 3)
     ) as wl:
 
         sample_count = 4

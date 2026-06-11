@@ -122,7 +122,7 @@ If you do not want washes, you can use `auto_transfer` with `wash_scheme=None`. 
 
 Additionally, there is a `wash_scheme="smart"`. This uses the composition tracking of robotools to check the list of compositions a tip has touched since it was last washed. If it has only touched liquids with the same composition (concentrations of components may vary up to 20%), it will skip a wash and touch that liquid again, as there is little risk of contamination. The optimiser will attempt to arrange operations to avoid washes, i.e. to handle the same liquid many times with a tip before washing. This is very useful when doing bulk dispenses of material.
 
-In DiTi mode, GetDiti and DropDiti commands will be generated instead of wash commands. These commands will use the waste_location set in AutoWorklist to drop tips, and the airgap and airgap_speed parameters from set_wash_parameters. `None` or `"smart"` also work here to skip tip replacements.
+In DiTi mode, GetDiti and DropDiti commands will be generated instead of wash commands. These commands will use the tip_discard_location set in AutoWorklist to drop tips, and the airgap and airgap_speed parameters from set_wash_parameters. `None` or `"smart"` also work here to skip tip replacements.
 
 When using `None` or `"smart"` washes, it is prudent to check your liquid class can handle repeated aspirates and dispenses without system liquid contamination. Often it is useful to insert a wash anyway between every n aspirates/dispenses (say, 10) to reset the airgap and ensure performance remains consistent. This can be set with `wl.set_wash_parameters(max_tip_uses=10)`. This will ensure a tip is used at most 10 times (10 aspirate-dispense cycles) before it is washed.
 
