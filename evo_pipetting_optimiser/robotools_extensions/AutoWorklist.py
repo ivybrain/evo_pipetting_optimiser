@@ -247,15 +247,27 @@ class AutoWorklist(EvoWorklist):
         # Well selection for all 8 wells of waste
         selection = evo_get_selection(8, 1, np.ones((8,1)))
 
-        # Move the Liha above the waste position
-        self.append(f'B;MoveLiha(255,{grid},{site - 1},1,"{selection}",{0},{0},0,10,0,0);')
+        # Move the Liha to the waste position, z dispense
+        self.append(f'B;MoveLiha(255,{grid},{site - 1},1,"{selection}",{0},{1},0,10,0,0);')
 
-        self.append('B;Command("C5PAZ1200,1200,1200,1200,1200,1200,1200,1200",1,1,,,2,2,0);')
+
+        # Firmware commands taken from logs when executing the 'Liha Safe Flush' direct command
+
+        # Position valve logical. PVL 0 sets plunger valve to outlet port
         self.append('B;Command("C5PVL0,0,0,0,0,0,0,0",1,1,,,2,2,0);')
+
+        # SEP is set end speed for plunger movement, in half-steps per second
         self.append('B;Command("C5SEP5400,5400,5400,5400,5400,5400,5400,5400",1,1,,,2,2,0);')
+
+        # SPP is plunger stop speed in half-steps per second
         self.append('B;Command("C5SPP2700,2700,2700,2700,2700,2700,2700,2700",1,1,,,2,2,0);')
+
+        # PPA = move plunger to absolute positoin
+        # Position 0 (fully closed) for all tips
         self.append('B;Command("C5PPA0,0,0,0,0,0,0,0",1,1,,,2,2,0);')
-        self.append('B;Command("C5PAZ2100,2100,2100,2100,2100,2100,2100,2100",1,1,,,2,2,0);')
+
+        # Move the Liha back to global z travel above waste position
+        self.append(f'B;MoveLiha(255,{grid},{site - 1},1,"{selection}",{0},{4},0,10,0,0);')
 
 
     def auto_transfer(
