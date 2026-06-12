@@ -15,7 +15,7 @@ requirements = parse_requirements("requirements.txt")
 
 setup(
     name="evo_pipetting_optimiser",
-    version="0.2.0b8",
+    version="0.2.0b9",
     packages=find_packages(
         include=["evo_pipetting_optimiser", "evo_pipetting_optimiser.*"]
     ),

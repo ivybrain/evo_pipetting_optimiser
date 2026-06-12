@@ -799,4 +799,7 @@ class AutoWorklist(EvoWorklist):
         if exc_type is None:
             self.commit()
 
+            # Reset transfer operation counter
+            TransferOperation._op_id_counter = 0
+
         super().__exit__(exc_type, exc_value, traceback)
