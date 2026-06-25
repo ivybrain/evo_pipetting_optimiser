@@ -64,6 +64,7 @@ def basic_row_column(worklist):
             dilution_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
             1250,
             liquid_class="Water free dispense",
+            wash_scheme="D"
         )
 
         # Example as in example_basic_row_column, but this time with wash_scheme="D" - will use decon wash

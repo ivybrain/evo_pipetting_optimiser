@@ -196,4 +196,4 @@ The particulars of how operations are optimised is rather complex, however it is
 ### Optimisation Details
 The optimiser uses a greedy algorithm; at each step it selects the available operations which can complete the most operations in the least movements of the LiHa. This does not guarantee global optimality - it may sometimes be more efficient to select fewer operations for one step to allow a more efficient grouping for a later step. However, considering such possibilities adds significant design and computational complexity, and in preliminary testing, greedy optimisation is very good; little further benefit would be achieved from ensuring global optimality.
 
-Details of optimisation to be added.
+Further details of how the algorithm works are available in `optimisation_details.md`.

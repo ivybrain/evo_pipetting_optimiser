@@ -548,7 +548,12 @@ class AutoWorklist(EvoWorklist):
 
     def execute_plan(self, plan, counts):
 
+        decon_at_end = False
+        
         for i, (action, ops, tips) in enumerate(plan):
+
+            # If the plan ends at this step, track if we need to decontaminate for the final wash
+            decon_at_end = False
 
             if action == "Aspirate":
 
@@ -688,6 +693,8 @@ class AutoWorklist(EvoWorklist):
                     compositions=compositions,
                 )
 
+                decon_at_end = any(op.wash_scheme == "D" for op in ops)
+
             if action == "Wash":
 
                 # Wash after this group of ops
@@ -701,7 +708,7 @@ class AutoWorklist(EvoWorklist):
 
         # Wash at the end for safety
         self._auto_wash(
-            tips=list(range(1, 9)), tip_volumes=[950] * 8, wash_schemes=[1] * 8
+            tips=list(range(1, 9)), tip_volumes=[950] * 8, wash_schemes=["D" if decon_at_end else 1] * 8
         )
         super().append(
             f"C;Optimisation session complete. aspirates: {counts[0]}, dispenses: {counts[1]}, washes: {counts[2]}"
