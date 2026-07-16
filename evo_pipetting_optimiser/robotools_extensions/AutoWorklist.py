@@ -441,6 +441,15 @@ class AutoWorklist(EvoWorklist):
             self.commit()
         super().append(*args, **kwargs)
 
+    def wash(self, scheme=1):
+        '''
+        Replace the default evo wash with one that accepts the decontamintation 'D' scheme
+        '''
+        if scheme not in [1, 2, 3, 4, 'D']:
+            raise ValueError("Invalid Wash Scheme")
+        
+        self.append(f"W{scheme};")
+
     # evo_aspirate, dispense, and wash overrides that we will use interally when committing optimisations.
     # Avoid warning the user in this case
     def _evo_aspirate(self, *args, silence_append_warning=True, **kwargs):
@@ -694,6 +703,7 @@ class AutoWorklist(EvoWorklist):
                 )
 
                 decon_at_end = any(op.wash_scheme == "D" for op in ops)
+                end_wash_volumes = list(volumes)
 
             if action == "Wash":
 
@@ -707,8 +717,11 @@ class AutoWorklist(EvoWorklist):
                 super().append("B;")
 
         # Wash at the end for safety
+        # Wash all 8 tips. If we have less than 8 volumes recorded, wash the max volume for all 8
+        if len(end_wash_volumes) < 8:
+            end_wash_volumes = [max(end_wash_volumes)] * 8
         self._auto_wash(
-            tips=list(range(1, 9)), tip_volumes=[950] * 8, wash_schemes=["D" if decon_at_end else 1] * 8
+            tips=list(range(1, 9)), tip_volumes=end_wash_volumes, wash_schemes=["D" if decon_at_end else 1] * 8
         )
         super().append(
             f"C;Optimisation session complete. aspirates: {counts[0]}, dispenses: {counts[1]}, washes: {counts[2]}"

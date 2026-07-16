@@ -56,6 +56,7 @@ class Node:
             self.cost = cost
             self.move = move
 
+        # Used for A-star only
         self.fscore = self.cost + self.heuristic_cost_estimate()
 
         return
