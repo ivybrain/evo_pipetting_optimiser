@@ -18,6 +18,7 @@ from rich.progress import (
 )
 
 
+
 class AutoWorklist(EvoWorklist):
 
     all_labware = set()
@@ -95,19 +96,19 @@ class AutoWorklist(EvoWorklist):
         cleaner_location=None,
         waste_location=None,
         decon_troughs: Union[Trough, Sequence[Trough]] = None,
-        waste_vol: float = 3.0,
-        waste_delay: int = 500,
-        cleaner_vol: float = 4.0,
-        cleaner_delay: int = 500,
-        airgap: int = 10,
-        airgap_speed: int = 70,
-        retract_speed: int = 30,
-        fastwash: int = 1,
-        low_volume: int = 0,
-        decon_excess_volume: int = 20,
+        waste_vol: float = None,
+        waste_delay: int = None,
+        cleaner_vol: float = None,
+        cleaner_delay: int = None,
+        airgap: int = None,
+        airgap_speed: int = None,
+        retract_speed: int = None,
+        fastwash: int = None,
+        low_volume: int = None,
+        decon_excess_volume: int = None,
         decon_liquid_class: str = None,
-        decon_delay: int = 1000,
-        max_tip_uses: int = 5,
+        decon_delay: int = None,
+        max_tip_uses: int = None,
         tip_discard_location: Tuple[int, int] = None
     ):
         """
@@ -129,25 +130,25 @@ class AutoWorklist(EvoWorklist):
             Troughs to aspirate for deontamination. If one trough, that trough will be used regardless. If a list of Troughs, the first Trough
             will be used until its min_volume is reached, then the next trough will be used. Troughs must have the .location parameter set
         arm : int
-            number of the LiHa performing the action: 0 = LiHa 1, 1 = LiHa 2
+            number of the LiHa performing the action: 0 = LiHa 1, 1 = LiHa 2. Default 0
         waste_vol: float
-            Volume in waste in mL (0-100)
+            Volume in waste in mL (0-100). Default 3.0
         waste_delay : int
-            Delay before closing valves in waste in ms (0-1000)
+            Delay before closing valves in waste in ms (0-1000). Default 500
         cleaner_vol: float
-            Volume in cleaner in mL (0-100)
+            Volume in cleaner in mL (0-100). Default 4.0
         cleaner_delay : int
-            Delay before closing valves in cleaner in ms (0-1000)
+            Delay before closing valves in cleaner in ms (0-1000). Default 500
         airgap : int
-            Volume of airgap in µL which is aspirated after washing the tips (system trailing airgap) (0-100)
+            Volume of airgap in µL which is aspirated after washing the tips (system trailing airgap) (0-100). Default 10
         airgap_speed : int
-            Speed of airgap aspiration in µL/s (1-1000)
+            Speed of airgap aspiration in µL/s (1-1000). Default 70
         retract_speed : int
-            Retract speed in mm/s (1-100)
+            Retract speed in mm/s (1-100). Default 30
         fastwash : int
-            Use fast-wash module = 1, don't use it = 0
+            Use fast-wash module = 1, don't use it = 0. Default 1
         low_volume : int
-            Use pinch valves = 1, don't use them = 0
+            Use pinch valves = 1, don't use them = 0. Default 0
         decon_excess_volume : int
             Decon will aspirate however much liquid was present in a given tip, plus this excess value. Default 20ul
         decon_liquid_class : str
@@ -161,6 +162,7 @@ class AutoWorklist(EvoWorklist):
             In Diti mode, the location to drop used DiTis with the DropDiti command
         """
 
+      
         param_defaults = {
             "cleaner_location": None,
             "waste_location": None,
@@ -183,9 +185,12 @@ class AutoWorklist(EvoWorklist):
 
         for key, default in param_defaults.items():
 
-            # If the passed parameter is the default value, and the property is already set, don't overwrite it
+            # If the passed parameter is none and the key is already set, don't overwrite it
             passed_value = locals()[key]
-            if passed_value == default and key in self.wash_params:
+            if key not in self.wash_params:
+                self.wash_params[key] = default
+
+            if passed_value is None:
                 continue
 
             self.wash_params[key] = passed_value
