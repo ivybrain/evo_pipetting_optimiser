@@ -287,6 +287,7 @@ class AutoWorklist(EvoWorklist):
         on_underflow: Literal["debug", "warn", "raise"] = "raise",
         liquid_class: str = None,
         wash_scheme: Literal["D", 1, None, "smart"] = 1,
+        tips: Union[int, Sequence[int], Sequence[Tip]] = None,
         tip_index=None,
         **kwargs,
     ) -> None:
@@ -316,16 +317,9 @@ class AutoWorklist(EvoWorklist):
             "D" will conduct a decontamination wash.
             "smart" will wash a tip if it has touched any liquid with a composition other than the one it is going to handle
             i.e. will skip washes if it is only touching a single liquid type
-
-
-        on_underflow
-            What to do about volume underflows (going below ``vmin``) in non-empty wells.
-
-            Options:
-
-            - ``"debug"`` mentions the underflowing wells in a log message at DEBUG level.
-            - ``"warn"`` emits an :class:`~robotools.liquidhandling.exceptions.VolumeUnderflowWarning`. This `can be captured in unit tests <https://docs.pytest.org/en/stable/how-to/capture-warnings.html#additional-use-cases-of-warnings-in-tests>`_.
-            - ``"raise"`` raises a :class:`~robotools.liquidhandling.exceptions.VolumeUnderflowError` about underflowing wells.
+        tip: int or iterable of (ints or Tips), or None
+            Restrict the pipetting operations to specific tips. If None, any tip can be used. If a single number, will use that tip for all operations.
+            If a list, will use the tips in the list for the corresponding operations
         """
 
         # add the labware to the set of all labware we've used
@@ -352,10 +346,12 @@ class AutoWorklist(EvoWorklist):
             destination_wells = np.repeat(destination_wells, nmax)
         if len(volumes) == 1:
             volumes = np.repeat(volumes, nmax)
-        lengths = (len(source_wells), len(destination_wells), len(volumes))
+        if tips is None or isinstance(tips, int) or len(tips) == 1:
+            tips = np.repeat(tips, nmax)
+        lengths = (len(source_wells), len(destination_wells), len(volumes), len(tips))
         assert (
             len(set(lengths)) == 1
-        ), f"Number of source/destination/volumes must be equal. They were {lengths}"
+        ), f"Number of source/destination/volumes/tips must be equal. They were {lengths}"
 
         assert isinstance(source, AdvancedLabware) or isinstance(
             source, Trough
@@ -421,6 +417,7 @@ class AutoWorklist(EvoWorklist):
                     wash_scheme=wash_scheme,
                     on_underflow=on_underflow,
                     liquid_class=liquid_class,
+                    tip=tips[i],
                     tip_index=tip_index,
                     worklist=self,
                 )

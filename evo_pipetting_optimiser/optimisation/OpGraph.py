@@ -108,6 +108,10 @@ class OpGraph:
                 tips_with_wash = set()
                 for tip, past_ops in self.tip_ops_since_wash.items():
 
+                    # Check if there's a specific allowed tip only
+                    if op.tip is not None and op.tip != tip:
+                        continue
+
                     # Check we have not reached the max use limit for this tip
                     if len(past_ops) >= op.worklist.wash_params["max_tip_uses"]:
                         tips_with_wash.add(tip)
