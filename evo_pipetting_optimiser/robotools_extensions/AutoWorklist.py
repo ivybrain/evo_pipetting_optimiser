@@ -769,25 +769,25 @@ class AutoWorklist(EvoWorklist):
                 TimeElapsedColumn(),
             ) as progress:
 
-                with ThreadPoolExecutor(max_workers=4) as executor:
-                    segment_ops = []
-                    tasks = []
-                    for s in segments:
+                #with ThreadPoolExecutor(max_workers=4) as executor:
+                segment_ops = []
+                tasks = []
+                for s in segments:
 
-                        if self.max_concurrent_ops:
-                            ops = self.pending_ops[
-                                s
-                                * self.max_concurrent_ops : (s + 1)
-                                * self.max_concurrent_ops
-                            ]
-                        else:
-                            ops = self.pending_ops
+                    if self.max_concurrent_ops:
+                        ops = self.pending_ops[
+                            s
+                            * self.max_concurrent_ops : (s + 1)
+                            * self.max_concurrent_ops
+                        ]
+                    else:
+                        ops = self.pending_ops
 
-                        segment_ops.append(ops)
+                    segment_ops.append(ops)
 
-                        tasks.append(progress.add_task("Optimising...", total=len(ops)))
+                    tasks.append(progress.add_task("Optimising...", total=len(ops)))
 
-                    results = executor.map(
+                    results = map(
                         make_plan, segment_ops, [progress] * len(segments), tasks
                     )
 

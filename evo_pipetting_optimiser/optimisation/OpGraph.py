@@ -477,7 +477,7 @@ def show_graph(G):
 
     # Draw nodes and all edges faintly
     nx.draw_networkx_nodes(G, pos)
-    nx.draw_networkx_edges(G, pos, alpha=0.1)  # faint background edges
+    nx.draw_networkx_edges(G, pos, alpha=0.2)  # faint background edges
 
     # Draw active flow edges prominently
     nx.draw_networkx_edges(G, pos, edgelist=active_edges, edge_color="r", width=2)
@@ -487,16 +487,36 @@ def show_graph(G):
     capacity_labels = nx.get_edge_attributes(G, "capacity")
     weight_labels = nx.get_edge_attributes(G, "weight")
 
-    edge_labels = {
-        key: f"{flow_labels[key]}/{capacity_labels[key]}/{weight_labels[key]}"
-        for key in flow_labels.keys()
-        # if key in active_edges
-    }
+    # edge_labels = {
+    #     key: f"{flow_labels[key]}/{capacity_labels[key]}/{weight_labels[key]}"
+    #     for key in flow_labels.keys()
+    #     # if key in active_edges
+    # }
 
-    node_labels = {node: str(node) for node in G.nodes}
+    node_labels = {}
+    for node in G.nodes:
+        if len(node) == 1:
+            node_labels[node] = str(node)
+        if len(node) == 4:
+            # Cols node is 
+            # s, source_name, source_col, liquid_class OR
+            # t, dest_name, dest_col, liquid_class
+            node_labels[node] = f"{node[1]} c{node[2]}"
+
+        if len(node) == 5:
+            # Rows node is
+            # s, source_name, source_col, liquid_class, source_row OR
+            # t, dest_name, dest_col, liquid_class, dest_row
+            node_labels[node] = f"c{node[2]}r{node[4]}"
+
+        if len(node) == 6:
+            # Offset node is 
+            # s_ofst, s, source_name, source_col, liquid_class, offset OR
+            # d_ofst, t, dest_name, dest_col, liquid_class, offset
+            node_labels[node] = f"c{node[3]} ofst {node[5]}"
 
     # Draw the labels on the edges
-    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+    nx.draw_networkx_edge_labels(G, pos, edge_labels={})
 
     nx.draw_networkx_labels(G, pos, labels=node_labels)
 
