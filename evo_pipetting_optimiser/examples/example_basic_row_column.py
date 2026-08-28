@@ -147,7 +147,7 @@ def basic_row_column(worklist):
         # Print the operations we have registered, so we can sanity check
         print(wl.report)
 
-        wl.commit(report=True)
+        wl.commit(report=False)
 
 
 if __name__ == "__main__":

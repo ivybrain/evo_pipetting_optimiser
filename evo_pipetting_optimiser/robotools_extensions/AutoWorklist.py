@@ -762,13 +762,8 @@ class AutoWorklist(EvoWorklist):
             else:
                 segments = [0]
 
-            with Progress(
-                TextColumn("[bright_magenta]{task.description}"),
-                BarColumn(finished_style="bar.complete"),
-                MofNCompleteColumn(),
-                TimeElapsedColumn(),
-            ) as progress:
 
+            def create_plans(progress=None):
                 with ThreadPoolExecutor(max_workers=4) as executor:
                     segment_ops = []
                     tasks = []
@@ -785,12 +780,31 @@ class AutoWorklist(EvoWorklist):
 
                         segment_ops.append(ops)
 
-                        if report:
+                        if progress:
                             tasks.append(progress.add_task("Optimising...", total=len(ops)))
+                        else:
+                            tasks.append(None)
 
                     results = executor.map(
                         make_plan, segment_ops, [progress] * len(segments), tasks
                     )
+
+                    return results
+
+
+            if report:
+                with Progress(
+                    TextColumn("[bright_magenta]{task.description}"),
+                    BarColumn(finished_style="bar.complete"),
+                    MofNCompleteColumn(),
+                    TimeElapsedColumn(),
+                ) as progress:
+                    results = create_plans(progress)
+            else:
+                results = create_plans()
+                    
+
+                
 
             for plan, cost, (asp_count, disp_count, wash_count) in results:
 
