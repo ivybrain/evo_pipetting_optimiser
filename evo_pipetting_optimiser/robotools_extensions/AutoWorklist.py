@@ -785,7 +785,8 @@ class AutoWorklist(EvoWorklist):
 
                         segment_ops.append(ops)
 
-                        tasks.append(progress.add_task("Optimising...", total=len(ops)))
+                        if report:
+                            tasks.append(progress.add_task("Optimising...", total=len(ops)))
 
                     results = executor.map(
                         make_plan, segment_ops, [progress] * len(segments), tasks

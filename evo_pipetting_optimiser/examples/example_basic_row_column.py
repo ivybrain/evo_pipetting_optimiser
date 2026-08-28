@@ -62,8 +62,6 @@ def basic_row_column(worklist):
             tips=[0,1,2,3]*2
         )
 
-        wl.commit()
-        exit(0)
 
         # transfer sampel to dilution plate
         wl.auto_transfer(
