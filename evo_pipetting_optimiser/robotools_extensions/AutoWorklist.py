@@ -289,7 +289,6 @@ class AutoWorklist(EvoWorklist):
         wash_scheme: Literal["D", 1, None, "smart"] = 1,
         tips: Union[int, Sequence[int], Sequence[Tip]] = None,
         tip_index=None,
-        **kwargs,
     ) -> None:
         """Transfer operation between two labwares with automatic pipetting order optimisation
         Ensures correct order of transfers to each particular well,
