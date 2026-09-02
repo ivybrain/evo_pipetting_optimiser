@@ -3,6 +3,8 @@ import networkx as nx
 from .Move import Move
 from functools import reduce
 
+class OptimisationError(Exception):
+    pass
 
 def source_key(op):
     return ("s", op.source.name, op.source_pos[1], op.liquid_class)
@@ -304,13 +306,15 @@ class OpGraph:
                         tip = max(source_tip, dest_tip)
                         wash_needed = tip in tips_with_wash
 
-                        assert tip in tips_with_wash or tip in free_tips
+                        if tip not in tips_with_wash and tip not in free_tips:
+                            raise OptimisationError(f"Tip {tip} is neither in tips_with_wash nor free_tips")
 
-                        assert 0 <= source_tip <= 7, "Tip out of range"
-                        assert 0 <= dest_tip <= 7, "Tip out of range"
-                        assert (
-                            source_tip == 0 or dest_tip == 0 or source_tip == dest_tip
-                        ), "Tip mismatch"
+                        if not (0 <= source_tip <= 7):
+                            raise OptimisationError("Tip out of range")
+                        if not (0 <= dest_tip <= 7):
+                            raise OptimisationError("Tip out of range")
+                        if not (source_tip == 0 or dest_tip == 0 or source_tip == dest_tip):
+                            raise OptimisationError("Tip mismatch")
 
                         add_offset_edge(
                             source_offset,

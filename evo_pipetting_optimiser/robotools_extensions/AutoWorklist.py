@@ -7,7 +7,7 @@ import numpy as np
 import math
 from .TransferOperation import TransferOperation
 from ..utils.utils import *
-from ..optimisation import make_plan
+from ..optimisation import make_plan, OptimisationError
 from concurrent.futures import ThreadPoolExecutor
 from rich.progress import (
     Progress,
@@ -16,7 +16,6 @@ from rich.progress import (
     MofNCompleteColumn,
     TimeElapsedColumn,
 )
-
 
 
 class AutoWorklist(EvoWorklist):
@@ -351,35 +350,31 @@ class AutoWorklist(EvoWorklist):
         if tips is None or isinstance(tips, int) or len(tips) == 1:
             tips = np.repeat(tips, nmax)
         lengths = (len(source_wells), len(destination_wells), len(volumes), len(tips))
-        assert (
-            len(set(lengths)) == 1
-        ), f"Number of source/destination/volumes/tips must be equal (or 1). They were {lengths}"
+        if len(set(lengths)) != 1:
+            raise ValueError(
+                f"Number of source/destination/volumes/tips must be equal (or 1). They were {lengths}"
+            )
 
-        assert isinstance(source, AdvancedLabware) or isinstance(
-            source, Trough
-        ), "Source must be AdvancedLabware or Trough for auto_transfer"
+        if not (isinstance(source, AdvancedLabware) or isinstance(source, Trough)):
+            raise TypeError("Source must be AdvancedLabware or Trough for auto_transfer")
 
-        assert isinstance(
-            destination, AdvancedLabware
-        ), "Destination must be AdvancedLabware for auto_transfer"
+        if not isinstance(destination, AdvancedLabware):
+            raise TypeError("Destination must be AdvancedLabware for auto_transfer")
 
-        assert (
-            liquid_class is not None
-        ), "Liquid class must be speicified for auto_transfer"
+        if liquid_class is None:
+            raise ValueError("Liquid class must be speicified for auto_transfer")
 
-        assert wash_scheme in [
-            "D",
-            "smart",
-            1,
-            None,
-        ], 'Wash schemes supported for auto_transfer are "D", 1, None, or "smart"'
+        if wash_scheme not in ["D", "smart", 1, None]:
+            raise ValueError('Wash schemes supported for auto_transfer are "D", 1, None, or "smart"')
 
-        assert (
-            wash_scheme != "D" or self.wash_params["decon_troughs"] is not None
-        ), "Using decon wash without decon_troughs specified. Call set_wash_parameters() to set it."
-        assert (
-            wash_scheme != "D" or self.wash_params["decon_liquid_class"] is not None
-        ), "Using decon wash without decon_liquid_class specified. Call set_wash_parameters() to set it."
+        if wash_scheme == "D" and self.wash_params["decon_troughs"] is None:
+            raise ValueError(
+                "Using decon wash without decon_troughs specified. Call set_wash_parameters() to set it."
+            )
+        if wash_scheme == "D" and self.wash_params["decon_liquid_class"] is None:
+            raise ValueError(
+                "Using decon wash without decon_liquid_class specified. Call set_wash_parameters() to set it."
+            )
 
         # Track if we currently have operations waiting to be optimised
         # That haven't been committed to the worklist. If so, we want to warn if the user
@@ -484,9 +479,8 @@ class AutoWorklist(EvoWorklist):
 
         self.silence_append_warning = silence_append_warning
 
-        assert (
-            len(tips) == len(wash_schemes) == len(tip_volumes)
-        ), "Internal wash assignment error"
+        if not (len(tips) == len(wash_schemes) == len(tip_volumes)):
+            raise OptimisationError("Internal wash assignment error")
 
         if self.diti_mode:
             self.drop_diti(tips)
@@ -606,13 +600,13 @@ class AutoWorklist(EvoWorklist):
                 if self.diti_mode:
                     for op in ops:
                         if self.tips_mounted != op.tip_index:
-                            raise Exception(
+                            raise OptimisationError(
                                 "Error, attempting to aspirate with wrong tip type mounted"
                             )
 
                 # Check from earlier troubleshooting
                 if len(tips) != len(set(tips)):
-                    raise Exception("Error in tip logic")
+                    raise OptimisationError("Error in tip logic")
 
                 # If we have a trough, just set source rows to whichever tips we're using
                 if (getattr(source_op.source, "virtual_rows", 0) or 0) > max(tips) - 1:
@@ -621,15 +615,14 @@ class AutoWorklist(EvoWorklist):
                 # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
                 offset = source_rows[0] - (tips[0] - 1)
                 for i in range(len(source_rows)):
-                    assert (
-                        source_rows[i] - (tips[i] - 1) == offset
-                    ), "Tip assignment offset inconsistency"
+                    if source_rows[i] - (tips[i] - 1) != offset:
+                        raise OptimisationError("Tip assignment offset inconsistency")
 
-                assert offset <= (
-                    getattr(source_op.source, "offset_limit_down", None) or 10000
-                ) and offset >= -(
-                    getattr(source_op.source, "offset_limit_up", None) or 10000
-                ), "Offset limit violated"
+                if not (
+                    offset <= (getattr(source_op.source, "offset_limit_down", None) or 10000)
+                    and offset >= -(getattr(source_op.source, "offset_limit_up", None) or 10000)
+                ):
+                    raise OptimisationError("Offset limit violated")
 
                 # If in diti mode, extract the liquid class only from the liquid class + tip string
                 liquid_class = source_op.liquid_class
@@ -683,13 +676,14 @@ class AutoWorklist(EvoWorklist):
                 # Check that the tip-row offset is consistent for all tips-row combinations. If not, Evoware can't do this in one move.
                 offset = dest_rows[0] - (tips[0] - 1)
                 for i in range(len(dest_rows)):
-                    assert dest_rows[i] - (tips[i] - 1) == offset, "Tip offest issue"
+                    if dest_rows[i] - (tips[i] - 1) != offset:
+                        raise OptimisationError("Tip offest issue")
 
-                assert offset <= (
-                    dest_op.destination.offset_limit_down or 10000
-                ) and offset >= -(
-                    dest_op.destination.offset_limit_up or 10000
-                ), "Offset limit exceeded"
+                if not (
+                    offset <= (dest_op.destination.offset_limit_down or 10000)
+                    and offset >= -(dest_op.destination.offset_limit_up or 10000)
+                ):
+                    raise OptimisationError("Offset limit exceeded")
 
                 # If in diti mode, extract the liquid class only from the liquid class + tip string
                 liquid_class = dest_op.liquid_class
