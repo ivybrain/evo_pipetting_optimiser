@@ -1,6 +1,6 @@
-from robotools import EvoWorklist, Labware, Trough, Tip
+from robotools import EvoWorklist, Trough, Tip
 from robotools.evotools.commands import evo_get_selection
-from typing import Dict, List, Literal, Optional, Sequence, Tuple, Union
+from typing import Literal, Optional, Sequence, Tuple, Union
 from . import *
 import warnings
 import numpy as np
@@ -203,6 +203,8 @@ class AutoWorklist(EvoWorklist):
         if not self.diti_mode:
             raise Exception("Cannot get Ditis unless in DiTi mode")
 
+        # Calculate the 8 bit mask for the selected tips
+        # ie tips 1,3,5,7 == 10101010 == 170
         tip_selection = 0
         for tip in tips:
             if isinstance(tip, int):
@@ -339,6 +341,7 @@ class AutoWorklist(EvoWorklist):
         if self.diti_mode:
             liquid_class += f";{tip_index}"
 
+        # Reformat parameters where a single value has been entered into arrays
         if len(source_wells) == 1:
             source_wells = np.repeat(source_wells, nmax)
         if len(destination_wells) == 1:
@@ -350,7 +353,7 @@ class AutoWorklist(EvoWorklist):
         lengths = (len(source_wells), len(destination_wells), len(volumes), len(tips))
         assert (
             len(set(lengths)) == 1
-        ), f"Number of source/destination/volumes/tips must be equal. They were {lengths}"
+        ), f"Number of source/destination/volumes/tips must be equal (or 1). They were {lengths}"
 
         assert isinstance(source, AdvancedLabware) or isinstance(
             source, Trough
@@ -369,7 +372,7 @@ class AutoWorklist(EvoWorklist):
             "smart",
             1,
             None,
-        ], "Wash schemes supported for auto_transfer are D, 1, or None"
+        ], 'Wash schemes supported for auto_transfer are "D", 1, None, or "smart"'
 
         assert (
             wash_scheme != "D" or self.wash_params["decon_troughs"] is not None
@@ -490,6 +493,7 @@ class AutoWorklist(EvoWorklist):
             self.silence_append_warning = False
             return
 
+        # Specify decon tips and volumes
         decon_mask = [scheme == "D" for scheme in wash_schemes]
         decon_tips = [tips[i] for i in range(len(tips)) if decon_mask[i]]
         decon_wells = [tip - 1 for tip in decon_tips]
@@ -528,6 +532,7 @@ class AutoWorklist(EvoWorklist):
                     decon_trough = self.wash_params["decon_troughs"][decon_trough_index]
 
 
+            # Aspirate decon liquid
             self._evo_aspirate(
                 decon_trough,
                 decon_trough.wells[decon_wells, 0],
@@ -543,9 +548,11 @@ class AutoWorklist(EvoWorklist):
             duration_str = "{0:.2f}".format(self.wash_params["decon_delay"] / 1000)
             self.append(f'B;WaitTimer("1","{duration_str}");')
 
+        # Conduct standard wash sequence
         wash_mask = [scheme is not None for scheme in wash_schemes]
         wash_tips = [tips[i] for i in range(len(tips)) if wash_mask[i]]
 
+        # Collect the generic wash parameters to pass to the evo_wash function
         wash_params = {
             key: value
             for key, value in self.wash_params.items()
@@ -608,7 +615,7 @@ class AutoWorklist(EvoWorklist):
                     raise Exception("Error in tip logic")
 
                 # If we have a trough, just set source rows to whichever tips we're using
-                if getattr(source_op.source, "virtual_rows", 0) or 0 > max(tips) - 1:
+                if (getattr(source_op.source, "virtual_rows", 0) or 0) > max(tips) - 1:
                     source_rows = [tip - 1 for tip in tips]
 
                 # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
@@ -646,7 +653,7 @@ class AutoWorklist(EvoWorklist):
             if action == "Dispense":
 
                 # Get the first op in the group
-                dest_op = next(iter(ops))
+                dest_op = ops[0]
                 # Get the col of this source group
                 dest_col = dest_op.dest_pos[1]
 
@@ -673,7 +680,7 @@ class AutoWorklist(EvoWorklist):
                 if getattr(dest_op.destination, "virtual_rows", 0) or 0 > max(tips) - 1:
                     dest_rows = [tip - 1 for tip in tips]
 
-                # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
+                # Check that the tip-row offset is consistent for all tips-row combinations. If not, Evoware can't do this in one move.
                 offset = dest_rows[0] - (tips[0] - 1)
                 for i in range(len(dest_rows)):
                     assert dest_rows[i] - (tips[i] - 1) == offset, "Tip offest issue"
@@ -784,6 +791,7 @@ class AutoWorklist(EvoWorklist):
                         else:
                             tasks.append(None)
 
+                    # Execute optimisation to create plan
                     results = executor.map(
                         make_plan, segment_ops, [progress] * len(segments), tasks
                     )
@@ -804,7 +812,7 @@ class AutoWorklist(EvoWorklist):
                     
 
                 
-
+            # Execute each plan in order (multiple plans occur if optimisation was split into batches)
             for plan, cost, (asp_count, disp_count, wash_count) in results:
 
                 self.execute_plan(plan, (asp_count, disp_count, wash_count))

@@ -14,7 +14,7 @@ class OffsetLimitException(Exception):
 class Node:
     """
     Node in the problem graph
-    Used to enable A-star search where we can look ahead to find the best action several moves in advance
+    Built so that A-star search can be implemented with minor modifications if desired, which can look ahead to find the best action several moves in advance
     A-star is not currently used for performance reasons - we only select the best node at each step
     Retained in case better optimisation decisions are needed in the future
     """
@@ -23,6 +23,7 @@ class Node:
 
         self.parent = parent
 
+        # if parent=None i.e. is the initial node in the graph
         if not parent:
             (pending_ops,) = args
             self.pending_ops = pending_ops
@@ -73,7 +74,7 @@ class Node:
 
         children = []
 
-        # Create a dictionary tracking all the ops that each tip has conducted since its lart wash
+        # Create a dictionary tracking all the ops that each tip has conducted since its last wash
         tip_ops_since_wash = {t: [] for t in range(8)}
         if self.depth > 0:
             # Find all the ops conducted and tips used since last wash
@@ -103,7 +104,7 @@ class Node:
             # Get the details of this move
             score, aspirates, dispenses, ops, tips = move.tuple()
 
-            # The new node's pending operations will not include the ops that were just comlpeted
+            # The new node's pending operations will not include the ops that were just completed
             new_pending = copy(self.pending_ops)
             new_pending.difference_update(set(ops))
 
