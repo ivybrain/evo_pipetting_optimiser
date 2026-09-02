@@ -209,14 +209,14 @@ class OpGraph:
                         disp_nodes[dest_offset_key] += 1
 
                     if source_offset_key not in source_offset_in_edges:
-                        source_offset_in_edges[source_offset_key] = 1
+                        source_offset_in_edges[source_offset_key] = [source_row_key]
                     else:
-                        source_offset_in_edges[source_offset_key] += 1
+                        source_offset_in_edges[source_offset_key].append(source_row_key)
 
                     if dest_offset_key not in dest_offset_out_edges:
-                        dest_offset_out_edges[dest_offset_key] = 1
+                        dest_offset_out_edges[dest_offset_key] = [dest_row_key]
                     else:
-                        dest_offset_out_edges[dest_offset_key] += 1
+                        dest_offset_out_edges[dest_offset_key].append(dest_row_key)
 
                     G.add_edge(
                         source_row_key,
@@ -345,11 +345,18 @@ class OpGraph:
             if largest_offset > offset_difference:
                 offset_penalty = 1
 
+            in_edges = source_offset_in_edges[u]
+            for edge in in_edges:
+                G.edges[edge, u]["weight"] = -len(in_edges)
+
+            out_edges = dest_offset_out_edges[v]
+            for edge in out_edges:
+                G.edges[v, edge]["weight"] = -len(out_edges)
+
             G.edges[u, v]["weight"] = (
                 # small penalty for offset further from 0
                 offset_penalty
-                - source_offset_in_edges[u]
-                - dest_offset_out_edges[v]
+                
             )
 
         moves = []
@@ -481,7 +488,7 @@ def show_graph(G):
 
     # Draw nodes and all edges faintly
     nx.draw_networkx_nodes(G, pos)
-    nx.draw_networkx_edges(G, pos, alpha=0.1)  # faint background edges
+    nx.draw_networkx_edges(G, pos, alpha=0.2)  # faint background edges
 
     # Draw active flow edges prominently
     nx.draw_networkx_edges(G, pos, edgelist=active_edges, edge_color="r", width=2)
@@ -497,7 +504,27 @@ def show_graph(G):
         # if key in active_edges
     }
 
-    node_labels = {node: str(node) for node in G.nodes}
+    node_labels = {}
+    for node in G.nodes:
+        if len(node) == 1:
+            node_labels[node] = str(node)
+        if len(node) == 4:
+            # Cols node is 
+            # s, source_name, source_col, liquid_class OR
+            # t, dest_name, dest_col, liquid_class
+            node_labels[node] = f"{node[1]} c{node[2]}"
+
+        if len(node) == 5:
+            # Rows node is
+            # s, source_name, source_col, liquid_class, source_row OR
+            # t, dest_name, dest_col, liquid_class, dest_row
+            node_labels[node] = f"c{node[2]}r{node[4]}"
+
+        if len(node) == 6:
+            # Offset node is 
+            # s_ofst, s, source_name, source_col, liquid_class, offset OR
+            # d_ofst, t, dest_name, dest_col, liquid_class, offset
+            node_labels[node] = f"c{node[3]} ofst {node[5]}"
 
     # Draw the labels on the edges
     nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
