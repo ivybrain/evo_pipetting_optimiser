@@ -333,12 +333,20 @@ class OpGraph:
         for u, v in offset_edges:
             # Penalty for unneeded offsets
             offset_penalty = 0
-            
+            # If offsets the same, should be 0 as we're then doing straight transfer
+            # Abs offset should be below the difference in offsets
             u_offset = u[-1]
             v_offset = v[-1]
 
+            offset_difference = abs(u_offset - v_offset)
+            largest_offset = max(abs(u_offset), abs(v_offset))
+
+            if largest_offset > offset_difference:
+                offset_penalty += largest_offset - offset_difference
+
+
             # We want to encourage offsets closer to 0 
-            offset_penalty = abs(u_offset + v_offset)
+            offset_penalty += abs(u_offset + v_offset)
 
             in_edges = source_offset_in_edges[u]
             for edge in in_edges:
@@ -347,14 +355,6 @@ class OpGraph:
             out_edges = dest_offset_out_edges[v]
             for edge in out_edges:
                 G.edges[v, edge]["weight"] = -len(out_edges) * 16
-
-            in_edges = source_offset_in_edges[u]
-            for edge in in_edges:
-                G.edges[edge, u]["weight"] = -len(in_edges)
-
-            out_edges = dest_offset_out_edges[v]
-            for edge in out_edges:
-                G.edges[v, edge]["weight"] = -len(out_edges)
 
             G.edges[u, v]["weight"] = (
                 # small penalty for offset further from 0
