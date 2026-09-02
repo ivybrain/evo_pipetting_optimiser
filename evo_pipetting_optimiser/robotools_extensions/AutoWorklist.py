@@ -375,6 +375,8 @@ class AutoWorklist(EvoWorklist):
             raise ValueError(
                 "Using decon wash without decon_liquid_class specified. Call set_wash_parameters() to set it."
             )
+        if wash_scheme == "D" and self.diti_mode:
+            raise ValueError("Cannot use decon wash with disposable tips")
 
         # Track if we currently have operations waiting to be optimised
         # That haven't been committed to the worklist. If so, we want to warn if the user
@@ -422,7 +424,7 @@ class AutoWorklist(EvoWorklist):
                 # Append this op to the labware we're aspirating to
                 # So that future transfers to the well know that they need to wait for this transfer first
                 source.source_op_tracking[source_well].append(op)
-                destination.op_tracking[dest_well].append(op)
+                destination.dest_op_tracking[dest_well].append(op)
 
                 # Add this op to the pending operations
                 self.pending_ops.append(op)

@@ -192,6 +192,10 @@ class Node:
 
 
 def init_search(pending_ops, progress=None, task=None):
+    '''
+    Creates the initial Node representing the state of pending and completed ops, then get each successive node until
+    we finish
+    '''
 
     initial_node = Node(None, pending_ops)
     open_nodes = SortedSet([initial_node])

@@ -9,7 +9,7 @@ class AdvancedLabware(robotools.Labware):
 
     
     def reset_op_tracking(self):
-        self.op_tracking = {well: [] for well in self.wells.flatten("F")}
+        self.dest_op_tracking = {well: [] for well in self.wells.flatten("F")}
         self.source_op_tracking = {well: [] for well in self.wells.flatten("F")}
 
     def __init__(
@@ -78,7 +78,7 @@ class AdvancedLabware(robotools.Labware):
         """
         return {
             well: (
-                self.op_tracking[well][-1] if len(self.op_tracking[well]) > 0 else None
+                self.dest_op_tracking[well][-1] if len(self.dest_op_tracking[well]) > 0 else None
             )
             for well in self.wells.flatten("F")
         }
@@ -94,8 +94,8 @@ class AdvancedLabware(robotools.Labware):
         dest_op = None
 
         # If we have an op that uses this labware as a destination, get volume from that
-        if self.op_tracking[well]:
-            dest_op = self.op_tracking[well][-1]
+        if self.dest_op_tracking[well]:
+            dest_op = self.dest_op_tracking[well][-1]
             vol = dest_op.dest_volume
 
         # If we have an op that uses this labware as a source, and it's more recent than the dest op, use that volume
@@ -112,8 +112,8 @@ class AdvancedLabware(robotools.Labware):
         Parameters:
             well: str, like "A01"
         """
-        if self.op_tracking[well]:
-            op = self.op_tracking[well][-1]
+        if self.dest_op_tracking[well]:
+            op = self.dest_op_tracking[well][-1]
             return op.dest_composition
 
         return self.get_well_composition(well)
