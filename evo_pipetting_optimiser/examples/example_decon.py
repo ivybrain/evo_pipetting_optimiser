@@ -36,16 +36,17 @@ dilution_plate = AdvancedLabware(
     location=(32, 2),
 )
 
-# Define our tecon trough
-decon_trough = robotools.Trough(
+# Define our decon trough
+decon_trough = AdvancedTrough(
     "Decon",
     8,
     1,
     min_volume=3000,
     max_volume=100_000,
+    # Volume of decon available in this trough
     initial_volumes=80_000,
+    location = (2, 1),
 )
-decon_trough.location = (2, 1)
 
 
 def basic_row_column(worklist):

@@ -1,13 +1,13 @@
-from robotools import EvoWorklist, Labware, Trough, Tip
+from robotools import EvoWorklist, Trough, Tip
 from robotools.evotools.commands import evo_get_selection
-from typing import Dict, List, Literal, Optional, Sequence, Tuple, Union
+from typing import Literal, Optional, Sequence, Tuple, Union
 from . import *
 import warnings
 import numpy as np
 import math
 from .TransferOperation import TransferOperation
 from ..utils.utils import *
-from ..optimisation import make_plan
+from ..optimisation import make_plan, OptimisationError
 from concurrent.futures import ThreadPoolExecutor
 from rich.progress import (
     Progress,
@@ -16,7 +16,6 @@ from rich.progress import (
     MofNCompleteColumn,
     TimeElapsedColumn,
 )
-
 
 
 class AutoWorklist(EvoWorklist):
@@ -203,6 +202,8 @@ class AutoWorklist(EvoWorklist):
         if not self.diti_mode:
             raise Exception("Cannot get Ditis unless in DiTi mode")
 
+        # Calculate the 8 bit mask for the selected tips
+        # ie tips 1,3,5,7 == 10101010 == 170
         tip_selection = 0
         for tip in tips:
             if isinstance(tip, int):
@@ -289,7 +290,6 @@ class AutoWorklist(EvoWorklist):
         wash_scheme: Literal["D", 1, None, "smart"] = 1,
         tips: Union[int, Sequence[int], Sequence[Tip]] = None,
         tip_index=None,
-        **kwargs,
     ) -> None:
         """Transfer operation between two labwares with automatic pipetting order optimisation
         Ensures correct order of transfers to each particular well,
@@ -340,6 +340,7 @@ class AutoWorklist(EvoWorklist):
         if self.diti_mode:
             liquid_class += f";{tip_index}"
 
+        # Reformat parameters where a single value has been entered into arrays
         if len(source_wells) == 1:
             source_wells = np.repeat(source_wells, nmax)
         if len(destination_wells) == 1:
@@ -349,35 +350,33 @@ class AutoWorklist(EvoWorklist):
         if tips is None or isinstance(tips, int) or len(tips) == 1:
             tips = np.repeat(tips, nmax)
         lengths = (len(source_wells), len(destination_wells), len(volumes), len(tips))
-        assert (
-            len(set(lengths)) == 1
-        ), f"Number of source/destination/volumes/tips must be equal. They were {lengths}"
+        if len(set(lengths)) != 1:
+            raise ValueError(
+                f"Number of source/destination/volumes/tips must be equal (or 1). They were {lengths}"
+            )
 
-        assert isinstance(source, AdvancedLabware) or isinstance(
-            source, Trough
-        ), "Source must be AdvancedLabware or Trough for auto_transfer"
+        if not (isinstance(source, AdvancedLabware) or isinstance(source, Trough)):
+            raise TypeError("Source must be AdvancedLabware or Trough for auto_transfer")
 
-        assert isinstance(
-            destination, AdvancedLabware
-        ), "Destination must be AdvancedLabware for auto_transfer"
+        if not isinstance(destination, AdvancedLabware):
+            raise TypeError("Destination must be AdvancedLabware for auto_transfer")
 
-        assert (
-            liquid_class is not None
-        ), "Liquid class must be speicified for auto_transfer"
+        if liquid_class is None:
+            raise ValueError("Liquid class must be speicified for auto_transfer")
 
-        assert wash_scheme in [
-            "D",
-            "smart",
-            1,
-            None,
-        ], "Wash schemes supported for auto_transfer are D, 1, or None"
+        if wash_scheme not in ["D", "smart", 1, None]:
+            raise ValueError('Wash schemes supported for auto_transfer are "D", 1, None, or "smart"')
 
-        assert (
-            wash_scheme != "D" or self.wash_params["decon_troughs"] is not None
-        ), "Using decon wash without decon_troughs specified. Call set_wash_parameters() to set it."
-        assert (
-            wash_scheme != "D" or self.wash_params["decon_liquid_class"] is not None
-        ), "Using decon wash without decon_liquid_class specified. Call set_wash_parameters() to set it."
+        if wash_scheme == "D" and self.wash_params["decon_troughs"] is None:
+            raise ValueError(
+                "Using decon wash without decon_troughs specified. Call set_wash_parameters() to set it."
+            )
+        if wash_scheme == "D" and self.wash_params["decon_liquid_class"] is None:
+            raise ValueError(
+                "Using decon wash without decon_liquid_class specified. Call set_wash_parameters() to set it."
+            )
+        if wash_scheme == "D" and self.diti_mode:
+            raise ValueError("Cannot use decon wash with disposable tips")
 
         # Track if we currently have operations waiting to be optimised
         # That haven't been committed to the worklist. If so, we want to warn if the user
@@ -425,7 +424,7 @@ class AutoWorklist(EvoWorklist):
                 # Append this op to the labware we're aspirating to
                 # So that future transfers to the well know that they need to wait for this transfer first
                 source.source_op_tracking[source_well].append(op)
-                destination.op_tracking[dest_well].append(op)
+                destination.dest_op_tracking[dest_well].append(op)
 
                 # Add this op to the pending operations
                 self.pending_ops.append(op)
@@ -482,15 +481,15 @@ class AutoWorklist(EvoWorklist):
 
         self.silence_append_warning = silence_append_warning
 
-        assert (
-            len(tips) == len(wash_schemes) == len(tip_volumes)
-        ), "Internal wash assignment error"
+        if not (len(tips) == len(wash_schemes) == len(tip_volumes)):
+            raise OptimisationError("Internal wash assignment error")
 
         if self.diti_mode:
             self.drop_diti(tips)
             self.silence_append_warning = False
             return
 
+        # Specify decon tips and volumes
         decon_mask = [scheme == "D" for scheme in wash_schemes]
         decon_tips = [tips[i] for i in range(len(tips)) if decon_mask[i]]
         decon_wells = [tip - 1 for tip in decon_tips]
@@ -529,6 +528,7 @@ class AutoWorklist(EvoWorklist):
                     decon_trough = self.wash_params["decon_troughs"][decon_trough_index]
 
 
+            # Aspirate decon liquid
             self._evo_aspirate(
                 decon_trough,
                 decon_trough.wells[decon_wells, 0],
@@ -544,9 +544,11 @@ class AutoWorklist(EvoWorklist):
             duration_str = "{0:.2f}".format(self.wash_params["decon_delay"] / 1000)
             self.append(f'B;WaitTimer("1","{duration_str}");')
 
+        # Conduct standard wash sequence
         wash_mask = [scheme is not None for scheme in wash_schemes]
         wash_tips = [tips[i] for i in range(len(tips)) if wash_mask[i]]
 
+        # Collect the generic wash parameters to pass to the evo_wash function
         wash_params = {
             key: value
             for key, value in self.wash_params.items()
@@ -557,31 +559,81 @@ class AutoWorklist(EvoWorklist):
             super().evo_wash(tips=wash_tips, arm=self.arm, **wash_params)
         self.silence_append_warning = False
 
+    def _get_rows_and_offset(self, ops, tips, labware, pos_attr):
+        """
+        Compute the well rows and validated tip-row offset for a group of ops.
+
+        For troughs with enough virtual rows the rows are aligned directly to the
+        tips being used.  Raises ValueError if the offset is not uniform across all
+        tip/row pairs, or if it violates the labware's declared offset limits.
+
+        Parameters
+        ----------
+        ops : list of TransferOperation
+        tips : list of int
+        labware : AdvancedLabware or Trough
+            The labware being accessed (source for Aspirate, destination for Dispense).
+        pos_attr : str
+            Attribute on each op that holds the (row, col) position: "source_pos" or "dest_pos".
+
+        Returns
+        -------
+        rows : list of int
+        offset : int
+        """
+        rows = [getattr(op, pos_attr)[0] for op in ops]
+
+        # For troughs with enough virtual rows, align rows directly to the tips being used
+        if (getattr(labware, "virtual_rows", 0) or 0) > max(tips) - 1:
+            rows = [tip - 1 for tip in tips]
+
+        # Verify that every (row, tip) pair shares the same offset so Evoware
+        # can execute the whole group in a single physical move
+        offset = rows[0] - (tips[0] - 1)
+        for row, tip in zip(rows, tips):
+            if row - (tip - 1) != offset:
+                raise OptimisationError("Tip-row offset inconsistency")
+
+        limit_down = getattr(labware, "offset_limit_down", None) or 10000
+        limit_up = getattr(labware, "offset_limit_up", None) or 10000
+        if not (-limit_up <= offset <= limit_down):
+            raise OptimisationError("Offset limit violated")
+
+        return rows, offset
+
+    def _build_label(self, ops):
+        """Build the standard pipetting label string for a group of ops."""
+        return (
+            " + ".join(set(op.label for op in ops))
+            + ", ops: "
+            + ",".join(str(op.id) for op in ops)
+        )
+
+    def _get_liquid_class(self, op):
+        """Return the liquid class for an op, stripping the DiTi tip suffix when in DiTi mode."""
+        liquid_class = op.liquid_class
+        if self.diti_mode:
+            liquid_class = liquid_class.split(";")[0]
+        return liquid_class
+
     def execute_plan(self, plan, counts):
 
         decon_at_end = False
-        
+
         for i, (action, ops, tips) in enumerate(plan):
 
-            # If the plan ends at this step, track if we need to decontaminate for the final wash
+            # Reset at the start of each step so the final value reflects the last Dispense
             decon_at_end = False
 
             if action == "Aspirate":
 
-                # Get the first op in the group
-                source_op = ops[0]
-                # Get the col of this source group
-                source_col = source_op.source_pos[1]
-                # Get the rows we need to aspirate from the source_pos attribute of each op
-                source_rows = [op.source_pos[0] for op in ops]
+                op = ops[0]
+                col = op.source_pos[1]
+                volumes = [o.volume for o in ops]
 
-                # Get the volumes stored in the ops
-                volumes = [op.volume for op in ops]
-
-                # Mount tips if we don't have any
+                # Mount DiTi tips if none are currently loaded
                 if self.diti_mode and not self.tips_mounted:
-
-                    # Find the next 'wash' action and include all tips used up until that action
+                    # Collect all tips needed up to the next Wash action
                     search_index = i
                     get_tips = []
                     while search_index < len(plan):
@@ -593,118 +645,58 @@ class AutoWorklist(EvoWorklist):
                         search_index += 1
 
                     self.silence_append_warning = True
-                    self.get_diti(get_tips, ops[0].tip_index, retry=True)
+                    self.get_diti(get_tips, op.tip_index, retry=True)
                     self.silence_append_warning = False
 
-                # Check that tip type index matches for all ops
+                # Validate that the mounted tip type matches every op in the group
                 if self.diti_mode:
-                    for op in ops:
-                        if self.tips_mounted != op.tip_index:
-                            raise Exception(
+                    for o in ops:
+                        if self.tips_mounted != o.tip_index:
+                            raise OptimisationError(
                                 "Error, attempting to aspirate with wrong tip type mounted"
                             )
 
-                # Check from earlier troubleshooting
+                # Duplicate tip guard (retained from earlier troubleshooting)
                 if len(tips) != len(set(tips)):
-                    raise Exception("Error in tip logic")
+                    raise OptimisationError("Error in tip logic")
 
-                # If we have a trough, just set source rows to whichever tips we're using
-                if getattr(source_op.source, "virtual_rows", 0) or 0 > max(tips) - 1:
-                    source_rows = [tip - 1 for tip in tips]
+                rows, _ = self._get_rows_and_offset(ops, tips, op.source, "source_pos")
 
-                # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
-                offset = source_rows[0] - (tips[0] - 1)
-                for i in range(len(source_rows)):
-                    assert (
-                        source_rows[i] - (tips[i] - 1) == offset
-                    ), "Tip assignment offset inconsistency"
-
-                assert offset <= (
-                    getattr(source_op.source, "offset_limit_down", None) or 10000
-                ) and offset >= -(
-                    getattr(source_op.source, "offset_limit_up", None) or 10000
-                ), "Offset limit violated"
-
-                # If in diti mode, extract the liquid class only from the liquid class + tip string
-                liquid_class = source_op.liquid_class
-                if self.diti_mode:
-                    liquid_class = liquid_class.split(";")[0]
-
-                # Perform the aspiration
                 self._evo_aspirate(
-                    source_op.source,
-                    source_op.source.wells[source_rows, source_col],
-                    source_op.source.location,
+                    op.source,
+                    op.source.wells[rows, col],
+                    op.source.location,
                     list(tips),
                     list(volumes),
-                    liquid_class=liquid_class,
-                    label=" + ".join(set([op.label for op in ops]))
-                    + ", ops: "
-                    + ",".join([str(op.id) for op in ops]),
-                    on_underflow=source_op.on_underflow,
+                    liquid_class=self._get_liquid_class(op),
+                    label=self._build_label(ops),
+                    on_underflow=op.on_underflow,
                 )
 
             if action == "Dispense":
 
-                # Get the first op in the group
-                dest_op = next(iter(ops))
-                # Get the col of this source group
-                dest_col = dest_op.dest_pos[1]
-
-                # Get the rows we need to dispense to for the group
-                dest_rows = [op.dest_pos[0] for op in ops]
-
-                # If we have a trough, just set source rows to whichever tips we're using
-                if (
-                    getattr(source_op.destination, "virtual_rows", 0)
-                    or 0 > max(tips) - 1
-                ):
-                    dest_rows = [tip - 1 for tip in tips]
-
-                # Get the volume stored in each op
-                volumes = [op.volume for op in ops]
-
-                # Get the composition from the source labware for each op
+                op = ops[0]
+                col = op.dest_pos[1]
+                volumes = [o.volume for o in ops]
                 compositions = [
-                    op.source.get_well_composition(op.source.wells[op.source_pos])
-                    for op in ops
+                    o.source.get_well_composition(o.source.wells[o.source_pos])
+                    for o in ops
                 ]
 
-                # If we have a trough, just set rows to whichever tips we're using
-                if getattr(dest_op.destination, "virtual_rows", 0) or 0 > max(tips) - 1:
-                    dest_rows = [tip - 1 for tip in tips]
+                rows, _ = self._get_rows_and_offset(ops, tips, op.destination, "dest_pos")
 
-                # Check that the tip-row offset is consistent - i.e. that Evoware will actually do this in one move
-                offset = dest_rows[0] - (tips[0] - 1)
-                for i in range(len(dest_rows)):
-                    assert dest_rows[i] - (tips[i] - 1) == offset, "Tip offest issue"
-
-                assert offset <= (
-                    dest_op.destination.offset_limit_down or 10000
-                ) and offset >= -(
-                    dest_op.destination.offset_limit_up or 10000
-                ), "Offset limit exceeded"
-
-                # If in diti mode, extract the liquid class only from the liquid class + tip string
-                liquid_class = dest_op.liquid_class
-                if self.diti_mode:
-                    liquid_class = liquid_class.split(";")[0]
-
-                # Perform the dispense op
                 self._evo_dispense(
-                    dest_op.destination,
-                    dest_op.destination.wells[dest_rows, dest_col],
-                    dest_op.destination.location,
+                    op.destination,
+                    op.destination.wells[rows, col],
+                    op.destination.location,
                     list(tips),
                     list(volumes),
-                    liquid_class=liquid_class,
-                    label=" + ".join(set([op.label for op in ops]))
-                    + ", ops: "
-                    + ",".join([str(op.id) for op in ops]),
+                    liquid_class=self._get_liquid_class(op),
+                    label=self._build_label(ops),
                     compositions=compositions,
                 )
 
-                decon_at_end = any(op.wash_scheme == "D" for op in ops)
+                decon_at_end = any(o.wash_scheme == "D" for o in ops)
                 end_wash_volumes = list(volumes)
 
             if action == "Wash":
@@ -762,35 +754,51 @@ class AutoWorklist(EvoWorklist):
             else:
                 segments = [0]
 
-            with Progress(
-                TextColumn("[bright_magenta]{task.description}"),
-                BarColumn(finished_style="bar.complete"),
-                MofNCompleteColumn(),
-                TimeElapsedColumn(),
-            ) as progress:
 
+            def create_plans(progress=None):
                 #with ThreadPoolExecutor(max_workers=4) as executor:
-                segment_ops = []
-                tasks = []
-                for s in segments:
+                    segment_ops = []
+                    tasks = []
+                    for s in segments:
 
-                    if self.max_concurrent_ops:
-                        ops = self.pending_ops[
-                            s
-                            * self.max_concurrent_ops : (s + 1)
-                            * self.max_concurrent_ops
-                        ]
-                    else:
-                        ops = self.pending_ops
+                        if self.max_concurrent_ops:
+                            ops = self.pending_ops[
+                                s
+                                * self.max_concurrent_ops : (s + 1)
+                                * self.max_concurrent_ops
+                            ]
+                        else:
+                            ops = self.pending_ops
 
-                    segment_ops.append(ops)
+                        segment_ops.append(ops)
 
-                    tasks.append(progress.add_task("Optimising...", total=len(ops)))
+                        if progress:
+                            tasks.append(progress.add_task("Optimising...", total=len(ops)))
+                        else:
+                            tasks.append(None)
 
+                    # Execute optimisation to create plan
                     results = map(
                         make_plan, segment_ops, [progress] * len(segments), tasks
                     )
 
+                    return results
+
+
+            if report:
+                with Progress(
+                    TextColumn("[bright_magenta]{task.description}"),
+                    BarColumn(finished_style="bar.complete"),
+                    MofNCompleteColumn(),
+                    TimeElapsedColumn(),
+                ) as progress:
+                    results = create_plans(progress)
+            else:
+                results = create_plans()
+                    
+
+                
+            # Execute each plan in order (multiple plans occur if optimisation was split into batches)
             for plan, cost, (asp_count, disp_count, wash_count) in results:
 
                 self.execute_plan(plan, (asp_count, disp_count, wash_count))

@@ -37,15 +37,11 @@ class AdvancedTrough(AdvancedLabware, robotools.Trough):
         offset_limit_up : int, optional, default=None
             Limits the vertical translation upwards (towards the back of the evo) of tips accessing this Labware
             (when used with AutoWorklist.auto_transfer)
-            Useful for labware near the top of the evo deck, where not every row can be accessed by every tip
-            If set to an int, limits the upwards translation of the tips: 4 means the tips can shift no more than 4 rows above
-            their default position. I.e. tip 5 can access row A, but tip 6 cannot
-            If 0, no upwards shift is allowed
+            This works the same as AdvancedLabware, but should rarely be needed with troughs
             If none, no offset limit and any offsets are permitted
             Setting a limit will reduce optimisation effectiveness and increase pipetting time
         offset_limit_down : int, optional, default=None
             Same as offset_limit_up, but limits tip translation downwards
-            Note: a 12-row labware needs a least a down offset of 4 for tip 8 to access row 12
         """
 
         robotools.Trough.__init__(self, *args, **kwargs)
