@@ -209,14 +209,14 @@ class OpGraph:
                         disp_nodes[dest_offset_key] += 1
 
                     if source_offset_key not in source_offset_in_edges:
-                        source_offset_in_edges[source_offset_key] = 1
+                        source_offset_in_edges[source_offset_key] = [source_row_key]
                     else:
-                        source_offset_in_edges[source_offset_key] += 1
+                        source_offset_in_edges[source_offset_key].append(source_row_key)
 
                     if dest_offset_key not in dest_offset_out_edges:
-                        dest_offset_out_edges[dest_offset_key] = 1
+                        dest_offset_out_edges[dest_offset_key] = [dest_row_key]
                     else:
-                        dest_offset_out_edges[dest_offset_key] += 1
+                        dest_offset_out_edges[dest_offset_key].append(dest_row_key)
 
                     G.add_edge(
                         source_row_key,
@@ -345,11 +345,18 @@ class OpGraph:
             if largest_offset > offset_difference:
                 offset_penalty = 1
 
+            in_edges = source_offset_in_edges[u]
+            for edge in in_edges:
+                G.edges[edge, u]["weight"] = -len(in_edges)
+
+            out_edges = dest_offset_out_edges[v]
+            for edge in out_edges:
+                G.edges[v, edge]["weight"] = -len(out_edges)
+
             G.edges[u, v]["weight"] = (
                 # small penalty for offset further from 0
                 offset_penalty
-                - source_offset_in_edges[u]
-                - dest_offset_out_edges[v]
+                
             )
 
         moves = []
@@ -491,11 +498,11 @@ def show_graph(G):
     capacity_labels = nx.get_edge_attributes(G, "capacity")
     weight_labels = nx.get_edge_attributes(G, "weight")
 
-    # edge_labels = {
-    #     key: f"{flow_labels[key]}/{capacity_labels[key]}/{weight_labels[key]}"
-    #     for key in flow_labels.keys()
-    #     # if key in active_edges
-    # }
+    edge_labels = {
+        key: f"{flow_labels[key]}/{capacity_labels[key]}/{weight_labels[key]}"
+        for key in flow_labels.keys()
+        # if key in active_edges
+    }
 
     node_labels = {}
     for node in G.nodes:
@@ -520,7 +527,7 @@ def show_graph(G):
             node_labels[node] = f"c{node[3]} ofst {node[5]}"
 
     # Draw the labels on the edges
-    nx.draw_networkx_edge_labels(G, pos, edge_labels={})
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
 
     nx.draw_networkx_labels(G, pos, labels=node_labels)
 
