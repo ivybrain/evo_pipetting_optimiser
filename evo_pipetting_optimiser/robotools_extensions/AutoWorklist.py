@@ -756,7 +756,7 @@ class AutoWorklist(EvoWorklist):
 
 
             def create_plans(progress=None):
-                #with ThreadPoolExecutor(max_workers=4) as executor:
+                with ThreadPoolExecutor(max_workers=4) as executor:
                     segment_ops = []
                     tasks = []
                     for s in segments:
@@ -778,7 +778,7 @@ class AutoWorklist(EvoWorklist):
                             tasks.append(None)
 
                     # Execute optimisation to create plan
-                    results = map(
+                    results = executor.map(
                         make_plan, segment_ops, [progress] * len(segments), tasks
                     )
 

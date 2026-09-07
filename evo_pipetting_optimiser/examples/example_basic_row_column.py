@@ -20,8 +20,6 @@ sample_plate = AdvancedLabware(
         "D01": "sample4",
     },
     location=(41, 3),
-    offset_limit_down=2,
-    offset_limit_up=2,
 )
 
 
@@ -34,8 +32,6 @@ dilution_plate = AdvancedLabware(
     max_volume=5000,
     initial_volumes=0,
     location=(32, 2),
-    offset_limit_down=2,
-    offset_limit_up=2
 )
 
 test_trough = AdvancedTrough(
@@ -53,15 +49,21 @@ def basic_row_column(worklist):
 
     with AutoWorklist(worklist, waste_location=(1, 2), cleaner_location=(1, 3)) as wl:
 
-        # wl.auto_transfer(
-        #     sample_plate,
-        #     [sample_plate.wells[i // 2, 0] for i in range(8)],
-        #     dilution_plate,
-        #     dilution_plate.wells[:, 0],
-        #     50,
-        #     liquid_class="Water free dispense",
-        #     label="Transfer duplicates",
-        # )
+
+        # Example restricting the tips - the 8 wells in the loop will each be assigned the 8 tips in order
+        input_wells = sample_plate.wells[:3, :3].flatten("F")[:8]
+        input_wells[3] = "E02"
+        wl.auto_transfer(
+            sample_plate,
+            input_wells,
+            dilution_plate,
+            dilution_plate.wells[:4, :2].flatten("F"),
+            50,
+            liquid_class="Water free dispense",
+            label="Transfer duplicates",
+            tips=[0,1,2,3]*2
+        )
+
 
         # # transfer sampel to dilution plate
         # wl.auto_transfer(
@@ -85,7 +87,7 @@ def basic_row_column(worklist):
         #     label="Transfer diluent",
         # )
 
-        # Transfer col 0 to row 0
+        # # Transfer col 0 to row 0
         # wl.auto_transfer(
         #     sample_plate,
         #     sample_plate.wells[:, 0],
@@ -117,33 +119,23 @@ def basic_row_column(worklist):
         #     label="transfer to trough",
         # )
 
-        # Situation where we transfer a column to a row, with a range across 8 wells but excluding a middle well
-        # Will aspirate in one op, leaving tip 5 empty
-        # Unlike default Evoware, which would aspirate rows A-D with tips 1-4 then rows F-H with tips 5-7
-        # Large volume (>950) means we repeat each op twice
+        # # Situation where we transfer a column to a row, with a range across 8 wells but excluding a middle well
+        # # Will aspirate in one op, leaving tip 5 empty
+        # # Unlike default Evoware, which would aspirate rows A-D with tips 1-4 then rows F-H with tips 5-7
+        # # Large volume (>950) means we repeat each op twice
 
-        wl.auto_transfer(
-            sample_plate,
-            sample_plate.wells[[0, 2], 0],
-            dilution_plate,
-            dilution_plate.wells[0, [ 1, 2,]],
-            600,
-            liquid_class="Water free dispense",
-            label="transfer noncontinuous rows to col",
-        )
+        # wl.auto_transfer(
+        #     sample_plate,
+        #     sample_plate.wells[[0, 1, 2, 3, 5, 6, 7], 0],
+        #     dilution_plate,
+        #     dilution_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
+        #     1200,
+        #     liquid_class="Water free dispense",
+        #     label="transfer noncontinuous rows to col",
+        # )
 
-        wl.auto_transfer(
-            sample_plate,
-            sample_plate.wells[1, 2:4],
-            dilution_plate,
-            dilution_plate.wells[0:2, 8],
-            600,
-            liquid_class="Water free dispense",
-            label="transfer noncontinuous rows to col",
-        )
-
-        # Same situation but transferring one row to many cols
-        # Will do several aspirates, but group to one dispense
+        # # Same situation but transferring one row to many cols
+        # # Will do several aspirates, but group to one dispense
         # wl.auto_transfer(
         #     sample_plate,
         #     sample_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],

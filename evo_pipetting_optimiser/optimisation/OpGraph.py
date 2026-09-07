@@ -467,6 +467,11 @@ def show_graph(G):
     """
     Show the graph in an interactive window. Useful for debugging and checking that edges are correctly set to possible moves.
     If the graph has flow values set, edges with flow will be highlighted red and have flow/capacity/cost values shown
+
+    To use this, I set a breakpoint in the Opgraph method and then call it from the debugging console with 
+    show_graph(G)
+    Note: The plt.show method does not work well inside a threaded approach. If you have issues, replace the
+    `executor.map` in AutoWorklist.py with a plain map'
     """
     G = G.copy()
 
