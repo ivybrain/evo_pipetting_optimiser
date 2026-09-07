@@ -13,10 +13,49 @@ The following graph is produced
 
 We use this graph to calculate pipetting operations that can be conducted in a single move of the pipetting arm, and find the operation with maximal efficiency.
 
-The left 4 columns are the 'source' side. The graph begins with an 's' node, which is needed to calculate a flow. This connects to a node for each column in each labware. As the pipetting arm has 8 tips in a column, it can only access 1 column in 1 labware at a time. So this is the first layer of division.
+The left 4 columns are the 'source' side. The graph begins with a single source node labelled 's', which is needed to calculate a flow. This connects to a node for each column in each labware. As the pipetting arm has 8 tips in a column, it can only access 1 column in 1 labware at a time. So this is the first layer of division.
 
-Each of these columns has (usually 8) rows. The rows that have pending pipetting operations have nodes created. The associated labware + column node has an edge going to the rows contained within that column. Here, smp column 0 has pipetting operations in row 0 and row 2 (A01 and C01).
+Each of these columns has (usually 8) rows. The rows that have pending pipetting operations have nodes created. The associated labware + column node has an edge going to the rows contained within that column. Here, smp column 0 has pipetting operations in row 0 and row 2 (A01 and C01). The other columns have only 1 row relevant.
 
 Each column in a plate may be accessed with the tips offset in the y direction. With the default offset of 0, each tip is above its corresponding row. With an offset of +7, tip 8 is above row A. With an offset of -7, tip 1 is above row H. To show a simpler graph for this example, offset_limit_up and offset_limit_down are each set to 2 in the labware objects, which limits the possible offsets from -2 to +2.
 
-Edges are created from each row, to each offset which can address this row. Each of these edges thus represents a tip being assigned 
+Edges are created from each row, to each offset which can address this row. Each of these edges thus represents a tip being assigned to a particular row. The graph shows all possible assignments as grey edges, and the edges that were actually selected by the algorithm in red. 'smp c0r0' and 'smp c0r2' can both be aspirated with an offset of 0, so they have red edges to the 'smp c0 ofst 0' node. As we are aspirating row 0 and row 2 with an offset of 0, this will use tip 0 and tip 2. This node represents a single 'aspirate'.
+
+The 5th column also represents an offset, but on the 'dispense' side. From 'aspirate' c0 ofst 0, 1 edge goes to 'dilplate c1 ofst 0' (the transfer from A01 to A02). However the other edge goes to a different offset, because we are tranferring to a different row - C01 to B02. As tip 2 aspirated C01, and it now needs to dispense to B02, it must do this with an offset of -1, so the edge goes to 'dilplate c1 ofst -1'. Thus, this single aspirate node links to 2 dispense nodes, and 2 dispenses are required.
+
+These dispense nodes then have edges back to the respective rows of the dispense plate. Here, the incorrect edges are highlighted - this does not matter. The algorithm only needs to ensure there is sufficient capacity to dispense operations from the desired offset - no actual decision is made from which of these edges are highlighted.
+
+These rows are then linked to nodes representing the column of the dilution plate, the 't' node, called the sink. 
+
+### Flow calculation
+Above, we explain how nodes and edges are constructed, and what they represent. To come up with a 'flow' through this graph (a selection of edges), we assign different edges weights, corresponding to how preferable they are, and then use an algorithm called `max_flow_min_cost` to calculate a flow.
+
+![Figure showing a graph with nodes representing the pipetting rows and columns plus weights shown](figures/optimiser%20graph%20weights.png)
+In this figure, each edge is labelled with 3 numbers, seperated by slashes. The first is the 'flow' - what the algorithm has decided to put through this edge. You will see that the highlighted edges have a flow >= 1. 1 unit of flow represents 1 op - an edge with a flow of 1 will complete 1 op if it is selected. The second number is the capacity - the maxiumum flow an edge could take, corresponding to the maximum number of ops this edge can address. You sill see that the edge s -> smp c0 has a flow of 2 and a capacity of 2, because 2 ops are completable from this column. 
+
+The third number is the weight. The edges between the 3 outer columns have no weights, as they do not influence the moves of the actual arm - they merely help with construction of the graph. The central edges between the 'source offset' and 'destination offset' columns have a weight in the range of 0-15. This is an 'offset penalty' applied to keep offsets low and close together.
+
+```
+offset_difference = abs(u_offset - v_offset)
+largest_offset = max(abs(u_offset), abs(v_offset))
+
+if largest_offset > offset_difference:
+    offset_penalty += largest_offset - offset_difference
+
+# We want to encourage offsets closer to 0 
+offset_penalty += abs(u_offset + v_offset)
+```
+The first penalty calculates the difference between the offsets required to complete the pipetting - this varies based on rows used. Pipetting from row A to row A will be doable with an offset of 0, but pipetting from row A to row D requires an offset of at least 3. However, moving the arm further with an offset >3 is counterproductive - it means the arm has to move further, and also means that it can address less wells at once, meaning it could restrict the selection of other ops. Thus we incentivise against offsets greater than necessary by applying a penalty equal to actual offset minus the smallest required offset.
+
+The second penalty encourages the sum of the offsets to be as close to 0 as possible - this ensures that we stay as close to offset 0 as possible when transferring between similar rows, again maximising the other ops that can share in a movement.
+
+The weights between row nodes and offset nodes are 0 or negative. The calculation here is 
+`-16 * number_of_row_edges`, where number_of_row_edges is the number of edges from that offset to corresponding rows - i.e. the number of different operations that can be addressed with a single offset. We want to maximise this, as offsets that connect to the maximum number of rows can complete that number of ops with a single arm movement.
+
+The `max_flow_min_cost` algorithm will first maximise the flow - selecting every possible op. It will then minimise the cost - complete these ops with the minimum sum of (flow * weight) across all edges.
+
+A key advantage of this approach is the ability to realise shared nodes at either the source or the destination, and consider these equally. 3 aspiration offset nodes could link to 2 dispense offset nodes, and complete 8 ops among them. Previous logical approaches could only consider the utility of one isolated node at a time.
+
+Without the weights, the selection of edges through the graph would be completely random. This would always produce a *possible* set of pipetting operations, correctly assigning rows and offsets, but it will not be efficient. The described weights influence the algorithm to choose edges that are the most likely to enable other ops to share the touched nodes.
+
+This might seem contrived - the weights are a guide to selecting popular nodes. The obvious way would be to count the number of nodes touched, and minimse this - this would by definition select the nodes that can fulfil the most edges (ops) at a time. However, counting selected nodes, or edges, becomes a boolean programming problem - a node should be counted equally if it has 1 flow or 100 flow, and not counted if it has 0 flow - it is boolean, off or on. This is a very difficult type of problem to solve computationally - known as NP-hard. However, the weights allow us to use the 'simplex' algorithm, which is under the hood of `max_flow_min_cost`. This is a linear programming technique, where the weight can be represented as a linear equation - the sum of the weights multiplied by the flow is in fact a linear equation. Boolean inclusion/exclusion cannot be represented in a linear equation. Linear equations are much easier computatilnally, achieving polynomial time on average. Thus, this allows the optimiser to repeatedly calculate good-enough assignments at each step of the process in a reasonable time.

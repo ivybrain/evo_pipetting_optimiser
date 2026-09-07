@@ -344,7 +344,6 @@ class OpGraph:
             if largest_offset > offset_difference:
                 offset_penalty += largest_offset - offset_difference
 
-
             # We want to encourage offsets closer to 0 
             offset_penalty += abs(u_offset + v_offset)
 
@@ -489,7 +488,7 @@ def show_graph(G):
     ]
 
     # Draw nodes and all edges faintly
-    nx.draw_networkx_nodes(G, pos)
+    nx.draw_networkx_nodes(G, pos, alpha=0.75)
     nx.draw_networkx_edges(G, pos, alpha=0.2)  # faint background edges
 
     # Draw active flow edges prominently
