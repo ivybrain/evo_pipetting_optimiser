@@ -51,13 +51,11 @@ def basic_row_column(worklist):
 
 
         # Example restricting the tips - the 8 wells in the loop will each be assigned the 8 tips in order
-        input_wells = sample_plate.wells[:3, :3].flatten("F")[:8]
-        input_wells[3] = "E02"
         wl.auto_transfer(
             sample_plate,
-            input_wells,
+            sample_plate.wells[:3, :3],
             dilution_plate,
-            dilution_plate.wells[:4, :2].flatten("F"),
+            dilution_plate.wells[:4, :2],
             50,
             liquid_class="Water free dispense",
             label="Transfer duplicates",
@@ -65,86 +63,86 @@ def basic_row_column(worklist):
         )
 
 
-        # # transfer sampel to dilution plate
-        # wl.auto_transfer(
-        #     sample_plate,
-        #     sample_plate.wells[1:7, 0],
-        #     dilution_plate,
-        #     dilution_plate.wells[2:, 0],
-        #     volumes=50,
-        #     liquid_class="Water free dispense",
-        #     label="Transfer mismatching rows",
-        # )
+        # transfer sampel to dilution plate
+        wl.auto_transfer(
+            sample_plate,
+            sample_plate.wells[1:7, 0],
+            dilution_plate,
+            dilution_plate.wells[2:, 0],
+            volumes=50,
+            liquid_class="Water free dispense",
+            label="Transfer mismatching rows",
+        )
 
-        # # Transfer diluent to dilution plate
-        # wl.auto_transfer(
-        #     test_trough,
-        #     test_trough.wells,
-        #     dilution_plate,
-        #     dilution_plate.wells[:8, 0],
-        #     50,
-        #     liquid_class="Water free dispense",
-        #     label="Transfer diluent",
-        # )
+        # Transfer diluent to dilution plate
+        wl.auto_transfer(
+            test_trough,
+            test_trough.wells,
+            dilution_plate,
+            dilution_plate.wells[:8, 0],
+            50,
+            liquid_class="Water free dispense",
+            label="Transfer diluent",
+        )
 
-        # # Transfer col 0 to row 0
-        # wl.auto_transfer(
-        #     sample_plate,
-        #     sample_plate.wells[:, 0],
-        #     dilution_plate,
-        #     dilution_plate.wells[0, :8],
-        #     50,
-        #     liquid_class="Water free dispense",
-        #     label="Transfer column to row",
-        # )
+        # Transfer col 0 to row 0
+        wl.auto_transfer(
+            sample_plate,
+            sample_plate.wells[:, 0],
+            dilution_plate,
+            dilution_plate.wells[0, :8],
+            50,
+            liquid_class="Water free dispense",
+            label="Transfer column to row",
+        )
 
-        # wl.auto_transfer(
-        #     sample_plate,
-        #     sample_plate.wells[0, :8],
-        #     dilution_plate,
-        #     dilution_plate.wells[:, 0],
-        #     50,
-        #     liquid_class="Water free dispense",
-        #     label="transfer row to column",
-        # )
+        wl.auto_transfer(
+            sample_plate,
+            sample_plate.wells[0, :8],
+            dilution_plate,
+            dilution_plate.wells[:, 0],
+            50,
+            liquid_class="Water free dispense",
+            label="transfer row to column",
+        )
 
-        # # Now transfer back to trough
-        # wl.auto_transfer(
-        #     dilution_plate,
-        #     dilution_plate.wells[:, 0],
-        #     test_trough,
-        #     test_trough.wells,
-        #     50,
-        #     liquid_class="Water free dispense",
-        #     label="transfer to trough",
-        # )
+        # Now transfer back to trough
+        wl.auto_transfer(
+            dilution_plate,
+            dilution_plate.wells[:, 0],
+            test_trough,
+            test_trough.wells,
+            50,
+            liquid_class="Water free dispense",
+            label="transfer to trough",
+        )
 
-        # # Situation where we transfer a column to a row, with a range across 8 wells but excluding a middle well
-        # # Will aspirate in one op, leaving tip 5 empty
-        # # Unlike default Evoware, which would aspirate rows A-D with tips 1-4 then rows F-H with tips 5-7
-        # # Large volume (>950) means we repeat each op twice
+        # Situation where we transfer a column to a row, with a range across 8 wells but excluding a middle well
+        # Will aspirate in one op, leaving tip 5 empty
+        # Unlike default Evoware, which would aspirate rows A-D with tips 1-4 then rows F-H with tips 5-7
+        # Large volume (>950) means we repeat each op twice
 
-        # wl.auto_transfer(
-        #     sample_plate,
-        #     sample_plate.wells[[0, 1, 2, 3, 5, 6, 7], 0],
-        #     dilution_plate,
-        #     dilution_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
-        #     1200,
-        #     liquid_class="Water free dispense",
-        #     label="transfer noncontinuous rows to col",
-        # )
+        wl.auto_transfer(
+            sample_plate,
+            sample_plate.wells[[0, 1, 2, 3, 5, 6, 7], 0],
+            dilution_plate,
+            dilution_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
+            1200,
+            liquid_class="Water free dispense",
+            label="transfer noncontinuous rows to col",
+        )
 
-        # # Same situation but transferring one row to many cols
-        # # Will do several aspirates, but group to one dispense
-        # wl.auto_transfer(
-        #     sample_plate,
-        #     sample_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
-        #     dilution_plate,
-        #     dilution_plate.wells[[0, 1, 2, 3, 5, 6, 7], 0],
-        #     600,
-        #     liquid_class="Water free dispense",
-        #     label="Transfer noncontinuous cols to rows",
-        # )
+        # Same situation but transferring one row to many cols
+        # Will do several aspirates, but group to one dispense
+        wl.auto_transfer(
+            sample_plate,
+            sample_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
+            dilution_plate,
+            dilution_plate.wells[[0, 1, 2, 3, 5, 6, 7], 0],
+            600,
+            liquid_class="Water free dispense",
+            label="Transfer noncontinuous cols to rows",
+        )
 
         # Print the operations we have registered, so we can sanity check
         print(wl.report)
