@@ -84,6 +84,9 @@ def basic_row_column(worklist):
 
         wl.commit()
 
+        # Add an extra wash at the end with larger volume
+        wl.auto_wash("D", decon_volume=800, waste_vol=5.0)
+
 
 if __name__ == "__main__":
     basic_row_column("example_decon.gwl")

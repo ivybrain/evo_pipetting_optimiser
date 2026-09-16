@@ -78,9 +78,13 @@ def test_decon(worklist="test_decon.gwl"):
         )
 
         wl.commit(report=True)
+
         assert wl.asp_count == 16
         assert wl.disp_count == 16
         assert wl.wash_count == 5
+
+        # Add an extra wash at the end with larger volume
+        wl.auto_wash("D", decon_volume=800, waste_vol=5.0)
 
 
 if __name__ == "__main__":

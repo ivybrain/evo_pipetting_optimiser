@@ -463,11 +463,36 @@ class AutoWorklist(EvoWorklist):
         super().evo_dispense(*args, arm=self.arm, **kwargs)
         self.silence_append_warning = False
 
-    
+
+    def auto_wash(self, wash_scheme=1, tips = range(1, 9), decon_volume=300, **kwargs):
+        '''
+        Simple function to apply an extra wash with the settings already stored using set_wash_parameters
+        As this appends to the worklist directly, it should only be called after a commit, or with no pending operations
+        If it is called with pending operations it will generate a warning and commit the operations first
+        Wash parameters can be overridden for this wash only with keyword arguments as used in set_wash_parameters
+
+        Parameters
+        ----------
+        wash_scheme:
+            1 or 'D' - specifies a normal or a decon wash
+        tips:
+            list of ints from 1 to 8 inclusive, or robotools Tip objects, representing which tips to wash
+        decon_volume:
+            Volume of decon solution to aspirate in ul if wash_scheme=='D'. Default 300ul
+
+        '''
+
+
+        self._auto_wash(
+            silence_append_warning=False,
+            tips = tips,
+            wash_schemes = [wash_scheme] * len(tips),
+            tip_volumes = [decon_volume - self.wash_params["decon_excess_volume"]] * len(tips),
+            **kwargs
+        )
 
     def _auto_wash(
         self,
-        *args,
         silence_append_warning=True,
         tips=[],
         wash_schemes=[],
@@ -554,6 +579,9 @@ class AutoWorklist(EvoWorklist):
             for key, value in self.wash_params.items()
             if (not key.startswith("decon_")) and key not in ["max_tip_uses", "tip_discard_location"]
         }
+
+        # Apply any kwarg override wash parameters
+        wash_params = {**wash_params, **kwargs}
 
         if len(wash_tips) > 0:
             super().evo_wash(tips=wash_tips, arm=self.arm, **wash_params)
