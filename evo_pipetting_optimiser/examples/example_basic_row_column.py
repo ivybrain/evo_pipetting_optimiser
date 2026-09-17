@@ -53,9 +53,9 @@ def basic_row_column(worklist):
         # Example restricting the tips - the 8 wells in the loop will each be assigned the 8 tips in order
         wl.auto_transfer(
             sample_plate,
-            [sample_plate.wells[i // 2, 0] for i in range(8)],
+            sample_plate.wells[:3, :3],
             dilution_plate,
-            dilution_plate.wells[:, 0],
+            dilution_plate.wells[:4, :2],
             50,
             liquid_class="Water free dispense",
             label="Transfer duplicates",

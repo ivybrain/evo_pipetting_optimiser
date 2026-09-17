@@ -333,12 +333,19 @@ class OpGraph:
         for u, v in offset_edges:
             # Penalty for unneeded offsets
             offset_penalty = 0
-            
+            # If offsets the same, should be 0 as we're then doing straight transfer
+            # Abs offset should be below the difference in offsets
             u_offset = u[-1]
             v_offset = v[-1]
 
+            offset_difference = abs(u_offset - v_offset)
+            largest_offset = max(abs(u_offset), abs(v_offset))
+
+            if largest_offset > offset_difference:
+                offset_penalty += largest_offset - offset_difference
+
             # We want to encourage offsets closer to 0 
-            offset_penalty = abs(u_offset + v_offset)
+            offset_penalty += abs(u_offset + v_offset)
 
             in_edges = source_offset_in_edges[u]
             for edge in in_edges:
@@ -460,6 +467,11 @@ def show_graph(G):
     """
     Show the graph in an interactive window. Useful for debugging and checking that edges are correctly set to possible moves.
     If the graph has flow values set, edges with flow will be highlighted red and have flow/capacity/cost values shown
+
+    To use this, I set a breakpoint in the Opgraph method and then call it from the debugging console with 
+    show_graph(G)
+    Note: The plt.show method does not work well inside a threaded approach. If you have issues, replace the
+    `executor.map` in AutoWorklist.py with a plain map'
     """
     G = G.copy()
 
@@ -481,7 +493,7 @@ def show_graph(G):
     ]
 
     # Draw nodes and all edges faintly
-    nx.draw_networkx_nodes(G, pos)
+    nx.draw_networkx_nodes(G, pos, alpha=0.75)
     nx.draw_networkx_edges(G, pos, alpha=0.2)  # faint background edges
 
     # Draw active flow edges prominently
