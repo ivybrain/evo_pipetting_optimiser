@@ -37,7 +37,7 @@ class Move:
         return self.key() == other.key()
 
     def __hash__(self):
-        return hash(self.key)
+        return hash(self.key())
 
     def __lt__(self, other):
         return self.key() > other.key()

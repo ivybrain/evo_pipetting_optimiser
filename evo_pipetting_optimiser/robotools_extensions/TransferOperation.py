@@ -12,7 +12,6 @@ class TransferOperation:
 
     # Track ids of each op
     _op_id_counter = 0
-    op_index = {}
 
     def __init__(
         self,
@@ -33,7 +32,6 @@ class TransferOperation:
     ):
         self.id = TransferOperation._op_id_counter
         TransferOperation._op_id_counter += 1
-        TransferOperation.op_index = self
 
         self.source = source
         self.source_pos = source_pos
