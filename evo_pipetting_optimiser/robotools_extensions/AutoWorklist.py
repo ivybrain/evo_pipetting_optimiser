@@ -602,7 +602,7 @@ class AutoWorklist(EvoWorklist):
             self.append(f'B;WaitTimer("1","{duration_str}");')
         
         if len(decon_tips) > 0:
-            self.comment(f"Decontaminating {self.wash_params["decon_cycles"]} cycles")
+            self.comment(f'Decontaminating {self.wash_params["decon_cycles"]} cycles')
 
             # Flush any existing liquid out of the tips before aspirating decontaminant
             self.liha_flush()
