@@ -54,7 +54,7 @@ def basic_row_column(worklist):
     with AutoWorklist(worklist, waste_location=(1, 2), cleaner_location=(1, 3)) as wl:
 
         wl.set_wash_parameters(
-            decon_troughs=decon_trough, decon_liquid_class="Water free dispense"
+            decon_troughs=decon_trough, decon_liquid_class="Water free dispense", decon_excess_volume=50,
         )
 
         # Transfer as in example_basic_row_column - wash scheme not specified, so using default '1' - standard wash
@@ -83,6 +83,29 @@ def basic_row_column(worklist):
         wl.report_ops()
 
         wl.commit()
+
+        # We can increase the decon cycles, or use a fixed volume, with set_wash_parameters
+        wl.set_wash_parameters(decon_cycles=3, decon_volume=500)
+        wl.auto_transfer(
+                    sample_plate,
+                    sample_plate.wells[1, [0, 1, 2, 3, 5, 6, 7]],
+                    dilution_plate,
+                    dilution_plate.wells[[0, 1, 2, 3, 5, 6, 7], 1],
+                    400,
+                    liquid_class="Water free dispense",
+                    wash_scheme="D",
+                )
+
+
+        print(wl.report)
+        wl.commit()
+
+        # If we want to go back to normal, set wash parameters back to previous defaults
+        # Note: In order for the default behaviour where decon volume is calculated by aspiration volume + some excess,
+        # we have to set decon_volume to None
+        # Otherwise, it will always use decon_volume instead of decon_excess_volume
+        wl.set_wash_parameters(decon_cycles=1, decon_volume = None, decon_excess_volume=50)
+        
 
         # Add an extra wash at the end with larger volume
         wl.auto_wash("D", decon_volume=800, waste_vol=5.0)

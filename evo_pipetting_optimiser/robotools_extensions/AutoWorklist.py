@@ -105,10 +105,12 @@ class AutoWorklist(EvoWorklist):
         fastwash: int = None,
         low_volume: int = None,
         decon_excess_volume: int = None,
+        decon_volume: int = None,
         decon_liquid_class: str = None,
         decon_delay: int = None,
+        decon_cycles: int = None,
         max_tip_uses: int = None,
-        tip_discard_location: Tuple[int, int] = None
+        tip_discard_location: Tuple[int, int] = None,
     ):
         """
         Set the parameters that will be passed to evo_wash for washes triggered by auto_transfer().
@@ -150,10 +152,15 @@ class AutoWorklist(EvoWorklist):
             Use pinch valves = 1, don't use them = 0. Default 0
         decon_excess_volume : int
             Decon will aspirate however much liquid was present in a given tip, plus this excess value. Default 20ul
+        decon_volume: int
+            If set, decon will aspirate a fixed volume from the decon trough for each tip, ignoring the specific volume in the tip and overriding
+            decon_excess_volume. Default None
         decon_liquid_class : str
             Liquid class to use for decon aspiration
         decon_delay : int
             Delay to soak the tips after aspirating decon solution. Default 1000ms
+        decon_cycles: int
+            Cycles of decontamination to use. Default 1.
         max_tip_uses:
             When reusing tips with wash_scheme = "smart" or None, this is the maximum number of uses of a tip before a wash is done anyway.
             This is useful to prevent a loss of accuracy and 'reset' the liquid class. Set to None for no limit. Default 5
@@ -176,11 +183,16 @@ class AutoWorklist(EvoWorklist):
             "fastwash": 1,
             "low_volume": 0,
             "decon_excess_volume": 20,
+            "decon_volume": None,
             "decon_liquid_class": None,
             "decon_delay": 1000,
+            "decon_cycles": 1,
             "max_tip_uses": 5,
             "tip_discard_location": None
         }
+
+        if self.currently_optimising:
+            raise ValueError("Cannot set wash parameters while operations are pending. Call wl.commit() first")
 
         for key, default in param_defaults.items():
 
@@ -514,28 +526,48 @@ class AutoWorklist(EvoWorklist):
             self.silence_append_warning = False
             return
 
+        def standard_wash():
+        
+            # Conduct standard wash sequence
+            wash_mask = [scheme is not None for scheme in wash_schemes]
+            wash_tips = [tips[i] for i in range(len(tips)) if wash_mask[i]]
+
+            # Collect the generic wash parameters to pass to the evo_wash function
+            wash_params = {
+                key: value
+                for key, value in self.wash_params.items()
+                if (not key.startswith("decon_")) and key not in ["max_tip_uses", "tip_discard_location"]
+            }
+
+            # Apply any kwarg override wash parameters
+            wash_params = {**wash_params, **kwargs}
+
+            if len(wash_tips) > 0:
+                super(AutoWorklist, self).evo_wash(tips=wash_tips, arm=self.arm, **wash_params)
+                
+
         # Specify decon tips and volumes
         decon_mask = [scheme == "D" for scheme in wash_schemes]
         decon_tips = [tips[i] for i in range(len(tips)) if decon_mask[i]]
         decon_wells = [tip - 1 for tip in decon_tips]
-        decon_volumes = [
-            min(
-                self.max_volume,
-                tip_volumes[i] + self.wash_params["decon_excess_volume"],
-            )
-            for i in range(len(tips))
-            if decon_mask[i]
-        ]
+
+        if self.wash_params["decon_volume"]:
+            decon_volumes = [self.wash_params["decon_volume"]] * len(tips)
+        else:
+            decon_volumes = [
+                min(
+                    self.max_volume,
+                    tip_volumes[i] + self.wash_params["decon_excess_volume"],
+                )
+                for i in range(len(tips))
+                if decon_mask[i]
+            ]
 
         decon_sorted = sorted(list(zip(decon_tips, decon_volumes)))
         if decon_sorted:
             decon_tips, decon_volumes = zip(*decon_sorted)
-        if len(decon_tips) > 0:
-            self.comment("Decontaminating")
 
-            # Flush any existing liquid out of the tips before aspirating decontaminant
-            self.liha_flush()
-
+        def aspirate_decon():
             needed_volume = sum(decon_volumes)
             # If we have a single trough, just use that
             if isinstance(self.wash_params["decon_troughs"], Trough):
@@ -568,23 +600,19 @@ class AutoWorklist(EvoWorklist):
             self.append('B;StartTimer("1");')
             duration_str = "{0:.2f}".format(self.wash_params["decon_delay"] / 1000)
             self.append(f'B;WaitTimer("1","{duration_str}");')
+        
+        if len(decon_tips) > 0:
+            self.comment(f"Decontaminating {self.wash_params["decon_cycles"]} cycles")
 
-        # Conduct standard wash sequence
-        wash_mask = [scheme is not None for scheme in wash_schemes]
-        wash_tips = [tips[i] for i in range(len(tips)) if wash_mask[i]]
+            # Flush any existing liquid out of the tips before aspirating decontaminant
+            self.liha_flush()
 
-        # Collect the generic wash parameters to pass to the evo_wash function
-        wash_params = {
-            key: value
-            for key, value in self.wash_params.items()
-            if (not key.startswith("decon_")) and key not in ["max_tip_uses", "tip_discard_location"]
-        }
-
-        # Apply any kwarg override wash parameters
-        wash_params = {**wash_params, **kwargs}
-
-        if len(wash_tips) > 0:
-            super().evo_wash(tips=wash_tips, arm=self.arm, **wash_params)
+            for cycle in range(self.wash_params["decon_cycles"]):
+                aspirate_decon()
+                standard_wash()
+        else:
+            standard_wash()
+        
         self.silence_append_warning = False
 
     def _get_rows_and_offset(self, ops, tips, labware, pos_attr):
