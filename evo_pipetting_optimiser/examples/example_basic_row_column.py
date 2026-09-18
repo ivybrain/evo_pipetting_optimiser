@@ -49,19 +49,7 @@ def basic_row_column(worklist):
 
     with AutoWorklist(worklist, waste_location=(1, 2), cleaner_location=(1, 3)) as wl:
 
-
-        # Example restricting the tips - the 8 wells in the loop will each be assigned the 8 tips in order
-        wl.auto_transfer(
-            sample_plate,
-            sample_plate.wells[:3, :3],
-            dilution_plate,
-            dilution_plate.wells[:4, :2],
-            50,
-            liquid_class="Water free dispense",
-            label="Transfer duplicates",
-            tips=[0,1,2,3]*2
-        )
-
+       
 
         # transfer sampel to dilution plate
         wl.auto_transfer(
@@ -124,10 +112,20 @@ def basic_row_column(worklist):
 
         wl.auto_transfer(
             sample_plate,
-            sample_plate.wells[[0, 1, 2, 3, 5, 6, 7], 0],
+            sample_plate.wells[[0, 2], 0],
             dilution_plate,
-            dilution_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
-            1200,
+            dilution_plate.wells[0, [ 1, 2,]],
+            600,
+            liquid_class="Water free dispense",
+            label="transfer noncontinuous rows to col",
+        )
+
+        wl.auto_transfer(
+            sample_plate,
+            sample_plate.wells[1, 2:4],
+            dilution_plate,
+            dilution_plate.wells[0:2, 8],
+            600,
             liquid_class="Water free dispense",
             label="transfer noncontinuous rows to col",
         )
