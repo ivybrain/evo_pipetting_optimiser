@@ -604,14 +604,14 @@ class AutoWorklist(EvoWorklist):
         if len(decon_tips) > 0:
             self.comment(f'Decontaminating {self.wash_params["decon_cycles"]} cycles')
 
-            # Flush any existing liquid out of the tips before aspirating decontaminant
-            self.liha_flush()
-
             for cycle in range(self.wash_params["decon_cycles"]):
+                # Flush any existing liquid out of the tips before aspirating decontaminant
+                # Repeat each cycle - flush the previous decon, then aspirate new decon
+                self.liha_flush()
                 aspirate_decon()
-                standard_wash()
-        else:
-            standard_wash()
+
+        # Standard wash after decon
+        standard_wash()
         
         self.silence_append_warning = False
 
