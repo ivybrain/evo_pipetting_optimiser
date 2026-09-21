@@ -367,11 +367,11 @@ class AutoWorklist(EvoWorklist):
                 f"Number of source/destination/volumes/tips must be equal (or 1). They were {lengths}"
             )
 
-        if not (isinstance(source, AdvancedLabware) or isinstance(source, Trough)):
-            raise TypeError("Source must be AdvancedLabware or Trough for auto_transfer")
+        if not (isinstance(source, AdvancedLabware)):
+            raise TypeError("Source must be AdvancedLabware or AdvancedTrough for auto_transfer")
 
         if not isinstance(destination, AdvancedLabware):
-            raise TypeError("Destination must be AdvancedLabware for auto_transfer")
+            raise TypeError("Destination must be AdvancedLabware or AdvancedTrough for auto_transfer")
 
         if liquid_class is None:
             raise ValueError("Liquid class must be speicified for auto_transfer")
@@ -627,7 +627,7 @@ class AutoWorklist(EvoWorklist):
         ----------
         ops : list of TransferOperation
         tips : list of int
-        labware : AdvancedLabware or Trough
+        labware : AdvancedLabware or AdvancedTrough
             The labware being accessed (source for Aspirate, destination for Dispense).
         pos_attr : str
             Attribute on each op that holds the (row, col) position: "source_pos" or "dest_pos".
