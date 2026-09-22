@@ -92,8 +92,8 @@ class AutoWorklist(EvoWorklist):
 
     def set_wash_parameters(
         self,
-        cleaner_location=None,
-        waste_location=None,
+        cleaner_location: Tuple[int, int] =None,
+        waste_location: Tuple[int, int] =None,
         decon_troughs: Union[Trough, Sequence[Trough]] = None,
         waste_vol: float = None,
         waste_delay: int = None,

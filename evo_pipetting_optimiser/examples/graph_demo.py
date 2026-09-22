@@ -63,7 +63,7 @@ def basic_row_column(worklist):
         #     label="Transfer duplicates",
         # )
 
-        # # transfer sampel to dilution plate
+        # # transfer sample to dilution plate
         # wl.auto_transfer(
         #     sample_plate,
         #     sample_plate.wells[1:7, 0],
