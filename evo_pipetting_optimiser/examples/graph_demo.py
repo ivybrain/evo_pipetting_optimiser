@@ -1,8 +1,7 @@
 from evo_pipetting_optimiser import AdvancedLabware, AutoWorklist, AdvancedTrough
 
 """
-This example demonstrates a range of 'tricky' transfers between two plates that standard transfers do not perform optimally
-e.g. transfering duplicates, transfering between row layouts and column layouts, and transferring non continuous groups of rows
+Used to generate the main graph shown in the optimisation_details.md file
 """
 
 # Define a rack of sample matrix tubes as sample plate. It is a 96-well microplate, so 8 rows, 12 columns

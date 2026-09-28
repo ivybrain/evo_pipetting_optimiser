@@ -33,7 +33,10 @@ Above, we explain how nodes and edges are constructed, and what they represent. 
 ![Figure showing a graph with nodes representing the pipetting rows and columns plus weights shown](figures/optimiser%20graph%20weights.png)
 In this figure, each edge is labelled with 3 numbers, separated by slashes. The first is the 'flow' - what the algorithm has decided to put through this edge. You will see that the highlighted edges have a flow >= 1. 1 unit of flow represents 1 op - an edge with a flow of 1 will complete 1 op if it is selected. The second number is the capacity - the maximum flow an edge could take, corresponding to the maximum number of ops this edge can address. You will see that the edge s -> smp c0 has a flow of 2 and a capacity of 2, because 2 ops are completable from this column. 
 
-The third number is the weight. The edges between the 3 outer columns have no weights, as they do not influence the moves of the actual arm - they merely help with construction of the graph. The central edges between the 'source offset' and 'destination offset' columns have a weight in the range of 0-15. This is an 'offset penalty' applied to keep offsets low and close together.
+The third number is the weight. The edges between the 3 outer columns have no weights, as they do not influence the moves of the actual arm - they merely help with construction of the graph. The central edges between the 'source offset' and 'destination offset' columns have a weight in the range of 0-15. This is an 'offset penalty' applied to keep offsets low and close together. 
+
+
+The first penalty calculates the difference between the offsets required to complete the pipetting - this varies based on rows used. Pipetting from row A to row A will be doable with an offset of 0, but pipetting from row A to row D requires an offset of at least 3. However, moving the arm further with an offset >3 is counterproductive - the op was already doable with offest 3, and a higher offset means the arm can address less additional wells in the same movement, meaning it could restrict the selection of other ops. Thus we incentivise against offsets greater than necessary by applying a penalty equal to actual offset minus the smallest required offset. `u_offset` and `v_offset` refer to the source offset and destination offset respectively. 
 
 ```
 offset_difference = abs(u_offset - v_offset)
@@ -41,13 +44,14 @@ largest_offset = max(abs(u_offset), abs(v_offset))
 
 if largest_offset > offset_difference:
     offset_penalty += largest_offset - offset_difference
+```
 
+The second penalty encourages the sum of the offsets to be as close to 0 as possible - this ensures that we stay as close to offset 0 as possible when transferring between similar rows, again maximising the other ops that can share in a movement.
+
+```
 # We want to encourage offsets closer to 0 
 offset_penalty += abs(u_offset + v_offset)
 ```
-The first penalty calculates the difference between the offsets required to complete the pipetting - this varies based on rows used. Pipetting from row A to row A will be doable with an offset of 0, but pipetting from row A to row D requires an offset of at least 3. However, moving the arm further with an offset >3 is counterproductive - it means the arm has to move further, and also means that it can address less wells at once, meaning it could restrict the selection of other ops. Thus we incentivise against offsets greater than necessary by applying a penalty equal to actual offset minus the smallest required offset.
-
-The second penalty encourages the sum of the offsets to be as close to 0 as possible - this ensures that we stay as close to offset 0 as possible when transferring between similar rows, again maximising the other ops that can share in a movement.
 
 The weights between row nodes and offset nodes are 0 or negative. The calculation here is 
 `-16 * number_of_row_edges`, where number_of_row_edges is the number of edges from that offset to corresponding rows - i.e. the number of different operations that can be addressed with a single offset. We want to maximise this, as offsets that connect to the maximum number of rows can complete that number of ops with a single arm movement.
@@ -56,7 +60,7 @@ The `max_flow_min_cost` algorithm will first maximise the flow - selecting every
 
 A key advantage of this approach is the ability to realise shared nodes at both the source and the destination, and consider these equally, including at the same time. 
 ![Figure showing a graph with highly shared nodes](figures/parallel_example.png)
-In this example 3 aspiration offset nodes link to 2 dispense offset nodes, and complete 8 ops among them. Previous logical approaches could only consider the utility of one isolated node at a time - if we took the naive approach of selecting only the node with the greatest number of connecting edges (say the dispense node c1 ofst 0), we would miss the additional utility gained by adding in the aspiration node c0 ofst 0, which is not directly connected.
+In this example 3 aspiration offset nodes link to 2 dispense offset nodes, and complete 8 ops among them. The logical approach in the previous version of this package could only consider the utility of one isolated node at a time - if we took the naive approach of selecting only the node with the greatest number of connecting edges (say the dispense node c1 ofst 0), we would miss the additional utility gained by adding in the aspiration node c0 ofst 0, which is not directly connected.
 
 Without the weights, the selection of edges through the graph would be completely random. This would always produce a *possible* set of pipetting operations, correctly assigning rows and offsets, but it will not be efficient. The described weights influence the algorithm to choose edges that are the most likely to enable other ops to share the touched nodes.
 

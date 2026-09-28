@@ -94,7 +94,7 @@ class AutoWorklist(EvoWorklist):
         self,
         cleaner_location=None,
         waste_location=None,
-        decon_troughs: Union[Trough, Sequence[Trough]] = None,
+        decon_troughs: Union[AdvancedTrough, Sequence[AdvancedTrough]] = None,
         waste_vol: float = None,
         waste_delay: int = None,
         cleaner_vol: float = None,
@@ -290,7 +290,7 @@ class AutoWorklist(EvoWorklist):
 
     def auto_transfer(
         self,
-        source: Union[AdvancedLabware, Trough],
+        source: AdvancedLabware,
         source_wells: Union[str, Sequence[str], np.ndarray],
         destination: AdvancedLabware,
         destination_wells: Union[str, Sequence[str], np.ndarray],
@@ -539,7 +539,7 @@ class AutoWorklist(EvoWorklist):
                 if (not key.startswith("decon_")) and key not in ["max_tip_uses", "tip_discard_location"]
             }
 
-            # Apply any kwarg override wash parameters
+            # Apply any kwarg override wash parameters that the user may have passed calling auto_wash
             wash_params = {**wash_params, **kwargs}
 
             if len(wash_tips) > 0:
