@@ -82,9 +82,7 @@ class OpGraph:
 
         return
 
-    def get_moves(
-        self, occupied_tips=set(), selected_node=None, move=None, selected_ops=set()
-    ):
+    def get_moves(self):
 
         # Create a copy of the graph to populate with the subgraphs
         G = self.G.copy()
@@ -102,8 +100,6 @@ class OpGraph:
             source_row_nodes = {}
             dest_row_nodes = {}
             for op in past_ops:
-                if op in selected_ops:
-                    continue
 
                 # Calculate the feasible tips for this op given the previous wash state of the tips
                 free_tips = set()
@@ -119,9 +115,6 @@ class OpGraph:
                         tips_with_wash.add(tip)
                         continue
 
-                    # If tip is occupied, skip it
-                    if tip in occupied_tips:
-                        continue
 
                     # If tip is unused, we can use it
                     if not past_ops:
@@ -191,12 +184,7 @@ class OpGraph:
                     source_offset_key = ("s_ofst", *source_col, source_offset)
                     dest_offset_key = ("d_ofst", *dest_col, dest_offset)
 
-                    # If we're finding new ops to add to an existing move, only process the selected node
-                    if selected_node and (
-                        selected_node != source_offset_key
-                        and selected_node != dest_offset_key
-                    ):
-                        return
+
 
                     if source_offset_key not in asp_nodes:
                         asp_nodes[source_offset_key] = 0
@@ -369,20 +357,15 @@ class OpGraph:
             # try:
             G[u][v]["flow"] = flow_dict[u][v]
 
-        if selected_node:
-            # If we are trying to expand an existing move, check the selected node is still in the graph
-            if selected_node not in G:
-                return
-            selectable_nodes = [(0, selected_node)]
+        
 
-        else:
-            selectable_nodes = [
-                (sum(flow_dict[n].values()), n)
-                for n in G.nodes
-                if (n[0] == "s_ofst" or n[0] == "d_ofst")
-                and sum(flow_dict[n].values()) > 0
-            ]
-            selectable_nodes.sort(key=lambda x: -x[0])
+        selectable_nodes = [
+            (sum(flow_dict[n].values()), n)
+            for n in G.nodes
+            if (n[0] == "s_ofst" or n[0] == "d_ofst")
+            and sum(flow_dict[n].values()) > 0
+        ]
+        selectable_nodes.sort(key=lambda x: -x[0])
 
         # nodes_in_moves = []
 
@@ -396,9 +379,8 @@ class OpGraph:
             nodes_this_move = [node_choice]
 
             # Initialise a possible move associated with this node
-            if not selected_node:
-                move = Move()
-                moves.append(move)
+            move = Move()
+            moves.append(move)
 
             # Dict of (source, col, lc): [ops]
             aspirates = move.aspirates

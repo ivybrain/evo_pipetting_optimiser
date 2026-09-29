@@ -23,7 +23,7 @@ class Move:
         asp_ops = tuple(op for set in self.aspirates.values() for op in set)
         disp_ops = tuple(op for set in self.dispenses.values() for op in set)
 
-        return (-self.score, asp_ops, disp_ops)
+        return (-self.score, len(asp_ops) + len(disp_ops), asp_ops, disp_ops)
 
     def tuple(self):
         return self.score, self.aspirates, self.dispenses, self.ops, self.tips
