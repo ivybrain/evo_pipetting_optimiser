@@ -384,7 +384,16 @@ class OpGraph:
             ]
             selectable_nodes.sort(key=lambda x: -x[0])
 
+        # nodes_in_moves = []
+
+        # Loop through all selectable nodes and create a 'move' from each node as a starting point
         for node_score, node_choice in selectable_nodes:
+
+            # If we've already included this node in a previous move, skip it
+            # if node_choice in nodes_in_moves:
+            #     continue
+
+            nodes_this_move = [node_choice]
 
             # Initialise a possible move associated with this node
             if not selected_node:
@@ -411,11 +420,12 @@ class OpGraph:
                     G.edges[*x]["wash_needed"],
                     -len(G.edges[*x]["op_tip"]),
                     min(G.edges[*x]["op_tip"].keys()),
-                ),
+                ), reverse=True
             )
             new_ops = None
 
-            for u, v in selectable_edges:
+            while len(selectable_edges) > 0:
+                u,v = selectable_edges.pop()
 
                 (_, _, source, col, _, offset) = u
 
@@ -448,16 +458,36 @@ class OpGraph:
                     dispenses[dest, col, offset] = list(potential_ops)
 
                 new_ops = potential_ops
-                break
+
+                # Add whichever node is on the other end of this edge to the list of nodes touched by this move
+                # And add any of its other edges to the list of edges selectable by this move
+                
+                if node_choice == u:
+                    # If we had chosen a source node, then a dest node is being added
+                    new_node = v
+                    # Add the in-edges for this dest node (except current edge)
+                    in_edges = list(G.in_edges(new_node))
+                    in_edges.remove((u, v))
+                    selectable_edges += in_edges
+                else:
+                    # Otherwise, a source node is being added
+                    new_node = u
+                    # Add the out-edges for this source node (except current edge)
+                    out_edges = list(G.out_edges(new_node))
+                    out_edges.remove((u,v))
+                    selectable_edges += out_edges
+
+                nodes_this_move.append(new_node)
+                #nodes_in_moves.append(new_node)
+
+                # If we have the potential to add new ops, (we have less than 8 selected, and more than the number selected
+                # were included in a flow)
+                # then continue looping to add more ops from selectable edges. Otherwise, end the loop
+                if not (new_ops and len(move.tips) < 8 and flow_value > len(potential_ops)):
+                    break
 
             move.calc_score()
 
-            # Given these tips used, calculate other edges that can be added
-            if new_ops and len(move.tips) < 8 and flow_value > len(potential_ops):
-                self.get_moves(tips_used, node_choice, move, selected_ops=set(asp_ops))
-                pass
-
-            #
 
         moves.sort(reverse=True)
         return moves

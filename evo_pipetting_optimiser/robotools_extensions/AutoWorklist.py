@@ -834,7 +834,7 @@ class AutoWorklist(EvoWorklist):
                             tasks.append(None)
 
                     # Execute optimisation to create plan
-                    results = executor.map(
+                    results = map(
                         make_plan, segment_ops, [progress] * len(segments), tasks
                     )
 
