@@ -2,6 +2,7 @@ from matplotlib import pyplot as plt
 import networkx as nx
 from .Move import Move
 from functools import reduce
+import heapq
 
 class OptimisationError(Exception):
     pass
@@ -339,9 +340,9 @@ class OpGraph:
             for edge in in_edges:
                 G.edges[edge, u]["weight"] = -len(in_edges) * 16
 
-            out_edges = dest_offset_out_edges[v]
-            for edge in out_edges:
-                G.edges[v, edge]["weight"] = -len(out_edges) * 16
+            new_edges = dest_offset_out_edges[v]
+            for edge in new_edges:
+                G.edges[v, edge]["weight"] = -len(new_edges) * 16
 
             G.edges[u, v]["weight"] = (
                 # small penalty for offset further from 0
@@ -396,21 +397,24 @@ class OpGraph:
             else:
                 selectable_edges = G.in_edges(node_choice)
 
-            
+            # How we sort and prioritise the edges
+            def edge_sort_key(edge):
+                return (G.edges[*edge]["wash_needed"],
+                -len(G.edges[*edge]["op_tip"]),
+                min(G.edges[*edge]["op_tip"].keys()))
+
+            edge_heap = []
+
+            # Add the selectable edges to a heap
+            for edge in selectable_edges:
+                heapq.heappush(edge_heap, (edge_sort_key(edge), edge))
+
+                                           
             new_ops = None
 
-            while len(selectable_edges) > 0:
+            while edge_heap:
 
-                selectable_edges = sorted(
-                                selectable_edges,
-                                key=lambda x: (
-                                    G.edges[*x]["wash_needed"],
-                                    -len(G.edges[*x]["op_tip"]),
-                                    min(G.edges[*x]["op_tip"].keys()),
-                                ), reverse=True
-                            )
-
-                u,v = selectable_edges.pop()
+                _, (u,v) = heapq.heappop(edge_heap)
 
                 (_, _, source, col, _, offset) = u
 
@@ -451,16 +455,18 @@ class OpGraph:
                     # If we had chosen a source node, then a dest node is being added
                     new_node = v
                     # Add the in-edges for this dest node (except current edge)
-                    in_edges = list(G.in_edges(new_node))
-                    in_edges.remove((u, v))
-                    selectable_edges += in_edges
+                    new_edges = list(G.in_edges(new_node))
+                    new_edges.remove((u, v))
                 else:
                     # Otherwise, a source node is being added
                     new_node = u
                     # Add the out-edges for this source node (except current edge)
-                    out_edges = list(G.out_edges(new_node))
-                    out_edges.remove((u,v))
-                    selectable_edges += out_edges
+                    new_edges = list(G.out_edges(new_node))
+                    new_edges.remove((u,v))
+
+                # Add the new edges to heap to be processed next by smallest key
+                for edge in new_edges:
+                    heapq.heappush(edge_heap, (edge_sort_key(edge), edge))
 
                 nodes_this_move.append(new_node)
                 #nodes_in_moves.append(new_node)
