@@ -49,9 +49,7 @@ def build_and_commit(n_ops, wash_scheme, max_concurrent_ops, tmpdir):
         location=(2, 1),
     )
 
-    worklist_path = f"{tmpdir}/bench_{n_ops}.gwl"
     with AutoWorklist(
-        worklist_path,
         waste_location=(1, 2),
         cleaner_location=(1, 3),
         max_concurrent_ops=max_concurrent_ops,

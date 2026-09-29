@@ -56,9 +56,7 @@ def build_and_commit(n_ops, wash_scheme, max_concurrent_ops, tmpdir):
     n_units = ceil(n_ops / UNIT_OPS)
     actual_n_ops = n_units * UNIT_OPS
 
-    worklist_path = f"{tmpdir}/bench_shared_{n_ops}.gwl"
     with AutoWorklist(
-        worklist_path,
         waste_location=(1, 2),
         cleaner_location=(1, 3),
         max_concurrent_ops=max_concurrent_ops,

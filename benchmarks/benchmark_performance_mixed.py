@@ -9,7 +9,7 @@ mixes column<->row transfers, offset-shifted transfers, and trough broadcasts, w
 genuine tip/offset assignment decisions instead of a trivial 1:1 mapping. This script
 benchmarks that shape instead.
 
-Fixed 28-op "unit" (verified by pending-op count, not assumed) tiled across independent
+Fixed 28-op "unit" tiled across independent
 plate trios so units don't depend on each other:
   a) column -> row:  smp col0 (8 rows)              -> dil row0 (8 cols)     [8 ops]
   b) row -> column:  smp row0 (8 cols)               -> dil col1 (8 rows)     [8 ops]
@@ -65,9 +65,7 @@ def build_and_commit(n_ops, wash_scheme, max_concurrent_ops, tmpdir):
     n_units = ceil(n_ops / UNIT_OPS)
     actual_n_ops = n_units * UNIT_OPS
 
-    worklist_path = f"{tmpdir}/bench_mixed_{n_ops}.gwl"
     with AutoWorklist(
-        worklist_path,
         waste_location=(1, 2),
         cleaner_location=(1, 3),
         max_concurrent_ops=max_concurrent_ops,

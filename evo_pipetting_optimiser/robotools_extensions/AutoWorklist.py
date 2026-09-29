@@ -24,7 +24,7 @@ class AutoWorklist(EvoWorklist):
 
     def __init__(
         self,
-        worklist_path: str,
+        worklist_path: str = None,
         waste_location: Tuple[int, int] = None,
         cleaner_location: Tuple[int, int] = None,
         diti_mode: bool = False,
