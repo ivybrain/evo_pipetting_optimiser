@@ -396,17 +396,20 @@ class OpGraph:
             else:
                 selectable_edges = G.in_edges(node_choice)
 
-            selectable_edges = sorted(
-                selectable_edges,
-                key=lambda x: (
-                    G.edges[*x]["wash_needed"],
-                    -len(G.edges[*x]["op_tip"]),
-                    min(G.edges[*x]["op_tip"].keys()),
-                ), reverse=True
-            )
+            
             new_ops = None
 
             while len(selectable_edges) > 0:
+
+                selectable_edges = sorted(
+                                selectable_edges,
+                                key=lambda x: (
+                                    G.edges[*x]["wash_needed"],
+                                    -len(G.edges[*x]["op_tip"]),
+                                    min(G.edges[*x]["op_tip"].keys()),
+                                ), reverse=True
+                            )
+
                 u,v = selectable_edges.pop()
 
                 (_, _, source, col, _, offset) = u
