@@ -20,8 +20,8 @@ sample_plate = AdvancedLabware(
         "D01": "sample4",
     },
     location=(41, 3),
-    # offset_limit_up=6,
-    # offset_limit_down=0
+    offset_limit_up=6,
+    offset_limit_down=0
 )
 
 
@@ -34,8 +34,8 @@ dilution_plate = AdvancedLabware(
     max_volume=5000,
     initial_volumes=0,
     location=(32, 2),
-    # offset_limit_up=4,
-    # offset_limit_down=0,
+    offset_limit_up=4,
+    offset_limit_down=0,
     
 )
 

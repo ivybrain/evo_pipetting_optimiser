@@ -58,9 +58,26 @@ The weights between row nodes and offset nodes are 0 or negative. The calculatio
 
 The `max_flow_min_cost` algorithm will first maximise the flow - selecting every possible op. It will then minimise the cost - complete these ops with the minimum sum of (flow * weight) across all edges.
 
-A key advantage of this approach is the ability to realise shared nodes at both the source and the destination, and consider these equally, including at the same time. 
-![Figure showing a graph with highly shared nodes](figures/parallel_example.png)
-In this example 3 aspiration offset nodes link to 2 dispense offset nodes, and complete 8 ops among them. The logical approach in the previous version of this package could only consider the utility of one isolated node at a time - if we took the naive approach of selecting only the node with the greatest number of connecting edges (say the dispense node c1 ofst 0), we would miss the additional utility gained by adding in the aspiration node c0 ofst 0, which is not directly connected.
+A key advantage of this approach is the ability to realise shared nodes at both the source and the destination, and consider these equally, including at the same time. Consider another example, with ops:
+![Figure showing 8 ops from 3 columns to 2 columns](figures/demo_multiplex.png)
+
+The operations here go from 3 columns on one plate to 2 columns from another plate. However the rows are misaligned such source column 2 goes to 2 different destination columns. A naive approach might aspirate ops 0-3 directly, then do 1 aspirate and 2 dispenses to cover ops 3-5, then another direct transfer for ops 6-7, taking 3 aspirates and 4 dispenses. The optimiser can do this in 3 aspirates and 2 dispenses. Let's look at the graph generated.
+
+![Figure showing the graph represengint the ops above](figures/graph_multiplex_example.png)
+
+As before, red edges indicate edges with flow, grey edges are possible offsets that were not selected by the flow algorithm. Edge labels are removed for legibility. Offsets are limited to reduce the number of visible nodes.
+
+Here, it is obvious that the dispense node `c0 ofst 0`, representing column 0 offset 0 for the dilution plate, has the most flow going through it. So, the algorithm chooses this node. This node can dispense to 4 rows with a single offset. However, it has edges to 2 aspirate nodes, so doing all 4 of these dispense rows would require 2 aspirates.
+
+We create a list of edges going into this node, and sort them by the number of ops assigned to that edge. We look at the first edge in the list - this is the edge `c0 ofst 0 -> c0 ofst 0`. This contains ops 0-2. We add the operations 0-2 to our move.
+
+We now have a valid move with 3 operations. However we still have empty tips, so we want to look for other operations we can combine to use the other tips. We select the next edge from the list, `c1 ofst -3 -> c0 ofst 0`. This edge contains op 3. We add this to the move, so now we have 2 aspirates and 1 dispense covering ops 0-3.
+
+However unlike the previous node, `c1 ofst -3` has other out edges - meaning that more than just op 3 can be aspirated with this offset. The edge `c1 ofst -3 -> c1 ofst -4` contains ops 4 and 5. We add this edge to our list. This edge is now the only item in the list, so we process it next, and add ops 4 and 5, with a dispense at `c1 ofst -4`. This node also has another in-edge - it is not highlighted, as it was not assigned flow, but flow only influences which node we choose first - when building a move we consider all possible edges. The edge `c2 ofst -6 -> c1 ofst -4` contains ops 7 and 8. As it is pipetting rows A and B to rows C and D, the difference in the offsets must be +2 to line the rows up correctly. We add this final aspirate to the move, and now we have a finished move covering all 8 ops with 3 aspirates and 2 dispenses.
+
+The algorithm also loops through all other nodes with flow, and calculates a move with that as a starting point, giving a list of available moves. It then chooses the move that accomplishes the most ops, given
+
+The fact that we consider edges even without flow raises the question of if we even need the flow calculation at all. 
 
 Without the weights, the selection of edges through the graph would be completely random. This would always produce a *possible* set of pipetting operations, correctly assigning rows and offsets, but it will not be efficient. The described weights influence the algorithm to choose edges that are the most likely to enable other ops to share the touched nodes.
 
