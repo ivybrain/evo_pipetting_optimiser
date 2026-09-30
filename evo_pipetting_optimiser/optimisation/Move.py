@@ -13,11 +13,14 @@ class Move:
         self.wash_first = False
 
     def calc_score(self):
-        # Score the efficiency of the move
-        self.score = len(self.ops) - (1 if self.wash_first else 0)
-        # self.score = (len(self.ops) * 2) / (
-        #     len(self.aspirates) + len(self.dispenses) + (2 if self.wash_first else 0)
-        # )
+        # Score the efficiency of the move, penalising moves that need more
+        # distinct aspirate/dispense groups relative to the ops they cover
+        num_actions = len(self.aspirates) + len(self.dispenses)
+
+        # 0.25 weight on actions tested to perform well on range of use cases
+        self.score = (
+            len(self.ops) - (1 if self.wash_first else 0) - 0.25 * num_actions
+        )
 
     def key(self):
         asp_ops = tuple(op for set in self.aspirates.values() for op in set)

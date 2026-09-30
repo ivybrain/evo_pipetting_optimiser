@@ -364,9 +364,7 @@ class OpGraph:
             (sum(flow_dict[n].values()), n)
             for n in G.nodes
             if (n[0] == "s_ofst" or n[0] == "d_ofst")
-            and sum(flow_dict[n].values()) > 0
         ]
-        selectable_nodes.sort(key=lambda x: -x[0])
 
         # nodes_in_moves = []
 
