@@ -84,9 +84,7 @@ class OpGraph:
         G = self.G.copy()
 
         # Create subgraph representing offsets
-        offset_edges = []
-        source_offset_in_edges = {}
-        dest_offset_out_edges = {}
+        offset_nodes = []
 
         for (source_col, dest_col), past_ops in self.op_groups.items():
             scaling = 1
@@ -186,20 +184,12 @@ class OpGraph:
                     if (dest_row_key, dest_offset_key) not in G.edges:
                         disp_nodes[dest_offset_key] += 1
 
-                    if source_offset_key not in source_offset_in_edges:
-                        source_offset_in_edges[source_offset_key] = [source_row_key]
-                    else:
-                        source_offset_in_edges[source_offset_key].append(source_row_key)
-
-                    if dest_offset_key not in dest_offset_out_edges:
-                        dest_offset_out_edges[dest_offset_key] = [dest_row_key]
-                    else:
-                        dest_offset_out_edges[dest_offset_key].append(dest_row_key)
 
                     G.add_edge(
                         source_row_key,
                         source_offset_key,
                     )
+                    offset_nodes.append(source_offset_key)
 
                     if (source_offset_key, dest_offset_key) in G.edges:
                         G.edges[(source_offset_key, dest_offset_key)]["op_tip"][op] = tip
@@ -221,6 +211,7 @@ class OpGraph:
                         dest_offset_key,
                         dest_row_key,
                     )
+                    offset_nodes.append(dest_offset_key)
 
                 # Check if we have virtual rows
                 source_virtual_rows = getattr(op.source, "virtual_rows", 0) or 0
@@ -289,25 +280,16 @@ class OpGraph:
                             wash_needed=wash_needed,
                         )
 
-                    # Add edges from rows to possible offsets
-
-            offset_edges += group_edges
 
         
 
         moves = []
 
 
-        selectable_nodes = [
-            n
-            for n in G.nodes
-            if (n[0] == "s_ofst" or n[0] == "d_ofst")
-        ]
-
         # nodes_in_moves = []
 
         # Loop through all selectable nodes and create a 'move' from each node as a starting point
-        for node_choice in selectable_nodes:
+        for node_choice in offset_nodes:
 
             # If we've already included this node in a previous move, skip it
             # if node_choice in nodes_in_moves:
