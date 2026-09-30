@@ -84,7 +84,9 @@ class OpGraph:
         G = self.G.copy()
 
         # Create subgraph representing offsets
-        offset_nodes = []
+        # Use a dict to track the nodes we add - this gives us set dedup behaviour
+        # But retains deterministic order
+        offset_nodes = {}
 
         for (source_col, dest_col), past_ops in self.op_groups.items():
             scaling = 1
@@ -189,7 +191,7 @@ class OpGraph:
                         source_row_key,
                         source_offset_key,
                     )
-                    offset_nodes.append(source_offset_key)
+                    offset_nodes[source_offset_key] = None
 
                     if (source_offset_key, dest_offset_key) in G.edges:
                         G.edges[(source_offset_key, dest_offset_key)]["op_tip"][op] = tip
@@ -211,7 +213,7 @@ class OpGraph:
                         dest_offset_key,
                         dest_row_key,
                     )
-                    offset_nodes.append(dest_offset_key)
+                    offset_nodes[dest_offset_key] = None
 
                 # Check if we have virtual rows
                 source_virtual_rows = getattr(op.source, "virtual_rows", 0) or 0
