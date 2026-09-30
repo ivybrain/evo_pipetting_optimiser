@@ -8,7 +8,7 @@ import heapq
 # Set DEBUG=True to also track edges for source/dest rows and columns - this is useful
 # to show the full context of the graph in show_graph()
 # Leave False for routine use - speeds up execution ~10%
-DEBUG = False
+DEBUG = True
 
 class OptimisationError(Exception):
     pass
@@ -308,9 +308,11 @@ class OpGraph:
 
             # How we sort and prioritise the edges
             def edge_sort_key(edge):
+
                 return (G[edge]["wash_needed"],
-                -len(G[edge]["op_tip"]),
-                min(G[edge]["op_tip"].keys()))
+                -len(G[edge]["op_tip"]))
+
+            
 
             edge_heap = []
 
@@ -409,39 +411,34 @@ def show_graph(edges):
     for (u, v), attrs in edges.items():
         G.add_edge(u, v, **attrs)
 
-    reachable_dict = nx.shortest_path_length(G, source="s")
-    reachable_nodes = set(reachable_dict.keys())
-
-    all_nodes = set(G.nodes)
-    unreachable_nodes = all_nodes - reachable_nodes
-
-    # Step 3: Remove unreachable nodes
-    # We must convert the iterator to a list to avoid RuntimeError during iteration
-    G.remove_nodes_from(list(unreachable_nodes))
+    
 
     pos = nx.bfs_layout(G, start="s")
 
-    # Identify edges with positive flow
-    active_edges = [
-        (u, v) for u, v in G.edges() if "flow" in G[u][v] and G[u][v]["flow"] > 0
+
+    # Draw nodes and all edges 
+    nx.draw_networkx_nodes(G, pos, alpha=0.75, nodelist=[n for n in G.nodes if n not in ["s", "t"]])
+    nx.draw_networkx_edges(G, pos, alpha=0.2, edgelist=[e for e in G.edges if e[0] != "s" and e[1] != "t"]) 
+
+    edges_of_interest = [
+        (('s_ofst', 's', 'smp', 0, 'Water free dispense', 0), ('d_ofst', 't', 'dilplate', 0, 'Water free dispense', 0)),
+        (('s_ofst', 's', 'smp', 1, 'Water free dispense', -3), ('d_ofst', 't', 'dilplate', 0, 'Water free dispense', 0)),
+        (('s_ofst', 's', 'smp', 1, 'Water free dispense', -3), ('d_ofst', 't', 'dilplate', 1, 'Water free dispense', -4)),
+        (('s_ofst', 's', 'smp', 2, 'Water free dispense', -6), ('d_ofst', 't', 'dilplate', 1, 'Water free dispense', -4)),
     ]
 
-    # Draw nodes and all edges faintly
-    nx.draw_networkx_nodes(G, pos, alpha=0.75)
-    nx.draw_networkx_edges(G, pos, alpha=0.2)  # faint background edges
+    # Draw specific edges of interest
+    nx.draw_networkx_edges(G, pos, alpha=0.75, edge_color='r', width=2, edgelist=edges_of_interest) 
 
-    # Draw active flow edges prominently
-    nx.draw_networkx_edges(G, pos, edgelist=active_edges, edge_color="r", width=2)
+
 
     # Extract the flow values for labeling
-    flow_labels = nx.get_edge_attributes(G, "flow")
-    capacity_labels = nx.get_edge_attributes(G, "capacity")
-    weight_labels = nx.get_edge_attributes(G, "weight")
+    op_labels = nx.get_edge_attributes(G, "op_tip")
 
     edge_labels = {
-        key: f"{flow_labels[key]}/{capacity_labels[key]}/{weight_labels[key]}"
-        for key in flow_labels.keys()
-        # if key in active_edges
+        key: ",".join(str(op.id) for op in op_tip.keys())
+        for key, op_tip in op_labels.items()
+        if key in edges_of_interest
     }
 
     node_labels = {}
