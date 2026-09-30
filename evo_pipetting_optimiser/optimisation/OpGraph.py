@@ -35,7 +35,6 @@ class OpGraph:
         G = nx.DiGraph()
         self.G = G
 
-        scaling = 1
         # demand = len(ops)
         G.add_node("s")
         G.add_node("t")
@@ -51,16 +50,12 @@ class OpGraph:
 
             source_nodes[source_key(op)] = True
 
-            if ("s", source_key(op)) in G.edges:
-                G.edges[("s", source_key(op))]["capacity"] += scaling
-            else:
-                G.add_edge("s", source_key(op), capacity=scaling, weight=0)
+            if ("s", source_key(op)) not in G.edges:
+                G.add_edge("s", source_key(op))
 
             dest_nodes[dest_key(op)] = True
-            if (dest_key(op), "t") in G.edges:
-                G.edges[(dest_key(op), "t")]["capacity"] += scaling
-            else:
-                G.add_edge(dest_key(op), "t", capacity=scaling, weight=0)
+            if (dest_key(op), "t") not in G.edges:
+                G.add_edge(dest_key(op), "t")
 
             if source_key(op) not in self.asp_nodes:
                 self.asp_nodes[source_key(op)] = 0
@@ -162,23 +157,17 @@ class OpGraph:
                 source_row_key = (*source_col, op.source_pos[0])
                 source_row_nodes[source_row_key] = True
 
-                if (source_col, source_row_key) in G.edges:
-                    G.edges[(source_col, source_row_key)]["capacity"] += scaling
-                else:
-                    G.add_edge(source_col, source_row_key, capacity=scaling, weight=0)
+                if (source_col, source_row_key) not in G.edges:
+                    G.add_edge(source_col, source_row_key)
 
                 dest_row_key = (*dest_col, op.dest_pos[0])
                 dest_row_nodes[dest_row_key] = True
-                if (dest_row_key, dest_col) in G.edges:
-                    G.edges[(dest_row_key, dest_col)]["capacity"] += scaling
-                else:
-                    G.add_edge(dest_row_key, dest_col, capacity=scaling, weight=0)
+                if (dest_row_key, dest_col) not in G.edges:
+                    G.add_edge(dest_row_key, dest_col)
 
                 def add_offset_edge(
                     source_offset,
                     dest_offset,
-                    source_capacity,
-                    dest_capacity,
                     tip=0,
                     wash_needed=False,
                 ):
@@ -210,18 +199,10 @@ class OpGraph:
                     G.add_edge(
                         source_row_key,
                         source_offset_key,
-                        capacity=source_capacity,
-                        weight=0,
                     )
 
-                    # Set weight based on how many incident edges the nodes at each end have
                     if (source_offset_key, dest_offset_key) in G.edges:
-                        G.edges[(source_offset_key, dest_offset_key)][
-                            "capacity"
-                        ] += scaling
-                        G.edges[(source_offset_key, dest_offset_key)]["op_tip"][
-                            op
-                        ] = tip
+                        G.edges[(source_offset_key, dest_offset_key)]["op_tip"][op] = tip
                         G.edges[(source_offset_key, dest_offset_key)]["wash_needed"] = (
                             G.edges[(source_offset_key, dest_offset_key)]["wash_needed"]
                             or wash_needed
@@ -232,8 +213,6 @@ class OpGraph:
                         G.add_edge(
                             source_offset_key,
                             dest_offset_key,
-                            capacity=scaling,
-                            weight=0,
                             op_tip={op: tip},
                             wash_needed=wash_needed,
                         )
@@ -241,8 +220,6 @@ class OpGraph:
                     G.add_edge(
                         dest_offset_key,
                         dest_row_key,
-                        capacity=dest_capacity,
-                        weight=0,
                     )
 
                 # Check if we have virtual rows
@@ -308,8 +285,6 @@ class OpGraph:
                         add_offset_edge(
                             source_offset,
                             dest_offset,
-                            max(1, source_virtual_rows),
-                            max(1, dest_virtual_rows),
                             tip=max(source_tip, dest_tip),
                             wash_needed=wash_needed,
                         )
@@ -318,50 +293,13 @@ class OpGraph:
 
             offset_edges += group_edges
 
-        # Reweight offset edges
-        for u, v in offset_edges:
-            # Penalty for unneeded offsets
-            offset_penalty = 0
-            # If offsets the same, should be 0 as we're then doing straight transfer
-            # Abs offset should be below the difference in offsets
-            u_offset = u[-1]
-            v_offset = v[-1]
-
-            offset_difference = abs(u_offset - v_offset)
-            largest_offset = max(abs(u_offset), abs(v_offset))
-
-            if largest_offset > offset_difference:
-                offset_penalty += largest_offset - offset_difference
-
-            # We want to encourage offsets closer to 0 
-            offset_penalty += abs(u_offset + v_offset)
-
-            in_edges = source_offset_in_edges[u]
-            for edge in in_edges:
-                G.edges[edge, u]["weight"] = -len(in_edges) * 16
-
-            new_edges = dest_offset_out_edges[v]
-            for edge in new_edges:
-                G.edges[v, edge]["weight"] = -len(new_edges) * 16
-
-            G.edges[u, v]["weight"] = (
-                # small penalty for offset further from 0
-                offset_penalty
-            )
+        
 
         moves = []
 
-        flow_dict = nx.algorithms.max_flow_min_cost(G, "s", "t")
-        flow_value = sum(flow_dict["s"].values())
-
-        for u, v in G.edges():
-            # try:
-            G[u][v]["flow"] = flow_dict[u][v]
-
-        
 
         selectable_nodes = [
-            (sum(flow_dict[n].values()), n)
+            n
             for n in G.nodes
             if (n[0] == "s_ofst" or n[0] == "d_ofst")
         ]
@@ -369,7 +307,7 @@ class OpGraph:
         # nodes_in_moves = []
 
         # Loop through all selectable nodes and create a 'move' from each node as a starting point
-        for node_score, node_choice in selectable_nodes:
+        for node_choice in selectable_nodes:
 
             # If we've already included this node in a previous move, skip it
             # if node_choice in nodes_in_moves:
@@ -472,7 +410,7 @@ class OpGraph:
                 # If we have the potential to add new ops, (we have less than 8 selected, and more than the number selected
                 # were included in a flow)
                 # then continue looping to add more ops from selectable edges. Otherwise, end the loop
-                if not (new_ops and len(move.tips) < 8 and flow_value > len(potential_ops)):
+                if not (new_ops and len(move.tips) < 8):
                     break
 
             move.calc_score()
