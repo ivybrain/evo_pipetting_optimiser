@@ -4,6 +4,12 @@ from .Move import Move
 from functools import reduce
 import heapq
 
+# By default, we only track edges between offset nodes, as this is all that is used to calculate moves
+# Set DEBUG=True to also track edges for source/dest rows and columns - this is useful
+# to show the full context of the graph in show_graph()
+# Leave False for routine use - speeds up execution ~10%
+DEBUG = False
+
 class OptimisationError(Exception):
     pass
 
@@ -47,36 +53,22 @@ class OpGraph:
 
         self.node = node
         self.tip_ops_since_wash = tip_ops_since_wash
-        self.edges = {}
-        self.out_adj = {}
-        self.in_adj = {}
-
-        self.asp_nodes = {}
-        self.disp_nodes = {}
-        source_nodes = {}
-        dest_nodes = {}
         self.op_groups = {}
         self.op_to_group = {}
 
+        # If debug, track source row and column edges
+        if DEBUG:
+            self.edges = {}
+            self.out_adj = {}
+            self.in_adj = {}
+
         for op in ops:
 
-            source_nodes[source_key(op)] = True
-
-            if ("s", source_key(op)) not in self.edges:
-                _add_edge(self.edges, self.out_adj, self.in_adj, "s", source_key(op))
-
-            dest_nodes[dest_key(op)] = True
-            if (dest_key(op), "t") not in self.edges:
-                _add_edge(self.edges, self.out_adj, self.in_adj, dest_key(op), "t")
-
-            if source_key(op) not in self.asp_nodes:
-                self.asp_nodes[source_key(op)] = 0
-            if dest_key(op) not in self.disp_nodes:
-                self.disp_nodes[dest_key(op)] = 0
-
-            if (source_key(op), dest_key(op)) not in self.edges:
-                self.asp_nodes[source_key(op)] += 1
-                self.disp_nodes[dest_key(op)] += 1
+            if DEBUG:
+                if ("s", source_key(op)) not in self.edges:
+                    _add_edge(self.edges, self.out_adj, self.in_adj, "s", source_key(op))
+                if (dest_key(op), "t") not in self.edges:
+                    _add_edge(self.edges, self.out_adj, self.in_adj, dest_key(op), "t")
 
             # Add groups representing edges from source to dest
             # but made up of a subgraph to calculate tip use and cost
@@ -92,23 +84,24 @@ class OpGraph:
 
     def get_moves(self):
 
-        # Create a copy of the graph to populate with the subgraphs
-        G = dict(self.edges)
-        out_adj = {k: list(v) for k, v in self.out_adj.items()}
-        in_adj = {k: list(v) for k, v in self.in_adj.items()}
+        # Only the source_offset <-> dest_offset edges are ever read by the
+        # move-selection loop below, so that's the only graph we build unless
+        # DEBUG is set, in which case we also add the row/column edges that
+        # show_graph() needs for a legible visualisation
+        if DEBUG:
+            G = dict(self.edges)
+            out_adj = {k: list(v) for k, v in self.out_adj.items()}
+            in_adj = {k: list(v) for k, v in self.in_adj.items()}
+        else:
+            G = {}
+            out_adj = {}
+            in_adj = {}
 
-        # Create subgraph representing offsets
         # Use a dict to track the nodes we add - this gives us set dedup behaviour
         # But retains deterministic order
         offset_nodes = {}
 
         for (source_col, dest_col), past_ops in self.op_groups.items():
-            scaling = 1
-            asp_nodes = {}
-            disp_nodes = {}
-            group_edges = []
-            source_row_nodes = {}
-            dest_row_nodes = {}
             for op in past_ops:
 
                 # Calculate the feasible tips for this op given the previous wash state of the tips
@@ -168,16 +161,14 @@ class OpGraph:
 
                     tips_with_wash.add(tip)
 
-                source_row_key = (*source_col, op.source_pos[0])
-                source_row_nodes[source_row_key] = True
+                if DEBUG:
+                    source_row_key = (*source_col, op.source_pos[0])
+                    if (source_col, source_row_key) not in G:
+                        _add_edge(G, out_adj, in_adj, source_col, source_row_key)
 
-                if (source_col, source_row_key) not in G:
-                    _add_edge(G, out_adj, in_adj, source_col, source_row_key)
-
-                dest_row_key = (*dest_col, op.dest_pos[0])
-                dest_row_nodes[dest_row_key] = True
-                if (dest_row_key, dest_col) not in G:
-                    _add_edge(G, out_adj, in_adj, dest_row_key, dest_col)
+                    dest_row_key = (*dest_col, op.dest_pos[0])
+                    if (dest_row_key, dest_col) not in G:
+                        _add_edge(G, out_adj, in_adj, dest_row_key, dest_col)
 
                 def add_offset_edge(
                     source_offset,
@@ -188,21 +179,8 @@ class OpGraph:
                     source_offset_key = ("s_ofst", *source_col, source_offset)
                     dest_offset_key = ("d_ofst", *dest_col, dest_offset)
 
-
-
-                    if source_offset_key not in asp_nodes:
-                        asp_nodes[source_offset_key] = 0
-                    if dest_offset_key not in disp_nodes:
-                        disp_nodes[dest_offset_key] = 0
-
-                    if (source_row_key, source_offset_key) not in G:
-                        asp_nodes[source_offset_key] += 1
-                    if (dest_row_key, dest_offset_key) not in G:
-                        disp_nodes[dest_offset_key] += 1
-
-
-                    _add_edge(G, out_adj, in_adj, source_row_key, source_offset_key)
-                    offset_nodes[source_offset_key] = None
+                    if DEBUG:
+                        _add_edge(G, out_adj, in_adj, source_row_key, source_offset_key)
 
                     if (source_offset_key, dest_offset_key) in G:
                         G[(source_offset_key, dest_offset_key)]["op_tip"][op] = tip
@@ -212,7 +190,6 @@ class OpGraph:
                         )
 
                     else:
-                        group_edges.append((source_offset_key, dest_offset_key))
                         _add_edge(
                             G, out_adj, in_adj,
                             source_offset_key,
@@ -221,7 +198,10 @@ class OpGraph:
                             wash_needed=wash_needed,
                         )
 
-                    _add_edge(G, out_adj, in_adj, dest_offset_key, dest_row_key)
+                    if DEBUG:
+                        _add_edge(G, out_adj, in_adj, dest_offset_key, dest_row_key)
+
+                    offset_nodes[source_offset_key] = None
                     offset_nodes[dest_offset_key] = None
 
                 # Check if we have virtual rows
