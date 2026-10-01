@@ -32,7 +32,9 @@ The operations here go from 3 columns on one plate to 2 columns from another pla
 
 ![Figure showing the graph represengint the ops above](figures/graph_multiplex_example.png)
 
-Here, edges that will be relevant to our move are highlighted red for legibility, but there is nothing special about them at the beginning of the process. As before, offsets are limited to reduce the number of nodes drawn.
+Here, we will go through an example of how a single move option is built. Similar moves are generated from each starting-point node. Then, the best move is selected by giving each move a score.
+
+Edges that will be relevant to our move are highlighted red for legibility, but there is nothing special about them at the beginning of the process. As before, offsets are limited to reduce the number of nodes drawn.
 
 Any offset node, on the source or destination side (columns 3 or 4) can be used as a starting point to create a move. We make a list and loop through, creating one move per starting node. 
 
@@ -46,7 +48,6 @@ However unlike the previous node, `c1 ofst -3` has other out edges - meaning tha
 
 During the process of adding edges, if an edge uses a tip that has already been assigned to the move (by a previous edge), it is skipped and the next possible edge is chosen. If an edge contains an op that was already included in the move, it is also skipped. If there are no more candidate edges to be added, the move is finished, but may contain less than 8 ops.
 
-Similar moves are generated from each starting-point node. Then, the best move is selected by giving each move a score.
 ```
 # Score the efficiency of the move, penalising moves that need more
 # distinct aspirate/dispense groups relative to the ops they cover
