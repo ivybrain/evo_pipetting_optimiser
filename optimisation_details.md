@@ -78,7 +78,7 @@ tips = [0, 1, 2, 3, 4, 5]
 wash_first = False
 score = 5.0
 ```
-The top move is the move we demonstrated, with 8 ops accomplished in 3 aspirates and 2 dispenses. This scores `8 - 0 - (0.25 * 5) = 6.25`. The second move, from a different traversal, completes 5 ops across 2 aspirates and 2 dispenses. This scores `5 - 0 - (0.25 * 4) = 4`. So, our move is chosen.
+Move 1 is the move we demonstrated, with 8 ops accomplished in 3 aspirates and 2 dispenses. This scores `8 - 0 - (0.25 * 5) = 6.25`. Move 2, from a different traversal, completes 5 ops across 2 aspirates and 2 dispenses. This scores `5 - 0 - (0.25 * 4) = 4`. So, move 1 is chosen.
 
 This calculation is important as adding more operations is not always worth the move cost. For example, if there is only one tip left, adding another aspirate in order to use this tip may not be worth it if this operation could be completed in a larger group when tips are not as constrained. New ops becoming open after old ops are completed can also create better groups later down the line.
 
