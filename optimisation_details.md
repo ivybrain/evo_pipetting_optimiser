@@ -17,9 +17,9 @@ Each of these columns has (usually 8) rows. The rows that have pending pipetting
 
 Each column in a plate may be accessed with the tips offset in the y direction. With the default offset of 0, each tip is above its corresponding row. With an offset of +7, tip 8 is above row A. With an offset of -7, tip 1 is above row H. To show a simpler graph for this example, offset_limit_up and offset_limit_down are each set to 2 in the labware objects, which limits the possible offsets from -2 to +2.
 
-Edges are created from each row, to each offset which can address this row. Each of these edges thus represents a tip being assigned to a particular row. The graph shows all possible assignments as grey edges, and the edges that were actually selected by the algorithm in red. smp `c0r0` and smp `c0r2` can both be aspirated with an offset of 0, so they have red edges to the 'smp `c0 ofst 0`' node. As we are aspirating row 0 and row 2 with an offset of 0, this will use tip 0 and tip 2. This node represents a single 'aspirate'.
+Edges are created from each row, to each offset which can address this row. The graph shows all possible assignments as edges. smp `c0r0` and smp `c0r2` can both be aspirated with an offset of 0, so they have red edges to the 'smp `c0 ofst 0`' node. As we are aspirating row 0 and row 2 with an offset of 0, this will use tip 0 and tip 2. This node represents a single 'aspirate'.
 
-The 5th column also represents an offset, but on the 'dispense' side. From aspirate `c0 ofst 0`, 1 edge goes to dilplate `c1 ofst 0` - this is labelled with a 0, as it represents op 0 (the transfer from A01 to A02). However the other edge for op 1 goes to a different offset, because we are transferring to a different row - C01 to B02. As tip 2 aspirated C01, and it now needs to dispense to B02, it must do this with an offset of -1, so the edge goes to dilplate `c1 ofst -1`. Thus, this single aspirate node links to 2 dispense nodes, and 2 dispenses are required.
+The 4th column also represents an offset, but on the 'dispense' side. From aspirate `c0 ofst 0`, 1 edge goes to dilplate `c1 ofst 0` - this is labelled with a 0, as it represents op 0 (the transfer from A01 to A02). However the other edge for op 1 goes to a different offset, because we are transferring to a different row - C01 to B02. As tip 2 aspirated C01, and it now needs to dispense to B02, it must do this with an offset of -1, so the edge goes to dilplate `c1 ofst -1`. Thus, this single aspirate node links to 2 dispense nodes, and 2 dispenses are required.
 
 These dispense nodes then have edges back to the respective rows of the dispense plate. These rows are then linked to nodes representing the column of the dilution plate.
 
@@ -28,7 +28,7 @@ These dispense nodes then have edges back to the respective rows of the dispense
 A key advantage of this approach is the ability to realise shared nodes at both the source and the destination, and consider these equally, including at the same time. Consider another example, with ops:
 ![Figure showing 8 ops from 3 columns to 2 columns](figures/demo_multiplex.png)
 
-The operations here go from 3 columns on one plate to 2 columns from another plate. However the rows are misaligned such source column 2 goes to 2 different destination columns. A naive approach might aspirate ops 0-3 directly, then do 1 aspirate and 2 dispenses to cover ops 3-5, then another direct transfer for ops 6-7, taking 3 aspirates and 4 dispenses. The optimiser can do this in 3 aspirates and 2 dispenses. Let's look at the graph generated.
+The operations here go from 3 columns on one plate to 2 columns from another plate. However the rows are misaligned such that source column 2 goes to 2 different destination columns. A naive approach might transfer ops 0-3 directly (1 aspirate and 1 dispense), then do 1 aspirate and 2 dispenses to cover ops 3-5, then another direct transfer for ops 6-7, taking a total of 3 aspirates and 4 dispenses. The optimiser can do this in 3 aspirates and 2 dispenses. Let's look at the graph generated.
 
 ![Figure showing the graph represengint the ops above](figures/graph_multiplex_example.png)
 
