@@ -1,5 +1,5 @@
 from robotools import *
-from typing import Literal, Optional, Tuple
+from typing import Literal, Optional, Tuple, Sequence
 from robotools.liquidhandling.composition import combine_composition
 from . import AdvancedLabware
 
@@ -26,6 +26,7 @@ class TransferOperation:
         liquid_class=None,
         wash_scheme: Literal["D", 1, None, "smart"] = 1,
         tip: Optional[int] = None,
+        allowed_tips: Optional[Sequence[int]],
         tip_index=None,
         worklist=None,
         **kwargs,
@@ -68,6 +69,7 @@ class TransferOperation:
         )
 
         self.tip = tip
+        self.allowed_tips = allowed_tips
 
         self.tip_index = tip_index
 

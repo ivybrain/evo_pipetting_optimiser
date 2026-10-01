@@ -301,6 +301,7 @@ class AutoWorklist(EvoWorklist):
         liquid_class: str = None,
         wash_scheme: Literal["D", 1, None, "smart"] = 1,
         tips: Union[int, Sequence[int], Sequence[Tip]] = None,
+        allowed_tips: Sequence[Union[int, Tip]] = None,
         tip_index=None,
     ) -> None:
         """Transfer operation between two labwares with automatic pipetting order optimisation
@@ -329,9 +330,12 @@ class AutoWorklist(EvoWorklist):
             "D" will conduct a decontamination wash.
             "smart" will wash a tip if it has touched any liquid with a composition other than the one it is going to handle
             i.e. will skip washes if it is only touching a single liquid type
-        tip: int or iterable of (ints or Tips), or None
-            Restrict the pipetting operations to specific tips. If None, any tip can be used. If a single number, will use that tip for all operations.
-            If a list, will use the tips in the list for the corresponding operations
+        tips: int or iterable of (ints or Tips), or None. Default None
+            Assign a specific tip to each pipetting operation. If None, any tip can be used. If a single number, will use that tip for all operations.
+            If a list, will use the tips in the list for the corresponding operations. To allow a range of tips, use allowed_tips
+        allowed_tips: iterable of ints or tipsm or None. Default None
+            Allow the optimiser to choose which tip to use for which operation, but restrict the tips it can choose to only the tips listed.
+            To assign a single tip to each transfer, use the tips argument instead
         """
 
         # add the labware to the set of all labware we've used
@@ -429,6 +433,7 @@ class AutoWorklist(EvoWorklist):
                     on_underflow=on_underflow,
                     liquid_class=liquid_class,
                     tip=tips[i],
+                    allowed_tips=allowed_tips,
                     tip_index=tip_index,
                     worklist=self,
                 )
