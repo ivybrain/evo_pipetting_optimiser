@@ -44,6 +44,8 @@ We now have a valid move with 3 operations. However we still have empty tips, so
 
 However unlike the previous node, `c1 ofst -3` has other out edges - meaning that more than just op 3 can be aspirated with this offset. The edge `c1 ofst -3 -> c1 ofst -4` contains ops 4 and 5. We add this edge to our list. This edge is now the only item in the list, so we process it next, and add ops 4 and 5, with a dispense at `c1 ofst -4`. This node also has another in-edge - the edge `c2 ofst -6 -> c1 ofst -4` which contains ops 7 and 8. As it is pipetting rows A and B to rows C and D, the difference in the offsets must be +2 to line the rows up correctly. We add this final aspirate to the move, and now we have a finished move covering all 8 ops with 3 aspirates and 2 dispenses.
 
+During the process of adding edges, if an edge uses a tip that has already been assigned to the move (by a previous edge), it is skipped and the next possible edge is chosen. If an edge contains an op that was already included in the move, it is also skipped. If there are no more candidate edges to be added, the move is finished, but may contain less than 8 ops.
+
 Similar moves are generated from each starting-point node. Then, the best move is selected by giving each move a score.
 ```
 # Score the efficiency of the move, penalising moves that need more
@@ -55,7 +57,7 @@ self.score = (
     len(self.ops) - (1 if self.wash_first else 0) - 0.25 * num_actions
 )
 ```
-Moves are scored based on which coveres the most ops, with a penalty for requiring a wash, and another for the number of aspirates/dispenses taken.
+Moves are scored based on which coveres the most ops, with a penalty for requiring a wash, and another for the number of aspirates/dispenses taken. The number of actions is weighted at 0.25 compared to the length of the ops and the wash penalty. If this weight is 1, some large possible moves are missed, and workflows that involve mostly full columns perform worse. If the number of actions is not considered, workflows that use a lot of small columns perform worse. 0.25 has been tested as a good compromise that provides close to the optimal result across a range of workflows.
 
 Let's compare the top two moves generated here.
 ```
