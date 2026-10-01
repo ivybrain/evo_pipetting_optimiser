@@ -25,7 +25,7 @@ These dispense nodes then have edges back to the respective rows of the dispense
 
 
 ### Move Calculation
-A key advantage of this approach is the ability to realise shared nodes at both the source and the destination, and consider these equally, including at the same time. Consider another example, with ops:
+A key advantage of this approach is the ability to consider multiple nodes at both the source and destination at the same time, and combine them into a single move. Consider another example, with ops:
 ![Figure showing 8 ops from 3 columns to 2 columns](figures/demo_multiplex.png)
 
 The operations here go from 3 columns on one plate to 2 columns from another plate. However the rows are misaligned such that source column 2 goes to 2 different destination columns. A naive approach might transfer ops 0-3 directly (1 aspirate and 1 dispense), then do 1 aspirate and 2 dispenses to cover ops 3-5, then another direct transfer for ops 6-7, taking a total of 3 aspirates and 4 dispenses. The optimiser can do this in 3 aspirates and 2 dispenses. Let's look at the graph generated.
