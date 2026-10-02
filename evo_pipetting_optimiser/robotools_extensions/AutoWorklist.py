@@ -1,4 +1,4 @@
-from robotools import EvoWorklist, Trough, Tip
+from robotools import EvoWorklist, Trough
 from robotools.evotools.commands import evo_get_selection
 from typing import Literal, Optional, Sequence, Tuple, Union
 from . import *
@@ -209,6 +209,8 @@ class AutoWorklist(EvoWorklist):
     def get_diti(self, tips, tip_index, retry=False):
         """
         Get Ditis when diti mode
+        tips: Which tips to mount ditis on. Iterable of ints from 0-7 
+        tip_index: The evoware tip index representing the tip type
         """
 
         if not self.diti_mode:
@@ -219,9 +221,7 @@ class AutoWorklist(EvoWorklist):
         tip_selection = 0
         for tip in tips:
             if isinstance(tip, int):
-                tip_selection += 2 ** (tip - 1)
-            elif isinstance(tip, Tip):
-                tip_selection += tip.value
+                tip_selection += 2 ** tip
 
         self.tips_mounted = tip_index
         self.append(
@@ -330,10 +330,11 @@ class AutoWorklist(EvoWorklist):
             "D" will conduct a decontamination wash.
             "smart" will wash a tip if it has touched any liquid with a composition other than the one it is going to handle
             i.e. will skip washes if it is only touching a single liquid type
-        tips: int or iterable of (ints or Tips), or None. Default None
-            Assign a specific tip to each pipetting operation. If None, any tip can be used. If a single number, will use that tip for all operations.
-            If a list, will use the tips in the list for the corresponding operations. To allow a range of tips, use allowed_tips
-        allowed_tips: iterable of ints or tipsm or None. Default None
+        tips: int or iterable of ints in range 0-7, or None. Default None
+            Assigns specific tips to each pipetting operation. If None, any tip can be used. If a single number, will use that tip for all operations.
+            If a list, will use the tips in the list for the corresponding operations. In this case, number of tips must match number of operations.
+            To restrict allowed tips and use them across an unlimited number of operations, use allowed_tips.
+        allowed_tips: iterable of ints in range 0-7, or None. Default None
             Allow the optimiser to choose which tip to use for which operation, but restrict the tips it can choose to only the tips listed.
             To assign a single tip to each transfer, use the tips argument instead
         """
@@ -481,7 +482,7 @@ class AutoWorklist(EvoWorklist):
         self.silence_append_warning = False
 
 
-    def auto_wash(self, wash_scheme=1, tips = range(1, 9), decon_volume=300, **kwargs):
+    def auto_wash(self, wash_scheme=1, tips = range(8), decon_volume=300, **kwargs):
         '''
         Simple function to apply an extra wash with the settings already stored using set_wash_parameters
         As this appends to the worklist directly, it should only be called after a commit, or with no pending operations
@@ -493,7 +494,7 @@ class AutoWorklist(EvoWorklist):
         wash_scheme:
             1 or 'D' - specifies a normal or a decon wash
         tips:
-            list of ints from 1 to 8 inclusive, or robotools Tip objects, representing which tips to wash
+            list of ints from 0 to 7 representing which tips to wash
         decon_volume:
             Volume of decon solution to aspirate in ul if wash_scheme=='D'. Default 300ul
 
@@ -535,7 +536,7 @@ class AutoWorklist(EvoWorklist):
         
             # Conduct standard wash sequence
             wash_mask = [scheme is not None for scheme in wash_schemes]
-            wash_tips = [tips[i] for i in range(len(tips)) if wash_mask[i]]
+            wash_tips = [tips[i] + 1 for i in range(len(tips)) if wash_mask[i]]
 
             # Collect the generic wash parameters to pass to the evo_wash function
             wash_params = {
@@ -595,7 +596,7 @@ class AutoWorklist(EvoWorklist):
                 decon_trough,
                 decon_trough.wells[decon_wells, 0],
                 decon_trough.location,
-                tips=list(decon_tips),
+                tips=[tip + 1 for tip in decon_tips],
                 volumes=list(decon_volumes),
                 liquid_class=self.wash_params["decon_liquid_class"],
             )
@@ -645,14 +646,14 @@ class AutoWorklist(EvoWorklist):
         rows = [getattr(op, pos_attr)[0] for op in ops]
 
         # For troughs with enough virtual rows, align rows directly to the tips being used
-        if (getattr(labware, "virtual_rows", 0) or 0) > max(tips) - 1:
-            rows = [tip - 1 for tip in tips]
+        if (getattr(labware, "virtual_rows", 0) or 0) > max(tips):
+            rows = tips
 
         # Verify that every (row, tip) pair shares the same offset so Evoware
         # can execute the whole group in a single physical move
-        offset = rows[0] - (tips[0] - 1)
+        offset = rows[0] - tips[0]
         for row, tip in zip(rows, tips):
-            if row - (tip - 1) != offset:
+            if row - tip != offset:
                 raise OptimisationError("Tip-row offset inconsistency")
 
         limit_down = getattr(labware, "offset_limit_down", None) or 10000
@@ -727,7 +728,7 @@ class AutoWorklist(EvoWorklist):
                     op.source,
                     op.source.wells[rows, col],
                     op.source.location,
-                    list(tips),
+                    [tip + 1 for tip in tips],
                     list(volumes),
                     liquid_class=self._get_liquid_class(op),
                     label=self._build_label(ops),
@@ -750,7 +751,7 @@ class AutoWorklist(EvoWorklist):
                     op.destination,
                     op.destination.wells[rows, col],
                     op.destination.location,
-                    list(tips),
+                    [tip + 1 for tip in tips],
                     list(volumes),
                     liquid_class=self._get_liquid_class(op),
                     label=self._build_label(ops),
@@ -776,7 +777,7 @@ class AutoWorklist(EvoWorklist):
         if len(end_wash_volumes) < 8:
             end_wash_volumes = [max(end_wash_volumes)] * 8
         self._auto_wash(
-            tips=list(range(1, 9)), tip_volumes=end_wash_volumes, wash_schemes=["D" if decon_at_end else 1] * 8
+            tips=list(range(8)), tip_volumes=end_wash_volumes, wash_schemes=["D" if decon_at_end else 1] * 8
         )
         super().append(
             f"C;Optimisation session complete. aspirates: {counts[0]}, dispenses: {counts[1]}, washes: {counts[2]}"

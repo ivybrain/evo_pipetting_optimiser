@@ -288,13 +288,13 @@ def make_plan(pending_ops, progress=None, task=None):
                     # We will use the wash scheme from this one
                     ops.append(o[-1])
 
-            actions.append(("Wash", ops, [tip + 1 for tip in tips]))
+            actions.append(("Wash", ops, tips))
             wash_count += 1
 
         # Otherwise, we have these fields
         _, aspirates, dispenses, ops, tips_selected = move.tuple()
 
-        op_tip = {op: tip + 1 for op, tip in zip(ops, tips_selected)}
+        op_tip = {op: tip for op, tip in zip(ops, tips_selected)}
 
         for (labware, col, offset), asp_ops in aspirates.items():
 
