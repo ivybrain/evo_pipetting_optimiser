@@ -237,8 +237,6 @@ class AutoWorklist(EvoWorklist):
         for tip in tips:
             if isinstance(tip, int):
                 tip_selection += 2 ** (tip - 1)
-            elif isinstance(tip, Tip):
-                tip_selection += tip.value
 
         self.tips_mounted = None
 
@@ -300,8 +298,8 @@ class AutoWorklist(EvoWorklist):
         on_underflow: Literal["debug", "warn", "raise"] = "raise",
         liquid_class: str = None,
         wash_scheme: Literal["D", 1, None, "smart"] = 1,
-        tips: Union[int, Sequence[int], Sequence[Tip]] = None,
-        allowed_tips: Sequence[Union[int, Tip]] = None,
+        tips: Union[int, Sequence[int]] = None,
+        allowed_tips: Sequence[int] = None,
         tip_index=None,
     ) -> None:
         """Transfer operation between two labwares with automatic pipetting order optimisation
