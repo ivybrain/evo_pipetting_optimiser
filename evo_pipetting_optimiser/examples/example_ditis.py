@@ -52,12 +52,24 @@ def basic_row_column(worklist):
         # Wash scheme is default (1) so new tips will be fetched then discarded
         wl.auto_transfer(
             tubes,
-            tubes.wells[:sample_count, 0],
+            tubes.wells[:2, 0],
             DWP,
-            DWP.wells[:sample_count, 0],
+            DWP.wells[:2, 0],
             500,
             liquid_class="Ivy Training",
             label="Get neat sample",
+        )
+
+        # Get samples after first two with a different tip index
+        wl.auto_transfer(
+            tubes,
+            tubes.wells[2:sample_count, 0],
+            DWP,
+            DWP.wells[2:sample_count, 0],
+            500,
+            liquid_class="Ivy Training",
+            label="Get neat sample",
+            tip_index=17,
         )
 
         # Wash scheme is 'smart', so same tips will be used for all diluent

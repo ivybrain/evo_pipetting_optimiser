@@ -45,14 +45,27 @@ def test_ditis():
         sample_count = 4
 
         # Transfer neat sample to first column
+        # Wash scheme is default (1) so new tips will be fetched then discarded
         wl.auto_transfer(
             tubes,
-            tubes.wells[:sample_count, 0],
+            tubes.wells[:2, 0],
             DWP,
-            DWP.wells[:sample_count, 0],
+            DWP.wells[:2, 0],
             500,
             liquid_class="Ivy Training",
             label="Get neat sample",
+        )
+
+        # Get samples after first two with a different tip index
+        wl.auto_transfer(
+            tubes,
+            tubes.wells[2:sample_count, 0],
+            DWP,
+            DWP.wells[2:sample_count, 0],
+            500,
+            liquid_class="Ivy Training",
+            label="Get neat sample",
+            tip_index=17,
         )
 
         for i in range(5):
@@ -82,9 +95,15 @@ def test_ditis():
         wl.commit(report=True)
 
         # Ensure it completes this task efficiently as expected
-        assert wl.asp_count == 9
-        assert wl.disp_count == 11
-        assert wl.wash_count == 5
+        assert wl.asp_count == 13
+        assert wl.disp_count == 15
+        assert wl.wash_count == 6
+
+        # Previous numbers before fix ensuring different tips cannot be mounted at once
+        # TODO: check new way is optimal, not losing more than it should
+        # assert wl.asp_count == 9
+        # assert wl.disp_count == 11
+        # assert wl.wash_count == 5
 
 
 if __name__ == "__main__":

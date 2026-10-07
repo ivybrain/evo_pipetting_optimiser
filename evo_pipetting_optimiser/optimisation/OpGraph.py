@@ -101,12 +101,20 @@ class OpGraph:
         # But retains deterministic order
         offset_nodes = {}
 
-        for (source_col, dest_col), past_ops in self.op_groups.items():
-            for op in past_ops:
+        for (source_col, dest_col), group_ops in self.op_groups.items():
+            for op in group_ops:
 
                 # Calculate the feasible tips for this op given the previous wash state of the tips
                 free_tips = set()
                 tips_with_wash = set()
+
+                # We need to look at all past ops, across tips, since last wash, to see if there is a tip type mounted
+                # If there has been a tip type mounted, we can't mount another type without wash
+                tip_mounted = None
+                for past_ops in self.tip_ops_since_wash.values():
+                    if past_ops:
+                        tip_mounted = tip_mounted or past_ops[0].tip_index
+
                 for tip, past_ops in self.tip_ops_since_wash.items():
 
                     # Check if there's a specific allowed tip only
@@ -121,6 +129,10 @@ class OpGraph:
                         tips_with_wash.add(tip)
                         continue
 
+                    # Check that we have not previously mounted a tip that doesn't match this tip type
+                    if tip_mounted is not None and tip_mounted != op.tip_index:
+                        tips_with_wash.add(tip)
+                        continue
 
                     # If tip is unused, we can use it
                     if not past_ops:
