@@ -19,9 +19,10 @@ class Node:
     Retained in case better optimisation decisions are needed in the future
     """
 
-    def __init__(self, parent, *args):
+    def __init__(self, parent, *args, op_filter=None):
 
         self.parent = parent
+        self.op_filter = op_filter
 
         # if parent=None i.e. is the initial node in the graph
         if not parent:
@@ -35,6 +36,7 @@ class Node:
                     for op in pending_ops
                     if op.source_dep not in pending_ops
                     and op.dest_dep not in pending_ops
+                    and (op_filter(op) if op_filter else True)
                 ]
             )
 
@@ -116,6 +118,7 @@ class Node:
                     for op in new_pending
                     if op.source_dep not in new_pending
                     and op.dest_dep not in new_pending
+                    and (self.op_filter(op) if self.op_filter else True)
                 ]
             )
 
@@ -130,7 +133,7 @@ class Node:
             # Create the new node with the new pending and open states
 
             new_node = Node(
-                self, new_pending, new_open_ops, OpGraph(new_open_ops), move, new_cost
+                self, new_pending, new_open_ops, OpGraph(new_open_ops), move, new_cost, op_filter=self.op_filter
             )
             new_node.open_graph.node = new_node
             children.append(new_node)
@@ -191,13 +194,13 @@ class Node:
         return f"Node score {self.fscore}"
 
 
-def init_search(pending_ops, progress=None, task=None):
+def init_search(pending_ops, progress=None, task=None, op_filter = None):
     '''
     Creates the initial Node representing the state of pending and completed ops, then get each successive node until
     we finish
     '''
 
-    initial_node = Node(None, pending_ops)
+    initial_node = Node(None, pending_ops, op_filter=op_filter)
     open_nodes = SortedSet([initial_node])
     generated_nodes = set([initial_node])
     node = None
@@ -248,7 +251,7 @@ def init_search(pending_ops, progress=None, task=None):
     return moves
 
 
-def make_plan(pending_ops, progress=None, task=None):
+def make_plan(pending_ops, progress=None, task=None, op_filter = None):
     """
     Create a list of pipetting actions from a set of pending ops
     Actions are a tuple of
@@ -274,7 +277,7 @@ def make_plan(pending_ops, progress=None, task=None):
     # profiler = cProfile.Profile()
     # profiler.enable()
 
-    moves = init_search(pending_ops, progress, task)
+    moves = init_search(pending_ops, progress, task, op_filter)
 
     for move in moves:
 

@@ -32,6 +32,8 @@ class AutoWorklist(EvoWorklist):
         tip_discard_location: Tuple[int, int] = None,
         arm: int = 0,
         max_concurrent_ops: int = None,
+        max_volume : int = 950,
+        auto_split: bool = None,
         *args,
         **kwargs,
     ):
@@ -52,15 +54,26 @@ class AutoWorklist(EvoWorklist):
             In Diti mode, the location to drop used DiTis with the DropDiti command
         arm: int
             LiHa number. Default=0
-        max_volume : int
-            Maximum aspiration volume in µL
+        max_volume : int, Default 950
+            Maximum aspiration volume in µL for the diluter. If auto_split is true, this will be used to automatically split large transfers
+            into several transfers smaller than this volume. If you are using multiple arms, set this to the capacity of the largest set of diluters
+            and manually ensure that volumes do not exceed the capacity of the smaller arm or the mounted tips
+        auto_split: bool, default True if diti_mode = False, or False otherwise
+            If true, transfers exceeding max_volume will be automatically split into several smaller transfers
         max_concurrent_ops: int
             Maximum number of ops to optimise over at once. If there are more pipetting operations than this, they will be split into sections
             and optimised seperately, so that optimisation does not take a long time. Default None = no split.
 
         """
-        super().__init__(worklist_path, *args, **kwargs)
+
+        # Decide auto_split based on diti_mode
+        if auto_split == None:
+            auto_split = False if diti_mode else True
+
+        super().__init__(worklist_path, *args, max_volume=max_volume, auto_split=auto_split, **kwargs)
         self.pending_ops = []
+
+       
 
         self.tips_used = [False] * 8
         self.tip_contents = [None] * 8
@@ -206,12 +219,15 @@ class AutoWorklist(EvoWorklist):
 
             self.wash_params[key] = passed_value
 
-    def get_diti(self, tips, tip_index, retry=False):
+    def get_diti(self, tips, tip_index, retry=False, arm=None):
         """
         Get Ditis when diti mode
         tips: Which tips to mount ditis on. Iterable of ints from 0-7 
         tip_index: The evoware tip index representing the tip type
+        arm: the LiHa number to use
         """
+
+        arm = arm if arm is not None else self.arm
 
         if not self.diti_mode:
             raise Exception("Cannot get Ditis unless in DiTi mode")
@@ -225,10 +241,11 @@ class AutoWorklist(EvoWorklist):
 
         self.tips_mounted = tip_index
         self.append(
-            f"B;GetDiti({tip_selection}, {tip_index}, {int(retry)}, {self.arm})"
+            f"B;GetDiti({tip_selection}, {tip_index}, {int(retry)}, {arm})"
         )
 
-    def drop_diti(self, tips):
+    def drop_diti(self, tips, arm=None):
+        arm = arm if arm is not None else self.arm
 
         if not self.diti_mode:
             raise Exception("Cannot drop Ditis unless in DiTi mode")
@@ -244,7 +261,7 @@ class AutoWorklist(EvoWorklist):
         site = self.wash_params["tip_discard_location"][1]
 
         self.append(
-            f'B;DropDiTi({tip_selection}, {grid}, {site-1}, {self.wash_params["airgap"]}, {self.wash_params["airgap_speed"]}, {self.arm})'
+            f'B;DropDiTi({tip_selection}, {grid}, {site-1}, {self.wash_params["airgap"]}, {self.wash_params["airgap_speed"]}, {arm})'
         )
 
     def liha_flush(self):
@@ -298,9 +315,11 @@ class AutoWorklist(EvoWorklist):
         on_underflow: Literal["debug", "warn", "raise"] = "raise",
         liquid_class: str = None,
         wash_scheme: Literal["D", 1, None, "smart"] = 1,
+        tip_index=None,
         tips: Union[int, Sequence[int]] = None,
         allowed_tips: Sequence[int] = None,
-        tip_index=None,
+        split_volume: int = None
+        
     ) -> None:
         """Transfer operation between two labwares with automatic pipetting order optimisation
         Ensures correct order of transfers to each particular well,
@@ -328,6 +347,9 @@ class AutoWorklist(EvoWorklist):
             "D" will conduct a decontamination wash.
             "smart" will wash a tip if it has touched any liquid with a composition other than the one it is going to handle
             i.e. will skip washes if it is only touching a single liquid type
+        tip_index: int or None, default None
+            Tip type to use if diti_mode = True. Corresponds to the tip index visible in EVOware for each Tip labware defined.
+            If None, the default_tip from AutoWorklist will be used.
         tips: int or iterable of ints in range 0-7, or None. Default None
             Assigns specific tips to each pipetting operation. If None, any tip can be used. If a single number, will use that tip for all operations.
             If a list, will use the tips in the list for the corresponding operations. In this case, number of tips must match number of operations.
@@ -335,6 +357,9 @@ class AutoWorklist(EvoWorklist):
         allowed_tips: iterable of ints in range 0-7, or None. Default None
             Allow the optimiser to choose which tip to use for which operation, but restrict the tips it can choose to only the tips listed.
             To assign a single tip to each transfer, use the tips argument instead
+        split_volume: int or None, default None
+            If set, split transfers that exceed this volume into multiple smaller transfers. Overrides the global auto_split behaviour
+            Useful to split based on tip volume for a specific set diti index
         """
 
         # add the labware to the set of all labware we've used
@@ -408,7 +433,14 @@ class AutoWorklist(EvoWorklist):
         for i in range(len(source_wells)):
 
             # Check for large volume handling
-            repeats = math.ceil(volumes[i] / self.max_volume)
+            repeats = 1
+            if self.auto_split:
+                repeats = math.ceil(volumes[i] / self.max_volume)
+
+            # Overrise the default auto split with the specific split_volume for this transfer, if set
+            if split_volume:
+                repeats = math.ceil(volumes[i] / split_volume)
+                
             volume = volumes[i] / repeats
 
             # Rationalise to A01 format
@@ -469,14 +501,16 @@ class AutoWorklist(EvoWorklist):
 
     # evo_aspirate, dispense, and wash overrides that we will use interally when committing optimisations.
     # Avoid warning the user in this case
-    def _evo_aspirate(self, *args, silence_append_warning=True, **kwargs):
+    def _evo_aspirate(self, *args, silence_append_warning=True, arm=None, **kwargs):
+        arm = arm if arm is not None else self.arm
         self.silence_append_warning = silence_append_warning
-        super().evo_aspirate(*args, arm=self.arm, **kwargs)
+        super().evo_aspirate(*args, arm=arm, **kwargs)
         self.silence_append_warning = False
 
-    def _evo_dispense(self, *args, silence_append_warning=True, **kwargs):
+    def _evo_dispense(self, *args, silence_append_warning=True, arm=None, **kwargs):
+        arm = arm if arm is not None else self.arm
         self.silence_append_warning = silence_append_warning
-        super().evo_dispense(*args, arm=self.arm, **kwargs)
+        super().evo_dispense(*args, arm=arm, **kwargs)
         self.silence_append_warning = False
 
 
@@ -513,12 +547,15 @@ class AutoWorklist(EvoWorklist):
         tips=[],
         wash_schemes=[],
         tip_volumes=[],
+        arm=None,
         **kwargs,
     ):
         """
         Internal method called by auto_transfer to conduct a wash, with or without decon
 
         """
+
+        arm = arm if arm is not None else self.arm
 
         self.silence_append_warning = silence_append_warning
 
@@ -547,7 +584,7 @@ class AutoWorklist(EvoWorklist):
             wash_params = {**wash_params, **kwargs}
 
             if len(wash_tips) > 0:
-                super(AutoWorklist, self).evo_wash(tips=wash_tips, arm=self.arm, **wash_params)
+                super(AutoWorklist, self).evo_wash(tips=wash_tips, arm=arm, **wash_params)
                 
 
         # Specify decon tips and volumes
@@ -676,11 +713,16 @@ class AutoWorklist(EvoWorklist):
             liquid_class = liquid_class.split(";")[0]
         return liquid_class
 
-    def execute_plan(self, plan, counts):
+    def execute_plan(self, plan, counts, arm=None):
+
+        arm = arm if arm is not None else self.arm
 
         decon_at_end = False
 
+        completed_ops = []
         for i, (action, ops, tips) in enumerate(plan):
+
+            completed_ops += ops
 
             # Reset at the start of each step so the final value reflects the last Dispense
             decon_at_end = False
@@ -731,6 +773,7 @@ class AutoWorklist(EvoWorklist):
                     liquid_class=self._get_liquid_class(op),
                     label=self._build_label(ops),
                     on_underflow=op.on_underflow,
+                    arm=arm,
                 )
 
             if action == "Dispense":
@@ -754,6 +797,7 @@ class AutoWorklist(EvoWorklist):
                     liquid_class=self._get_liquid_class(op),
                     label=self._build_label(ops),
                     compositions=compositions,
+                    arm=arm,
                 )
 
                 decon_at_end = any(o.wash_scheme == "D" for o in ops)
@@ -766,6 +810,7 @@ class AutoWorklist(EvoWorklist):
                     tips=tips,
                     tip_volumes=[op.volume for op in ops],
                     wash_schemes=[op.wash_scheme for op in ops],
+                    arm=arm,
                 )
                 # Add a break after each wash to improve readability
                 super().append("B;")
@@ -785,7 +830,7 @@ class AutoWorklist(EvoWorklist):
         self.wash_count = counts[2] + 1
         super().append("B;")
 
-        return
+        return completed_ops
 
     def report_ops(self):
         """
@@ -802,7 +847,26 @@ class AutoWorklist(EvoWorklist):
             [str(op) for op in sorted(self.pending_ops, key=lambda x: x.id)]
         )
 
-    def commit(self, report=True):
+    def commit(self, arm=None, report=True, filter=None):
+        """
+        Apply the pending worklist operations. This will calculate Aspirate, Dispense, and Wash moves and add them to the worklist
+
+        Parameters
+            ----------
+            arm:
+                Set the LiHa number to use on multi-liha systems. This can be changed while operations are pending. All pending operations will be applied
+                        with the set arm when commit() is called.
+                        Alternatively, use commit with a filter to select ops of certain tip types and assign them to a particular arm
+                        arm: int
+                            LiHa number. Default=0
+            report: Bool, default True
+                If true, prints a progress bar for the optimisation calculation and the total number of aspirates, dispenses, and washes
+            filter: function (TransferOperation -> Bool)
+                Apply a filter to select only certain operations to apply. This can be useful for applying operations with different tip types,
+                or to force apply all reagents before all samples, without changing the code order
+                Operation dependencies are still respected - if there are operations that depend on another operation excluded by the filter, none of these will be applied
+                Operations will still be queued and pending after the filter - can call commit again to optimise the remaining operations.
+        """
 
         # If we have ops pending, optimise and apply them
         if len(self.pending_ops) > 0 and not self.processing:
@@ -838,8 +902,8 @@ class AutoWorklist(EvoWorklist):
                             tasks.append(None)
 
                     # Execute optimisation to create plan
-                    results = map(
-                        make_plan, segment_ops, [progress] * len(segments), tasks
+                    results = executor.map(
+                        make_plan, segment_ops, [progress] * len(segments), tasks, [filter] * len(segments)
                     )
 
                     return results
@@ -857,19 +921,20 @@ class AutoWorklist(EvoWorklist):
                 results = create_plans()
                     
 
-                
+            completed_ops = set()
             # Execute each plan in order (multiple plans occur if optimisation was split into batches)
             for plan, cost, (asp_count, disp_count, wash_count) in results:
 
-                self.execute_plan(plan, (asp_count, disp_count, wash_count))
+                completed_ops = completed_ops.union(self.execute_plan(plan, (asp_count, disp_count, wash_count), arm=arm))
 
-            # Reset the pending ops
-            self.pending_ops = []
+            # Remove completed ops from the pending ops
+            self.pending_ops = list(set(self.pending_ops) - completed_ops)
 
-            # Reset the op tracking on all labware
-            for labware in self.all_labware:
-                if isinstance(labware, AdvancedLabware):
-                    labware.reset_op_tracking()
+            # If we have cleared all pending ops, reset the op tracking on all labware
+            if not self.pending_ops:
+                for labware in self.all_labware:
+                    if isinstance(labware, AdvancedLabware):
+                        labware.reset_op_tracking()
 
             self.all_labware = set()
             self.processing = False
@@ -877,7 +942,8 @@ class AutoWorklist(EvoWorklist):
                 print(
                     f"Optimisation complete. aspirates: {self.asp_count}, dispenses: {self.disp_count}, washes: {self.wash_count}"
                 )
-        self.currently_optimising = False
+        if not self.pending_ops:
+            self.currently_optimising = False
         super().append("B;")
 
     def __enter__(self) -> "AutoWorklist":
