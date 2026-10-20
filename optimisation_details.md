@@ -17,11 +17,13 @@ Each of these columns has (usually 8) rows. The rows that have pending pipetting
 
 Each column in a plate may be accessed with the tips offset in the y direction. With the default offset of 0, each tip is above its corresponding row. With an offset of +7, tip 8 is above row A. With an offset of -7, tip 1 is above row H. To show a simpler graph for this example, offset_limit_up and offset_limit_down are each set to 2 in the labware objects, which limits the possible offsets from -2 to +2.
 
-Edges are created from each row, to each offset which can address this row. The graph shows all possible assignments as edges. smp `c0r0` and smp `c0r2` can both be aspirated with an offset of 0, so they have red edges to the 'smp `c0 ofst 0`' node. As we are aspirating row 0 and row 2 with an offset of 0, this will use tip 0 and tip 2. This node represents a single 'aspirate'.
+Edges are created from each row, to each offset which can address this row. The graph shows all possible assignments as edges. smp `c0r0` and smp `c0r2` can both be aspirated with an offset of 0, so they have red edges to the 'smp `c0 ofst 0`' node. As we are aspirating row 0 and row 2 with an offset of 0, this will use tip 0 and tip 2. This node represents a single 'aspirate'. 
 
 The 4th column also represents an offset, but on the 'dispense' side. From aspirate `c0 ofst 0`, 1 edge goes to dilplate `c1 ofst 0` - this is labelled with a 0, as it represents op 0 (the transfer from A01 to A02). However the other edge for op 1 goes to a different offset, because we are transferring to a different row - C01 to B02. As tip 2 aspirated C01, and it now needs to dispense to B02, it must do this with an offset of -1, so the edge goes to dilplate `c1 ofst -1`. Thus, this single aspirate node links to 2 dispense nodes, and 2 dispenses are required.
 
 These dispense nodes then have edges back to the respective rows of the dispense plate. These rows are then linked to nodes representing the column of the dilution plate.
+
+Edges are added one operation at a time, and consider the entire operation and any offset issues. E.g. if an operation can be aspirated with a particular offset, but then cannot be dispensed due to an incompatible offset, the aspiration edge is not added. This prevents any 'dead-end' nodes and makes the graph simpler for our move calculations.
 
 
 ### Move Calculation
