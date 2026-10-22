@@ -125,7 +125,7 @@ def basic_row_column(worklist):
             sample_plate.wells[1, 2:4],
             dilution_plate,
             dilution_plate.wells[0:2, 8],
-            600,
+            700,
             liquid_class="Water free dispense",
             label="transfer noncontinuous rows to col",
         )
@@ -137,7 +137,7 @@ def basic_row_column(worklist):
             sample_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
             dilution_plate,
             dilution_plate.wells[[0, 1, 2, 3, 5, 6, 7], 0],
-            600,
+            800,
             liquid_class="Water free dispense",
             label="Transfer noncontinuous cols to rows",
         )

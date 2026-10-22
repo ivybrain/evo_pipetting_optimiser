@@ -75,7 +75,7 @@ def test_ditis():
                 diluent.wells[:sample_count],
                 DWP,
                 DWP.wells[:sample_count, i + 1],
-                250,
+                200,
                 liquid_class="Ivy training",
                 label="Dispense diluent",
                 wash_scheme="smart",
@@ -86,13 +86,14 @@ def test_ditis():
                 DWP.wells[:sample_count, i],
                 DWP,
                 DWP.wells[:sample_count, i + 1],
-                250,
+                300,
                 liquid_class="Ivy Training",
                 label=f"Series diluting into column {i+1}",
                 wash_scheme="smart",
             )
 
         wl.commit(report=True)
+        
 
         # Ensure it completes this task efficiently as expected
         assert wl.asp_count == 13

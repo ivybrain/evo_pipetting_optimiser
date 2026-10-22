@@ -70,19 +70,20 @@ class AdvancedLabware(robotools.Labware):
         self.reset_op_tracking()
 
 
-    @property
-    def last_op(self):
+    def last_op(self, well):
         """
-        A dictionary of {well: TransferOperation} which tracks the last TransferOperation which touched each well
+        Returns the last TransferOperation which touched a specific well
         Used to check if a pipetting operation has any dependencies
         """
-        return {
-            well: (
-                self.dest_op_tracking[well][-1] if len(self.dest_op_tracking[well]) > 0 else None
-            )
-            for well in self.wells.flatten("F")
-        }
-    
+
+        last_dest_op = (self.dest_op_tracking[well][-1] if len(self.dest_op_tracking[well]) > 0 else None)
+        last_source_op = (self.source_op_tracking[well][-1] if len(self.source_op_tracking[well]) > 0 else None)
+
+        last_dest_id = last_dest_op.id if last_dest_op else -1
+        last_source_id = last_source_op.id if last_source_op else -1
+
+        return last_dest_op
+
     def latest_volume(self, well):
         """
         Get the volume of a particular well as it will be when any pending operations have been applied

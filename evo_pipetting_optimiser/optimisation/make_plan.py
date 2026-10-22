@@ -34,7 +34,7 @@ class Node:
                 [
                     op
                     for op in pending_ops
-                    if op.source_dep not in pending_ops
+                    if op.source_deps.isdisjoint(pending_ops)
                     and op.dest_dep not in pending_ops
                     and (op_filter(op) if op_filter else True)
                 ]
@@ -116,7 +116,7 @@ class Node:
                 [
                     op
                     for op in new_pending
-                    if op.source_dep not in new_pending
+                    if op.source_deps.isdisjoint(new_pending)
                     and op.dest_dep not in new_pending
                     and (self.op_filter(op) if self.op_filter else True)
                 ]

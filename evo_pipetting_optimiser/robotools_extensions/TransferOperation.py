@@ -53,8 +53,14 @@ class TransferOperation:
         source_well = source.wells[source_pos]
         dest_well = destination.wells[dest_pos]
 
-        self.source_dep = source.last_op[source_well]
-        self.dest_dep = destination.last_op[dest_well]
+        self.source_deps = set([source.last_op(source_well)])
+        # If we are pipetting to a well that has previously been used as a source, all those aspirations from that well
+        # Must be completed before we can dispense to it
+        if destination.source_op_tracking:
+            self.source_deps = self.source_deps.union(destination.source_op_tracking[dest_well])
+
+
+        self.dest_dep = destination.last_op(dest_well)
 
         self.source_volume = source.latest_volume(source_well) - volume
         self.source_composition = source.latest_composition(source_well)
