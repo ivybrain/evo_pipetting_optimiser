@@ -72,17 +72,12 @@ class AdvancedLabware(robotools.Labware):
 
     def last_op(self, well):
         """
-        Returns the last TransferOperation which touched a specific well
-        Used to check if a pipetting operation has any dependencies
+        Returns the last TransferOperation which dispensed to a specific well
+        Used to check if a transferoperation has any dependencies which must be completed first
+        Before a new operation changes the contents of the well
         """
 
-        last_dest_op = (self.dest_op_tracking[well][-1] if len(self.dest_op_tracking[well]) > 0 else None)
-        last_source_op = (self.source_op_tracking[well][-1] if len(self.source_op_tracking[well]) > 0 else None)
-
-        last_dest_id = last_dest_op.id if last_dest_op else -1
-        last_source_id = last_source_op.id if last_source_op else -1
-
-        return last_dest_op
+        return self.dest_op_tracking[well][-1] if len(self.dest_op_tracking[well]) > 0 else None
 
     def latest_volume(self, well):
         """
