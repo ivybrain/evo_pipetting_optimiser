@@ -51,7 +51,7 @@ def basic_row_column(worklist):
 
        
 
-        # transfer sampel to dilution plate
+        # transfer sample to dilution plate
         wl.auto_transfer(
             sample_plate,
             sample_plate.wells[1:7, 0],
@@ -84,6 +84,7 @@ def basic_row_column(worklist):
             label="Transfer column to row",
         )
 
+        # Now transfer row 0 to col 0
         wl.auto_transfer(
             sample_plate,
             sample_plate.wells[0, :8],
@@ -94,7 +95,7 @@ def basic_row_column(worklist):
             label="transfer row to column",
         )
 
-        # Now transfer back to trough
+        # Now transfer back to trough - tests this capability works maintaining correct order
         wl.auto_transfer(
             dilution_plate,
             dilution_plate.wells[:, 0],
@@ -105,10 +106,7 @@ def basic_row_column(worklist):
             label="transfer to trough",
         )
 
-        # Situation where we transfer a column to a row, with a range across 8 wells but excluding a middle well
-        # Will aspirate in one op, leaving tip 5 empty
-        # Unlike default Evoware, which would aspirate rows A-D with tips 1-4 then rows F-H with tips 5-7
-        # Large volume (>950) means we repeat each op twice
+        # Situations where we transfer noncontinuous rows or columns
 
         wl.auto_transfer(
             sample_plate,
@@ -130,8 +128,8 @@ def basic_row_column(worklist):
             label="transfer noncontinuous rows to col",
         )
 
-        # Same situation but transferring one row to many cols
-        # Will do several aspirates, but group to one dispense
+        # Transferring one row to many cols
+        # Will do several aspirates, but group to one dispense even with skipped row
         wl.auto_transfer(
             sample_plate,
             sample_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
