@@ -1,3 +1,7 @@
 # Add your dependencies here
 robotools
 numpy
+networkx
+sortedcontainers
+matplotlib
+rich

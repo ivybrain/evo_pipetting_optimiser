@@ -3,6 +3,11 @@ import robotools
 
 from evo_pipetting_optimiser import *
 
+"""
+This example shows using the offset_limit options to handle positions where not all rows can be accessed by all tips
+"""
+
+
 # Define a rack of sample matrix tubes as sample plate. It is a 96-well microplate, so 8 rows, 12 columns
 # Limit the LiHa offset to 4 downwards - ie, tip 1 can reach row E but not row F
 sample_plate = AdvancedLabware(
@@ -63,7 +68,7 @@ def basic_row_column(worklist):
         )
 
         # Print the operations we have registered, so we can sanity check
-        wl.report_ops()
+        print(wl.report)
 
         # Optimise these steps and add to worklist
         wl.commit()

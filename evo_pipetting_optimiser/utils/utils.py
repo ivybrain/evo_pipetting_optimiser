@@ -1,24 +1,3 @@
-def group_movements_needed(op_set, field):
-    """
-    Group operations by the specified field (source or destination),
-    The column, and the liquid class. We group like this because these are the constraints
-    To aspirating (or dispensing) something in one step
-    """
-    group_dict = {}
-    for op in op_set:
-
-        if field == "source":
-            key = (op.source.name, op.source_pos[1], op.liquid_class)
-        else:
-            key = (op.destination.name, op.dest_pos[1], op.liquid_class)
-        if key not in group_dict:
-            group_dict[key] = []
-
-        group_dict[key].append(op)
-
-    return group_dict
-
-
 def check_offset_limits(op, tip):
     """
     Check if we have violated an offset limit on the source or destination, and how much by
@@ -52,12 +31,22 @@ def check_offset_limits(op, tip):
     return min(source_up_check, dest_up_check), max(source_down_check, dest_down_check)
 
 
-def check_sublist(main_list, sub_list):
-    if not sub_list:
-        return True
-    if len(sub_list) > len(main_list):
-        return False
-    for i in range(len(main_list) - len(sub_list) + 1):
-        if main_list[i : i + len(sub_list)] == sub_list:
-            return True
-    return False
+def longest_consecutive_sequence(nums):
+    num_set = set(nums)
+    longest_length = 0
+    for num in num_set:
+        # Check if the current number is the start of a sequence
+        # A number is a start if 'num - 1' is not in the set
+        if num - 1 not in num_set:
+            current_num = num
+            current_length = 1
+
+            # Count the length of the consecutive sequence
+            while current_num + 1 in num_set:
+                current_num += 1
+                current_length += 1
+
+            # Update the maximum length found so far
+            longest_length = max(longest_length, current_length)
+
+    return longest_length

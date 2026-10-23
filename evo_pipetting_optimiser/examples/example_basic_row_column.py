@@ -1,7 +1,9 @@
-import robotools
+from evo_pipetting_optimiser import AdvancedLabware, AutoWorklist, AdvancedTrough
 
-
-from evo_pipetting_optimiser import AdvancedLabware, AutoWorklist
+"""
+This example demonstrates a range of 'tricky' transfers between two plates that standard transfers do not perform optimally
+e.g. transfering duplicates, transfering between row layouts and column layouts, and transferring non continuous groups of rows
+"""
 
 # Define a rack of sample matrix tubes as sample plate. It is a 96-well microplate, so 8 rows, 12 columns
 sample_plate = AdvancedLabware(
@@ -32,12 +34,46 @@ dilution_plate = AdvancedLabware(
     location=(32, 2),
 )
 
+test_trough = AdvancedTrough(
+    "Trough1",
+    8,
+    1,
+    min_volume=100,
+    max_volume=100_000,
+    initial_volumes=80_000,
+    location=(2, 1),
+)
+
 
 def basic_row_column(worklist):
 
     with AutoWorklist(worklist, waste_location=(1, 2), cleaner_location=(1, 3)) as wl:
 
-        # Basic: Transfer col 0 to row 0
+       
+
+        # transfer sample to dilution plate
+        wl.auto_transfer(
+            sample_plate,
+            sample_plate.wells[1:7, 0],
+            dilution_plate,
+            dilution_plate.wells[2:, 0],
+            volumes=50,
+            liquid_class="Water free dispense",
+            label="Transfer mismatching rows",
+        )
+
+        # Transfer diluent to dilution plate
+        wl.auto_transfer(
+            test_trough,
+            test_trough.wells,
+            dilution_plate,
+            dilution_plate.wells[:8, 0],
+            50,
+            liquid_class="Water free dispense",
+            label="Transfer diluent",
+        )
+
+        # Transfer col 0 to row 0
         wl.auto_transfer(
             sample_plate,
             sample_plate.wells[:, 0],
@@ -45,8 +81,10 @@ def basic_row_column(worklist):
             dilution_plate.wells[0, :8],
             50,
             liquid_class="Water free dispense",
+            label="Transfer column to row",
         )
 
+        # Now transfer row 0 to col 0
         wl.auto_transfer(
             sample_plate,
             sample_plate.wells[0, :8],
@@ -54,40 +92,58 @@ def basic_row_column(worklist):
             dilution_plate.wells[:, 0],
             50,
             liquid_class="Water free dispense",
+            label="transfer row to column",
         )
 
-        # # Optimise these steps and add to worklist
-        wl.commit()
+        # Now transfer back to trough - tests this capability works maintaining correct order
+        wl.auto_transfer(
+            dilution_plate,
+            dilution_plate.wells[:, 0],
+            test_trough,
+            test_trough.wells,
+            50,
+            liquid_class="Water free dispense",
+            label="transfer to trough",
+        )
 
-        # Situation where we transfer a column to a row, with a range across 8 wells but excluding a middle well
-        # Will aspirate in one op, leaving tip 5 empty
-        # Unlike default Evoware, which would aspirate rows A-D with tips 1-4 then rows F-H with tips 5-7
-        # Large volume (>950) means we repeat each op twoce
+        # Situations where we transfer noncontinuous rows or columns
 
         wl.auto_transfer(
             sample_plate,
-            sample_plate.wells[[0, 1, 2, 3, 5, 6, 7], 0],
+            sample_plate.wells[[0, 2], 0],
             dilution_plate,
-            dilution_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
-            1250,
+            dilution_plate.wells[0, [ 1, 2,]],
+            600,
             liquid_class="Water free dispense",
+            label="transfer noncontinuous rows to col",
         )
 
-        # Same situation but transferring row to column
-        # Will do several aspirates, but group to one dispense
+        wl.auto_transfer(
+            sample_plate,
+            sample_plate.wells[1, 2:4],
+            dilution_plate,
+            dilution_plate.wells[0:2, 8],
+            700,
+            liquid_class="Water free dispense",
+            label="transfer noncontinuous rows to col",
+        )
+
+        # Transferring one row to many cols
+        # Will do several aspirates, but group to one dispense even with skipped row
         wl.auto_transfer(
             sample_plate,
             sample_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
             dilution_plate,
             dilution_plate.wells[[0, 1, 2, 3, 5, 6, 7], 0],
-            1250,
+            800,
             liquid_class="Water free dispense",
+            label="Transfer noncontinuous cols to rows",
         )
 
         # Print the operations we have registered, so we can sanity check
         print(wl.report)
 
-        wl.commit()
+        wl.commit(report=False)
 
 
 if __name__ == "__main__":

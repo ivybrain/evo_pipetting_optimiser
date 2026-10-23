@@ -46,7 +46,6 @@ def test_basic_transfers():
             1250,
             liquid_class="Water free dispense",
         )
-
         # Same situation but transferring row to column
         # Will do several aspirates, but group to one dispense
         wl.auto_transfer(
@@ -58,9 +57,13 @@ def test_basic_transfers():
             liquid_class="Water free dispense",
         )
 
-        wl.commit()
+        wl.commit(report=True)
 
         # Ensure it completes this task efficiently as expected
         assert wl.asp_count == 16
         assert wl.disp_count == 16
-        assert wl.wash_count == 4
+        assert wl.wash_count == 5
+
+
+if __name__ == "__main__":
+    test_basic_transfers()

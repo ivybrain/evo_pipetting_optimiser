@@ -1,7 +1,11 @@
 import robotools
 
 
-from ..evo_pipetting_optimiser.robotools_extensions import *
+from evo_pipetting_optimiser import AdvancedLabware, AdvancedTrough, AutoWorklist
+
+"""
+This example shows using the 'decon' wash
+"""
 
 # Define a rack of sample matrix tubes as sample plate. It is a 96-well microplate, so 8 rows, 12 columns
 sample_plate = AdvancedLabware(
@@ -32,16 +36,17 @@ dilution_plate = AdvancedLabware(
     location=(32, 2),
 )
 
-# Define our tecon trough
-decon_trough = robotools.Trough(
+# Define our decon trough
+decon_trough = AdvancedTrough(
     "Decon",
     8,
     1,
     min_volume=3000,
     max_volume=100_000,
+    # Volume of decon available in this trough
     initial_volumes=80_000,
+    location = (2, 1),
 )
-decon_trough.location = (2, 1)
 
 
 def basic_row_column(worklist):
@@ -49,7 +54,7 @@ def basic_row_column(worklist):
     with AutoWorklist(worklist, waste_location=(1, 2), cleaner_location=(1, 3)) as wl:
 
         wl.set_wash_parameters(
-            decon_troughs=decon_trough, decon_liquid_class="Water free dispense"
+            decon_troughs=decon_trough, decon_liquid_class="Water free dispense", decon_excess_volume=50,
         )
 
         # Transfer as in example_basic_row_column - wash scheme not specified, so using default '1' - standard wash
@@ -60,6 +65,7 @@ def basic_row_column(worklist):
             dilution_plate.wells[0, [0, 1, 2, 3, 5, 6, 7]],
             1250,
             liquid_class="Water free dispense",
+            wash_scheme="D"
         )
 
         # Example as in example_basic_row_column, but this time with wash_scheme="D" - will use decon wash
@@ -78,6 +84,32 @@ def basic_row_column(worklist):
 
         wl.commit()
 
+        # We can increase the decon cycles, or use a fixed volume, with set_wash_parameters
+        wl.set_wash_parameters(decon_cycles=3, decon_volume=500)
+        wl.auto_transfer(
+                    sample_plate,
+                    sample_plate.wells[1, [0, 1, 2, 3, 5, 6, 7]],
+                    dilution_plate,
+                    dilution_plate.wells[[0, 1, 2, 3, 5, 6, 7], 1],
+                    400,
+                    liquid_class="Water free dispense",
+                    wash_scheme="D",
+                )
+
+
+        print(wl.report)
+        wl.commit()
+
+        # If we want to go back to normal, set wash parameters back to previous defaults
+        # Note: In order for the default behaviour where decon volume is calculated by aspiration volume + some excess,
+        # we have to set decon_volume to None
+        # Otherwise, it will always use decon_volume instead of decon_excess_volume
+        wl.set_wash_parameters(decon_cycles=1, decon_volume = None, decon_excess_volume=50)
+        
+
+        # Add an extra wash at the end with larger volume
+        wl.auto_wash("D", decon_volume=800, waste_vol=5.0)
+
 
 if __name__ == "__main__":
-    basic_row_column("example_basic_row_column.gwl")
+    basic_row_column("example_decon.gwl")

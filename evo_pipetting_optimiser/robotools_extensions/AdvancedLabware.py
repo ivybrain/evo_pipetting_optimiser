@@ -7,18 +7,10 @@ class AdvancedLabware(robotools.Labware):
     and offset limit support
     """
 
-    @property
-    def last_op(self):
-        """
-        A dictionary of {well: TransferOperation} which tracks the last TransferOperation which touched each well
-        Used to check if a pipetting operation has any dependencies
-        """
-        return {
-            well: (
-                self.op_tracking[well][-1] if len(self.op_tracking[well]) > 0 else None
-            )
-            for well in self.wells.flatten("F")
-        }
+    
+    def reset_op_tracking(self):
+        self.dest_op_tracking = {well: [] for well in self.wells.flatten("F")}
+        self.source_op_tracking = {well: [] for well in self.wells.flatten("F")}
 
     def __init__(
         self,
@@ -26,7 +18,7 @@ class AdvancedLabware(robotools.Labware):
         location=None,
         offset_limit_up=None,
         offset_limit_down=None,
-        **kwargs
+        **kwargs,
     ):
         """Creates an `AdvancedLabware` object for AutoWorklist pipetting optimisation
 
@@ -55,7 +47,7 @@ class AdvancedLabware(robotools.Labware):
             Setting a limit will reduce optimisation effectiveness and increase pipetting time
         offset_limit_down : int, optional, default=None
             Same as offset_limit_up, but limits tip translation downwards
-            Note: a 12-row labware needs a least a down offset of 4 for tip 8 to access row 12
+            Note: a 12-row labware needs at least a down offset of 4 for tip 8 to access row 12
         virtual_rows : int, optional
             When specified to a positive number, the `Labware` is treated as a trough.
             Must be used in combination with `rows=1`.
@@ -70,8 +62,54 @@ class AdvancedLabware(robotools.Labware):
         if not location:
             raise ValueError("Grid and Site must be specified")
         self.location = location
+        self.offset_limit_up = offset_limit_up if offset_limit_up is not None else 7
+        self.offset_limit_down = (
+            offset_limit_down if offset_limit_down is not None else self.n_rows - 1
+        )
 
-        self.offset_limit_up = offset_limit_up
-        self.offset_limit_down = offset_limit_down
+        self.reset_op_tracking()
 
-        self.op_tracking = {well: [] for well in self.wells.flatten("F")}
+
+    def last_op(self, well):
+        """
+        Returns the last TransferOperation which dispensed to a specific well
+        Used to check if a transferoperation has any dependencies which must be completed first
+        Before a new operation changes the contents of the well
+        """
+
+        return self.dest_op_tracking[well][-1] if len(self.dest_op_tracking[well]) > 0 else None
+
+    def latest_volume(self, well):
+        """
+        Get the volume of a particular well as it will be when any pending operations have been applied
+        Parameters:
+            well: str, like "A01"
+        """
+        # Default volume if we have no ops
+        vol = self.volumes[self.indices[well]]
+        dest_op = None
+
+        # If we have an op that uses this labware as a destination, get volume from that
+        if self.dest_op_tracking[well]:
+            dest_op = self.dest_op_tracking[well][-1]
+            vol = dest_op.dest_volume
+
+        # If we have an op that uses this labware as a source, and it's more recent than the dest op, use that volume
+        if self.source_op_tracking[well] and (
+            (not dest_op) or self.source_op_tracking[well][-1] > dest_op
+        ):
+            vol = self.source_op_tracking[well][-1].source_volume
+
+        return vol
+
+    def latest_composition(self, well):
+        """
+        Get the composition of a particular well as it will be when any pending operations have been applied
+        Parameters:
+            well: str, like "A01"
+        """
+        if self.dest_op_tracking[well]:
+            op = self.dest_op_tracking[well][-1]
+            return op.dest_composition
+
+        return self.get_well_composition(well)

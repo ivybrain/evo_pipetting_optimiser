@@ -133,3 +133,10 @@ dmypy.json
 
 
 *.gwl
+
+evo_pipetting_optimiser/examples/TecanEvo_sample_dilution_ppd.py
+Dispenser_DBtest-20260519-1524.py
+
+*.cprof
+
+model.txt
