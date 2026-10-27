@@ -219,7 +219,7 @@ class AutoWorklist(EvoWorklist):
 
             self.wash_params[key] = passed_value
 
-    def get_diti(self, tips, tip_index, retry=False, arm=None):
+    def get_diti(self, tips, tip_index, retry=False):
         """
         Get Ditis when diti mode
         tips: Which tips to mount ditis on. Iterable of ints from 0-7 
@@ -227,7 +227,6 @@ class AutoWorklist(EvoWorklist):
         arm: the LiHa number to use
         """
 
-        arm = arm if arm is not None else self.arm
 
         if not self.diti_mode:
             raise Exception("Cannot get Ditis unless in DiTi mode")
@@ -241,11 +240,10 @@ class AutoWorklist(EvoWorklist):
 
         self.tips_mounted = tip_index
         self.append(
-            f"B;GetDiti({tip_selection}, {tip_index}, {int(retry)}, {arm})"
+            f"B;GetDiti({tip_selection}, {tip_index}, {int(retry)}, {self.arm})"
         )
 
-    def drop_diti(self, tips, arm=None):
-        arm = arm if arm is not None else self.arm
+    def drop_diti(self, tips):
 
         if not self.diti_mode:
             raise Exception("Cannot drop Ditis unless in DiTi mode")
@@ -261,7 +259,7 @@ class AutoWorklist(EvoWorklist):
         site = self.wash_params["tip_discard_location"][1]
 
         self.append(
-            f'B;DropDiTi({tip_selection}, {grid}, {site-1}, {self.wash_params["airgap"]}, {self.wash_params["airgap_speed"]}, {arm})'
+            f'B;DropDiTi({tip_selection}, {grid}, {site-1}, {self.wash_params["airgap"]}, {self.wash_params["airgap_speed"]}, {self.arm})'
         )
 
     def liha_flush(self):
@@ -501,16 +499,14 @@ class AutoWorklist(EvoWorklist):
 
     # evo_aspirate, dispense, and wash overrides that we will use interally when committing optimisations.
     # Avoid warning the user in this case
-    def _evo_aspirate(self, *args, silence_append_warning=True, arm=None, **kwargs):
-        arm = arm if arm is not None else self.arm
+    def _evo_aspirate(self, *args, silence_append_warning=True, **kwargs):
         self.silence_append_warning = silence_append_warning
-        super().evo_aspirate(*args, arm=arm, **kwargs)
+        super().evo_aspirate(*args, **kwargs)
         self.silence_append_warning = False
 
-    def _evo_dispense(self, *args, silence_append_warning=True, arm=None, **kwargs):
-        arm = arm if arm is not None else self.arm
+    def _evo_dispense(self, *args, silence_append_warning=True, **kwargs):
         self.silence_append_warning = silence_append_warning
-        super().evo_dispense(*args, arm=arm, **kwargs)
+        super().evo_dispense(*args, **kwargs)
         self.silence_append_warning = False
 
 
@@ -547,15 +543,12 @@ class AutoWorklist(EvoWorklist):
         tips=[],
         wash_schemes=[],
         tip_volumes=[],
-        arm=None,
         **kwargs,
     ):
         """
         Internal method called by auto_transfer to conduct a wash, with or without decon
 
         """
-
-        arm = arm if arm is not None else self.arm
 
         self.silence_append_warning = silence_append_warning
 
@@ -584,7 +577,7 @@ class AutoWorklist(EvoWorklist):
             wash_params = {**wash_params, **kwargs}
 
             if len(wash_tips) > 0:
-                super(AutoWorklist, self).evo_wash(tips=wash_tips, arm=arm, **wash_params)
+                super(AutoWorklist, self).evo_wash(tips=wash_tips, **wash_params)
                 
 
         # Specify decon tips and volumes
@@ -634,6 +627,7 @@ class AutoWorklist(EvoWorklist):
                 tips=[tip + 1 for tip in decon_tips],
                 volumes=list(decon_volumes),
                 liquid_class=self.wash_params["decon_liquid_class"],
+                arm=self.arm
             )
 
             self.silence_append_warning = silence_append_warning
@@ -713,9 +707,8 @@ class AutoWorklist(EvoWorklist):
             liquid_class = liquid_class.split(";")[0]
         return liquid_class
 
-    def execute_plan(self, plan, counts, arm=None):
+    def execute_plan(self, plan, counts):
 
-        arm = arm if arm is not None else self.arm
 
         decon_at_end = False
 
@@ -773,7 +766,7 @@ class AutoWorklist(EvoWorklist):
                     liquid_class=self._get_liquid_class(op),
                     label=self._build_label(ops),
                     on_underflow=op.on_underflow,
-                    arm=arm,
+                    arm=self.arm,
                 )
 
             if action == "Dispense":
@@ -797,7 +790,7 @@ class AutoWorklist(EvoWorklist):
                     liquid_class=self._get_liquid_class(op),
                     label=self._build_label(ops),
                     compositions=compositions,
-                    arm=arm,
+                    arm=self.arm,
                 )
 
                 decon_at_end = any(o.wash_scheme == "D" for o in ops)
@@ -810,7 +803,7 @@ class AutoWorklist(EvoWorklist):
                     tips=tips,
                     tip_volumes=[op.volume for op in ops],
                     wash_schemes=[op.wash_scheme for op in ops],
-                    arm=arm,
+                    arm=self.arm,
                 )
                 # Add a break after each wash to improve readability
                 super().append("B;")
@@ -868,9 +861,16 @@ class AutoWorklist(EvoWorklist):
                 Operations will still be queued and pending after the filter - can call commit again to optimise the remaining operations.
         """
 
+        prior_arm = None
+
         # If we have ops pending, optimise and apply them
         if len(self.pending_ops) > 0 and not self.processing:
             self.processing = True
+
+            # If we are overriding the arm, store the prior arm and change self.arm for this commit
+            if arm is not None:
+                prior_arm = self.arm
+                self.arm = arm
 
             # Split the ops into sections to optimise for performance
             if self.max_concurrent_ops:
@@ -925,7 +925,7 @@ class AutoWorklist(EvoWorklist):
             # Execute each plan in order (multiple plans occur if optimisation was split into batches)
             for plan, cost, (asp_count, disp_count, wash_count) in results:
 
-                completed_ops = completed_ops.union(self.execute_plan(plan, (asp_count, disp_count, wash_count), arm=arm))
+                completed_ops = completed_ops.union(self.execute_plan(plan, (asp_count, disp_count, wash_count)))
 
             # Remove completed ops from the pending ops
             self.pending_ops = list(set(self.pending_ops) - completed_ops)
@@ -945,6 +945,9 @@ class AutoWorklist(EvoWorklist):
         if not self.pending_ops:
             self.currently_optimising = False
         super().append("B;")
+
+        if prior_arm is not None:
+            self.arm = prior_arm
 
     def __enter__(self) -> "AutoWorklist":
         # Redefine to give correct type hint
