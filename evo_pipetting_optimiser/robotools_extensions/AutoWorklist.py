@@ -251,7 +251,7 @@ class AutoWorklist(EvoWorklist):
         tip_selection = 0
         for tip in tips:
             if isinstance(tip, int):
-                tip_selection += 2 ** (tip - 1)
+                tip_selection += 2 ** tip
 
         self.tips_mounted = None
 
