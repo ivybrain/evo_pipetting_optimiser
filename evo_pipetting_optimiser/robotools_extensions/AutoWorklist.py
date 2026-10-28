@@ -924,6 +924,10 @@ class AutoWorklist(EvoWorklist):
             completed_ops = set()
             # Execute each plan in order (multiple plans occur if optimisation was split into batches)
             for plan, cost, (asp_count, disp_count, wash_count) in results:
+                if not plan:
+                    if report:
+                        print("No operations to commit")
+                    break
 
                 completed_ops = completed_ops.union(self.execute_plan(plan, (asp_count, disp_count, wash_count)))
 
@@ -938,7 +942,7 @@ class AutoWorklist(EvoWorklist):
 
             self.all_labware = set()
             self.processing = False
-            if report:
+            if report and completed_ops:
                 print(
                     f"Optimisation complete. aspirates: {self.asp_count}, dispenses: {self.disp_count}, washes: {self.wash_count}"
                 )
